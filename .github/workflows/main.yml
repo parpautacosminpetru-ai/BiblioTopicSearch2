@@ -11,41 +11,45 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Unzip BiblioTopicSearch
         run: |
+          rm -rf project
           mkdir -p project
           unzip -q BiblioTopicSearch_FINAL.zip -d project
+          echo "Project contents:"
           ls -la project
 
-      - name: Java 17
-        uses: actions/setup-java@v5
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Gradle 8.13
-        uses: gradle/actions/setup-gradle@v6
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.13"
 
-      - name: Android SDK
-        uses: android-actions/setup-android@v4
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Install Android API 36
+      - name: Install Android SDK packages
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-36" "build-tools;35.0.0"
 
-      - name: Build debug APK
-        run: gradle --no-daemon -p project :app:assembleDebug
+      - name: Build Debug APK
+        run: |
+          gradle --no-daemon -p project :app:assembleDebug
 
       - name: Prepare APK
         run: |
           mkdir -p output
-          cp project/app/build/outputs/apk/debug/app-debug.apk output/BiblioTopicSearch.apk
+          cp project/app/build/outputs/apk/debug/app-debug.apk \
+             output/BiblioTopicSearch.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
