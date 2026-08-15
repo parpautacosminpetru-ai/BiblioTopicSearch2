@@ -1,0 +1,151 @@
+name: Build Lupa Semantica 3.2 Academic Strict
+on:
+  workflow_dispatch:
+  push:
+    branches: [agent/lupa-semantica-3-1-upgrade]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild exact 3.1 and apply 3.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf project && mkdir project
+          unzip -q BiblioTopicSearch_FINAL.zip -d project
+          cat semantic-final/patch/semantic-final-*.part > /tmp/final.patch
+          git -C project init -q
+          git -C project apply --exclude=README.md --check /tmp/final.patch
+          git -C project apply --exclude=README.md /tmp/final.patch
+          cp semantic-final/notebook/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java project/app/src/main/java/ro/bibliotopicsearch/app/
+          cp semantic-final/notebook/app/src/main/java/ro/bibliotopicsearch/app/NotebookStore.java project/app/src/main/java/ro/bibliotopicsearch/app/
+          for PATCH in \
+            ../semantic-final/notebook/integration.patch \
+            ../semantic-final/patch/live-ocr-stabilization.patch \
+            ../semantic-final/patch/semantic-precision-v23.patch; do
+            git -C project apply --check "$PATCH"
+            git -C project apply "$PATCH"
+          done
+          cat semantic-final/patch/pro-v30-*.part > /tmp/pro-v30.patch
+          echo '42b161c2bef3822f429b2997fcc8a28f0cac91bec96f7ee48b0e21035b721756  /tmp/pro-v30.patch' | sha256sum -c -
+          git -C project apply --check /tmp/pro-v30.patch && git -C project apply /tmp/pro-v30.patch
+          git -C project apply --check ../semantic-final/patch/semantic-detection-v31.patch
+          git -C project apply ../semantic-final/patch/semantic-detection-v31.patch
+          cp semantic-final/README_FINAL.md project/README.md
+          cp semantic-final/MODEL_NOTICE.md project/MODEL_NOTICE.md
+          sed -i 's/minSdk = 23/minSdk = 24/' project/app/build.gradle.kts
+          sed -i 's/versionCode = 22/versionCode = 31/; s/versionName = "2.2.0"/versionName = "3.1.0"/' project/app/build.gradle.kts
+          grep -q 'versionName = "3.1.0"' project/app/build.gradle.kts
+
+          cat semantic-final/patch/academic-strict-v32.b64.part* | base64 -d | gzip -d > /tmp/v32.patch
+          echo '27fee158c4797415a577cdedd74cef18e707d8c167c3318773b86e0afe835e32  /tmp/v32.patch' | sha256sum -c -
+          echo '0664cd273b3e7abc81f2fe53ba694c1afbd9708f7f628c9d9f4e394fb809d5f4  semantic-final/patch/academic-strict-v32-fix01.patch' | sha256sum -c -
+          git -C project apply --check /tmp/v32.patch && git -C project apply /tmp/v32.patch
+          git -C project apply --check ../semantic-final/patch/academic-strict-v32-fix01.patch
+          git -C project apply ../semantic-final/patch/academic-strict-v32-fix01.patch
+          git -C project diff --check
+
+      - name: Verify strict-product invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          A=project/app/src/main/java/ro/bibliotopicsearch/app
+          S=$A/semantic
+          grep -q 'versionCode = 32' project/app/build.gradle.kts
+          grep -q 'versionName = "3.2.0"' project/app/build.gradle.kts
+          grep -q 'STRATEGY_KEEP_ONLY_LATEST' "$A/MainActivity.java"
+          grep -q 'MAX_ACTIVE_QUERIES = 8' "$A/MainActivity.java"
+          grep -q 'pendingSemanticFrame = frame' "$A/MainActivity.java"
+          grep -q 'analyzeQueriesDetailed' "$S/SemanticAnalyzer.java"
+          grep -q 'MATCH_DIRECT' "$S/DirectSupportVerifier.java"
+          grep -q 'TOPIC_ONLY' "$S/DirectSupportVerifier.java"
+          grep -q 'NO_MATCH' "$S/DirectSupportVerifier.java"
+          grep -q 'Tema apare, dar cerința specifică nu este susținută.' "$A/MainActivity.java"
+          grep -q 'setSemanticZoom' "$A/OverlayView.java"
+          grep -q 'analyzeExploration' "$S/SemanticAnalyzer.java"
+          grep -q 'PdfRenderer' "$A/NotebookActivity.java"
+          grep -q 'application/zip' "$A/MainActivity.java"
+          grep -q 'metadata.json' "$A/MainActivity.java"
+          grep -q 'LocalDictionaryLexicon' "$S/SemanticAnalyzer.java"
+          grep -q 'Dumnezeu este rău' project/app/src/test/java/ro/bibliotopicsearch/app/semantic/DirectSupportVerifierTest.java
+          ! grep -q 'AppPrefs.precision(context)' "$S/SemanticAnalyzer.java"
+          ! grep -q 'toolbarButton("NODURI")\|ETICHETE ON\|TEME ACTIVE' "$A/MainActivity.java"
+          ! grep -R -q -E 'https?://|HttpURLConnection|OkHttpClient|Retrofit|java.net.URL' "$A"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - uses: android-actions/setup-android@v3
+      - name: Android SDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+
+      - name: Romanian semantic tests
+        run: gradle --no-daemon -p project :app:testDebugUnitTest --stacktrace
+
+      - name: Bundle pinned offline embedding assets
+        shell: bash
+        env:
+          REV: acc85025f9078147bcc1ce55a4ddb9ec5e0d87cf
+        run: |
+          set -euo pipefail
+          D=project/app/src/main/assets/semantic
+          B="https://huggingface.co/sentence-transformers/distiluse-base-multilingual-cased-v2/resolve/$REV"
+          mkdir -p "$D"
+          curl -fL --retry 4 "$B/onnx/model_qint8_arm64.onnx?download=true" -o "$D/semantic_model.onnx"
+          curl -fL --retry 4 "$B/vocab.txt?download=true" -o "$D/vocab.txt"
+          curl -fL --retry 4 "$B/2_Dense/model.safetensors?download=true" -o "$D/dense_model.safetensors"
+          echo 'c78c64bb0446ceb7086d2de24c2f4297e7a909eb457b4f68e5fdb6ab19f285c0  project/app/src/main/assets/semantic/semantic_model.onnx' | sha256sum -c -
+          echo '0a21b1ce908e772ebf09f93c20ca09524c32706e9918d9c0169a3f0663b191ed  project/app/src/main/assets/semantic/dense_model.safetensors' | sha256sum -c -
+          test -s "$D/vocab.txt"
+
+      - name: Build APK
+        run: gradle --no-daemon -p project :app:assembleDebug --stacktrace
+
+      - name: Verify APK and merged manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=project/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          unzip -l "$APK" | grep -q 'assets/semantic/semantic_model.onnx'
+          unzip -l "$APK" | grep -q 'assets/semantic/vocab.txt'
+          unzip -l "$APK" | grep -q 'assets/semantic/dense_model.safetensors'
+          ! grep -R -q 'android.permission.INTERNET' project/app/build/intermediates/merged_manifest* project/app/build/intermediates/merged_manifests* 2>/dev/null
+          grep -R -q 'NotebookActivity' project/app/build/intermediates/merged_manifest* project/app/build/intermediates/merged_manifests*
+          mkdir -p output
+          cp "$APK" output/Lupa-Semantica-3.2.apk
+          sha256sum output/Lupa-Semantica-3.2.apk | tee output/SHA256SUMS.txt
+          printf '%s\n' \
+            'Lupa Semantica 3.2 Academic Strict' \
+            'Base commit: 162563cfc2685ddb7958d367798be85567638afd' \
+            'Runtime: fully offline; merged manifest has no INTERNET permission' \
+            'Generation: none; output is verbatim source evidence only' \
+            'Tests: Romanian direct/paraphrase/neutral/contradiction/hard-negative/broad-narrow/multi-query' \
+            > output/OFFLINE-VERIFICATION.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lupa-Semantica-3.2-TESTS
+          path: project/app/build/reports/tests/testDebugUnitTest
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lupa-Semantica-3.2-SOURCE
+          path: |
+            project
+            !project/.git
+            !project/app/src/main/assets/semantic/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lupa-Semantica-3.2-APK
+          path: output

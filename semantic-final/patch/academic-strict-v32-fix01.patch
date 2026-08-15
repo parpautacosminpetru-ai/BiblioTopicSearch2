@@ -1,0 +1,12 @@
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java b/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
+--- a/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
+@@ -900,7 +900,7 @@ public class MainActivity extends AppCompatActivity {
+         return root;
+     }
+ 
+-    private JSONArray rectJson(android.graphics.RectF rect) {
++    private JSONArray rectJson(android.graphics.RectF rect) throws org.json.JSONException {
+         JSONArray out = new JSONArray();
+         if (rect == null) return out;
+         out.put(rect.left);
