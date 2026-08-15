@@ -1,0 +1,400 @@
++        float best = -Float.MAX_VALUE;
++        for (int i = 0; i < values.length; i++) {
++            if (values[i] > best) {
++                best = values[i];
++                index = i;
++            }
++        }
++        return index;
++    }
++
++    private boolean sameBlock(List<LineUnit> units, int a, int b) {
++        return units.get(a).blockIndex == units.get(b).blockIndex;
++    }
++
++    private List<LineUnit> extractUnits(Text text) {
++        if (text == null) return Collections.emptyList();
++        List<LineUnit> out = new ArrayList<>();
++        int blockIndex = 0;
++        for (Text.TextBlock block : text.getTextBlocks()) {
++            int lineIndex = 0;
++            for (Text.Line line : block.getLines()) {
++                String value = line.getText() == null ? "" : line.getText().trim();
++                Rect rect = line.getBoundingBox();
++                if (!value.isEmpty() && rect != null) {
++                    out.add(new LineUnit(
++                            value,
++                            new RectF(rect),
++                            blockIndex,
++                            lineIndex,
++                            endsTerminal(value)
++                    ));
++                }
++                lineIndex++;
++            }
++            blockIndex++;
++        }
++        return out;
++    }
++
++    private boolean endsTerminal(String value) {
++        String t = value == null ? "" : value.trim();
++        return t.endsWith(".") || t.endsWith("!") || t.endsWith("?") || t.endsWith(";") || t.endsWith(":");
++    }
++
++    private String join(List<LineUnit> units, int start, int end) {
++        StringBuilder out = new StringBuilder();
++        for (int i = start; i <= end; i++) {
++            if (out.length() > 0) out.append(' ');
++            out.append(units.get(i).text);
++        }
++        return out.toString().replaceAll("\\s+", " ").trim();
++    }
++
++    private String percent(float value) {
++        return Math.round(Math.max(-1f, Math.min(1f, value)) * 100f) + "%";
++    }
++
++    @Override
++    public void close() throws IOException {
++        embedder.close();
++    }
++
++    private static final class LineUnit {
++        final String text;
++        final RectF box;
++        final int blockIndex;
++        final int lineIndex;
++        final boolean terminal;
++
++        LineUnit(String text, RectF box, int blockIndex, int lineIndex, boolean terminal) {
++            this.text = text;
++            this.box = box;
++            this.blockIndex = blockIndex;
++            this.lineIndex = lineIndex;
++            this.terminal = terminal;
++        }
++    }
++
++    private static final class Span {
++        final int start;
++        final int end;
++
++        Span(int start, int end) {
++            this.start = start;
++            this.end = end;
++        }
++    }
++
++    private static final class ScoredTopic {
++        final TopicNode node;
++        final float score;
++
++        ScoredTopic(TopicNode node, float score) {
++            this.node = node;
++            this.score = score;
++        }
++    }
++
++    private static final class TopicMatch {
++        final TopicNode primary;
++        final List<String> related;
++
++        TopicMatch(TopicNode primary, List<String> related) {
++            this.primary = primary;
++            this.related = related;
++        }
++    }
++}
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticCatalog.java b/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticCatalog.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..3a885bbbce9edcbca33d5848690944e77ea0a865
+--- /dev/null
++++ b/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticCatalog.java
+@@ -0,0 +1,73 @@
++package ro.bibliotopicsearch.app.semantic;
++
++import java.text.Normalizer;
++import java.util.Arrays;
++import java.util.Collections;
++import java.util.List;
++import java.util.Locale;
++
++final class SemanticCatalog {
++    static final class Category {
++        final String label;
++        final String descriptor;
++        final List<String> explicitCues;
++
++        Category(String label, String descriptor, String... explicitCues) {
++            this.label = label;
++            this.descriptor = descriptor;
++            this.explicitCues = explicitCues == null
++                    ? Collections.emptyList()
++                    : Arrays.asList(explicitCues);
++        }
++
++        boolean hasExplicitCue(String text) {
++            String value = normalize(text);
++            for (String cue : explicitCues) {
++                if (value.contains(normalize(cue))) return true;
++            }
++            return false;
++        }
++    }
++
++    static final List<Category> CATEGORIES = Arrays.asList(
++            new Category("DEFINIȚIE", "definiție explicită: ce este sau ce înseamnă ceva",
++                    "înseamnă", "se definește", "este definit", "reprezintă"),
++            new Category("CAUZĂ", "cauză explicită: motivul pentru care se întâmplă ceva",
++                    "pentru că", "deoarece", "fiindcă", "din cauza", "motivul este"),
++            new Category("CONSECINȚĂ", "consecință explicită: rezultat sau efect afirmat direct",
++                    "prin urmare", "în consecință", "astfel", "a dus la", "rezultatul"),
++            new Category("CONDIȚIE", "condiție explicită pentru ca ceva să se întâmple",
++                    "dacă", "în cazul în care", "cu condiția", "numai dacă"),
++            new Category("SCOP", "scop explicit sau obiectiv exprimat direct",
++                    "pentru a", "cu scopul", "în vederea", "obiectivul"),
++            new Category("EXEMPLU", "exemplu explicit care ilustrează o afirmație",
++                    "de exemplu", "cum ar fi", "precum", "spre exemplu"),
++            new Category("COMPARAȚIE", "comparație explicită între două lucruri",
++                    "mai mult decât", "mai puțin decât", "la fel ca", "similar cu", "comparativ cu"),
++            new Category("CONTRAST", "contrast explicit sau opoziție afirmată direct",
++                    "însă", "dar", "în schimb", "spre deosebire", "pe de altă parte"),
++            new Category("RESTRICȚIE", "restricție explicită: limitare direct afirmată",
++                    "limitat", "restricționat", "nu poate", "doar", "numai"),
++            new Category("OBLIGAȚIE", "obligație explicită: ceva trebuie făcut",
++                    "trebuie", "este obligatoriu", "are obligația", "este necesar să"),
++            new Category("PERMISIUNE", "permisiune explicită: ceva este permis",
++                    "are voie", "este permis", "poate să", "este autorizat"),
++            new Category("INTERDICȚIE", "interdicție explicită: ceva nu este permis",
++                    "nu are voie", "este interzis", "nu este permis", "este interzisă", "este interzisă"),
++            new Category("SCHIMBARE", "schimbare explicită de stare, cantitate sau situație",
++                    "s-a schimbat", "a devenit", "a crescut", "a scăzut", "s-a transformat"),
++            new Category("RELAȚIE", "relație explicită între entități sau concepte",
++                    "depinde de", "este legat de", "este asociat cu", "relația dintre", "între")
++    );
++
++    private SemanticCatalog() {}
++
++    static String normalize(String value) {
++        if (value == null) return "";
++        String out = value.toLowerCase(Locale.ROOT);
++        out = Normalizer.normalize(out, Normalizer.Form.NFD).replaceAll("\\p{M}+", "");
++        return out.replaceAll("[^\\p{L}\\p{N}\\s'-]+", " ")
++                .replaceAll("\\s+", " ")
++                .trim();
++    }
++}
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/semantic/WordPieceTokenizer.java b/app/src/main/java/ro/bibliotopicsearch/app/semantic/WordPieceTokenizer.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..5237293d6024bdf703a88c5f1c73b6b9925373a1
+--- /dev/null
++++ b/app/src/main/java/ro/bibliotopicsearch/app/semantic/WordPieceTokenizer.java
+@@ -0,0 +1,207 @@
++package ro.bibliotopicsearch.app.semantic;
++
++import android.content.Context;
++
++import java.io.BufferedReader;
++import java.io.IOException;
++import java.io.InputStreamReader;
++import java.nio.charset.StandardCharsets;
++import java.util.ArrayList;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Locale;
++import java.util.Map;
++
++/**
++ * Minimal BERT WordPiece tokenizer for the multilingual cased DistilBERT vocabulary.
++ * It intentionally preserves case and diacritics because the selected encoder is cased.
++ */
++final class WordPieceTokenizer {
++    static final int MAX_SEQUENCE_LENGTH = 128;
++    private static final int MAX_INPUT_CHARS_PER_WORD = 100;
++
++    static final class Encoding {
++        final long[] inputIds;
++        final long[] attentionMask;
++
++        Encoding(long[] inputIds, long[] attentionMask) {
++            this.inputIds = inputIds;
++            this.attentionMask = attentionMask;
++        }
++    }
++
++    private final Map<String, Integer> vocabulary = new HashMap<>();
++    private final int unkId;
++    private final int clsId;
++    private final int sepId;
++    private final int padId;
++
++    WordPieceTokenizer(Context context, String assetPath) throws IOException {
++        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
++                context.getAssets().open(assetPath), StandardCharsets.UTF_8))) {
++            String line;
++            int index = 0;
++            while ((line = reader.readLine()) != null) {
++                vocabulary.put(line, index++);
++            }
++        }
++        unkId = requireToken("[UNK]");
++        clsId = requireToken("[CLS]");
++        sepId = requireToken("[SEP]");
++        padId = requireToken("[PAD]");
++    }
++
++    Encoding encode(String input) {
++        List<Integer> pieces = new ArrayList<>();
++        for (String token : basicTokenize(input == null ? "" : input)) {
++            if (pieces.size() >= MAX_SEQUENCE_LENGTH - 2) break;
++            List<Integer> wordPieces = wordPiece(token);
++            for (int id : wordPieces) {
++                if (pieces.size() >= MAX_SEQUENCE_LENGTH - 2) break;
++                pieces.add(id);
++            }
++        }
++
++        long[] ids = new long[MAX_SEQUENCE_LENGTH];
++        long[] mask = new long[MAX_SEQUENCE_LENGTH];
++        int cursor = 0;
++        ids[cursor] = clsId;
++        mask[cursor++] = 1;
++        for (int id : pieces) {
++            ids[cursor] = id;
++            mask[cursor++] = 1;
++        }
++        ids[cursor] = sepId;
++        mask[cursor++] = 1;
++        while (cursor < MAX_SEQUENCE_LENGTH) {
++            ids[cursor] = padId;
++            mask[cursor] = 0;
++            cursor++;
++        }
++        return new Encoding(ids, mask);
++    }
++
++    private int requireToken(String token) throws IOException {
++        Integer id = vocabulary.get(token);
++        if (id == null) throw new IOException("Missing token in vocabulary: " + token);
++        return id;
++    }
++
++    private List<Integer> wordPiece(String token) {
++        List<Integer> output = new ArrayList<>();
++        if (token == null || token.isEmpty()) return output;
++        int codePointLength = token.codePointCount(0, token.length());
++        if (codePointLength > MAX_INPUT_CHARS_PER_WORD) {
++            output.add(unkId);
++            return output;
++        }
++
++        int start = 0;
++        boolean bad = false;
++        while (start < token.length()) {
++            int end = token.length();
++            Integer matchId = null;
++            int matchEnd = -1;
++            while (start < end) {
++                String piece = token.substring(start, end);
++                if (start > 0) piece = "##" + piece;
++                matchId = vocabulary.get(piece);
++                if (matchId != null) {
++                    matchEnd = end;
++                    break;
++                }
++                int cp = token.codePointBefore(end);
++                end -= Character.charCount(cp);
++            }
++            if (matchId == null) {
++                bad = true;
++                break;
++            }
++            output.add(matchId);
++            start = matchEnd;
++        }
++
++        if (bad) {
++            output.clear();
++            output.add(unkId);
++        }
++        return output;
++    }
++
++    private List<String> basicTokenize(String input) {
++        List<String> out = new ArrayList<>();
++        String cleaned = cleanText(input);
++        StringBuilder current = new StringBuilder();
++        for (int offset = 0; offset < cleaned.length();) {
++            int cp = cleaned.codePointAt(offset);
++            offset += Character.charCount(cp);
++
++            if (isWhitespace(cp)) {
++                flush(current, out);
++                continue;
++            }
++            if (isChinese(cp) || isPunctuation(cp)) {
++                flush(current, out);
++                out.add(new String(Character.toChars(cp)));
++                continue;
++            }
++            current.appendCodePoint(cp);
++        }
++        flush(current, out);
++        return out;
++    }
++
++    private String cleanText(String input) {
++        StringBuilder out = new StringBuilder(input.length());
++        for (int offset = 0; offset < input.length();) {
++            int cp = input.codePointAt(offset);
++            offset += Character.charCount(cp);
++            if (cp == 0 || cp == 0xFFFD || isControl(cp)) continue;
++            if (isWhitespace(cp)) out.append(' ');
++            else out.appendCodePoint(cp);
++        }
++        return out.toString();
++    }
++
++    private void flush(StringBuilder current, List<String> out) {
++        if (current.length() == 0) return;
++        out.add(current.toString());
++        current.setLength(0);
++    }
++
++    private boolean isWhitespace(int cp) {
++        return cp == ' ' || cp == '\t' || cp == '\n' || cp == '\r' || Character.isWhitespace(cp);
++    }
++
++    private boolean isControl(int cp) {
++        if (cp == '\t' || cp == '\n' || cp == '\r') return false;
++        int type = Character.getType(cp);
++        return type == Character.CONTROL || type == Character.FORMAT;
++    }
++
++    private boolean isPunctuation(int cp) {
++        if ((cp >= 33 && cp <= 47) || (cp >= 58 && cp <= 64)
++                || (cp >= 91 && cp <= 96) || (cp >= 123 && cp <= 126)) {
++            return true;
++        }
++        int type = Character.getType(cp);
++        return type == Character.CONNECTOR_PUNCTUATION
++                || type == Character.DASH_PUNCTUATION
++                || type == Character.START_PUNCTUATION
++                || type == Character.END_PUNCTUATION
++                || type == Character.INITIAL_QUOTE_PUNCTUATION
++                || type == Character.FINAL_QUOTE_PUNCTUATION
++                || type == Character.OTHER_PUNCTUATION;
++    }
++
++    private boolean isChinese(int cp) {
++        return (cp >= 0x4E00 && cp <= 0x9FFF)
++                || (cp >= 0x3400 && cp <= 0x4DBF)
++                || (cp >= 0x20000 && cp <= 0x2A6DF)
++                || (cp >= 0x2A700 && cp <= 0x2B73F)
++                || (cp >= 0x2B740 && cp <= 0x2B81F)
++                || (cp >= 0x2B820 && cp <= 0x2CEAF)
++                || (cp >= 0xF900 && cp <= 0xFAFF)
++                || (cp >= 0x2F800 && cp <= 0x2FA1F);
++    }
++}
