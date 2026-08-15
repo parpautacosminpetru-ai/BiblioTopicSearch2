@@ -1,0 +1,246 @@
+name: Build Lupa Semantica 3.2 Academic Strict
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/lupa-semantica-3-1-upgrade
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Rebuild exact Lupa Semantica 3.1 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf project
+          mkdir -p project
+          unzip -q BiblioTopicSearch_FINAL.zip -d project
+          test -d project/app
+          test -f project/app/src/main/AndroidManifest.xml
+
+          cat semantic-final/patch/semantic-final-*.part > /tmp/semantic-final.patch
+          test "$(wc -c < /tmp/semantic-final.patch)" -gt 90000
+          git -C project init -q
+          git -C project apply --exclude=README.md --check /tmp/semantic-final.patch
+          git -C project apply --exclude=README.md /tmp/semantic-final.patch
+
+          cp semantic-final/notebook/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java \
+            project/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java
+          cp semantic-final/notebook/app/src/main/java/ro/bibliotopicsearch/app/NotebookStore.java \
+            project/app/src/main/java/ro/bibliotopicsearch/app/NotebookStore.java
+          git -C project apply --check ../semantic-final/notebook/integration.patch
+          git -C project apply ../semantic-final/notebook/integration.patch
+          git -C project apply --check ../semantic-final/patch/live-ocr-stabilization.patch
+          git -C project apply ../semantic-final/patch/live-ocr-stabilization.patch
+          git -C project apply --check ../semantic-final/patch/semantic-precision-v23.patch
+          git -C project apply ../semantic-final/patch/semantic-precision-v23.patch
+
+          cat semantic-final/patch/pro-v30-*.part > /tmp/pro-v30.patch
+          echo '42b161c2bef3822f429b2997fcc8a28f0cac91bec96f7ee48b0e21035b721756  /tmp/pro-v30.patch' | sha256sum -c -
+          git -C project apply --check /tmp/pro-v30.patch
+          git -C project apply /tmp/pro-v30.patch
+
+          git -C project apply --check ../semantic-final/patch/semantic-detection-v31.patch
+          git -C project apply ../semantic-final/patch/semantic-detection-v31.patch
+
+          cp semantic-final/README_FINAL.md project/README.md
+          cp semantic-final/MODEL_NOTICE.md project/MODEL_NOTICE.md
+          sed -i 's/minSdk = 23/minSdk = 24/' project/app/build.gradle.kts
+          sed -i 's/versionCode = 22/versionCode = 31/; s/versionName = "2.2.0"/versionName = "3.1.0"/' project/app/build.gradle.kts
+
+          grep -q 'versionCode = 31' project/app/build.gradle.kts
+          grep -q 'versionName = "3.1.0"' project/app/build.gradle.kts
+          grep -q 'STRATEGY_KEEP_ONLY_LATEST' project/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
+          echo 'Verified exact reconstructed 3.1 base before upgrade.'
+
+      - name: Verify and apply academic strict v3.2 patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat semantic-final/patch/academic-strict-v32.b64.part* \
+            | base64 --decode \
+            | gzip --decompress \
+            > /tmp/academic-strict-v32.patch
+          echo '27fee158c4797415a577cdedd74cef18e707d8c167c3318773b86e0afe835e32  /tmp/academic-strict-v32.patch' | sha256sum -c -
+          git -C project apply --check /tmp/academic-strict-v32.patch
+          git -C project apply /tmp/academic-strict-v32.patch
+          git -C project diff --check
+
+      - name: Verify product invariants in source
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC=project/app/src/main/java/ro/bibliotopicsearch/app
+          SEM="$SRC/semantic"
+
+          grep -q 'versionCode = 32' project/app/build.gradle.kts
+          grep -q 'versionName = "3.2.0"' project/app/build.gradle.kts
+          grep -q 'STRATEGY_KEEP_ONLY_LATEST' "$SRC/MainActivity.java"
+          grep -q 'MAX_ACTIVE_QUERIES = 8' "$SRC/MainActivity.java"
+          grep -q 'semanticExecutor = Executors.newSingleThreadExecutor' "$SRC/MainActivity.java"
+          grep -q 'pendingSemanticFrame = frame' "$SRC/MainActivity.java"
+          grep -q 'analyzeQueriesDetailed' "$SEM/SemanticAnalyzer.java"
+          grep -q 'DirectSupportVerifier' "$SEM/SemanticAnalyzer.java"
+          grep -q 'MATCH_DIRECT' "$SEM/DirectSupportVerifier.java"
+          grep -q 'TOPIC_ONLY' "$SEM/DirectSupportVerifier.java"
+          grep -q 'NO_MATCH' "$SEM/DirectSupportVerifier.java"
+          grep -q 'Tema apare, dar cerința specifică nu este susținută.' "$SRC/MainActivity.java"
+          grep -q 'semanticZoomBar' "$SRC/MainActivity.java"
+          grep -q 'setSemanticZoom' "$SRC/OverlayView.java"
+          grep -q 'analyzeExploration' "$SEM/SemanticAnalyzer.java"
+          grep -q 'PdfRenderer' "$SRC/NotebookActivity.java"
+          grep -q 'application/pdf' "$SRC/NotebookActivity.java"
+          grep -q 'application/zip' "$SRC/MainActivity.java"
+          grep -q 'metadata.json' "$SRC/MainActivity.java"
+          grep -q 'LocalDictionaryLexicon' "$SEM/SemanticAnalyzer.java"
+          grep -q 'LocalDictionaryLexicon' "$SRC/NotebookStore.java"
+          grep -q 'Dumnezeu este rău' project/app/src/test/java/ro/bibliotopicsearch/app/semantic/DirectSupportVerifierTest.java
+          grep -q 'cauzele Reformei protestante' project/app/src/test/java/ro/bibliotopicsearch/app/semantic/DirectSupportVerifierTest.java
+
+          if grep -q 'AppPrefs.precision(context)' "$SEM/SemanticAnalyzer.java"; then
+            echo 'Camera smoothing/targeting must not alter semantic truth thresholds.' >&2
+            exit 1
+          fi
+          if grep -q 'toolbarButton("NODURI")\|ETICHETE ON\|ETICHETE OFF\|TEME ACTIVE' "$SRC/MainActivity.java"; then
+            echo 'Legacy required-theme/label UI still exposed.' >&2
+            exit 1
+          fi
+          if grep -R -q -E 'https?://|HttpURLConnection|OkHttpClient|Retrofit|java.net.URL' "$SRC"; then
+            echo 'Runtime network reference found in app source.' >&2
+            exit 1
+          fi
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+
+      - name: Run Romanian semantic unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon -p project :app:testDebugUnitTest --stacktrace
+
+      - name: Install pinned offline semantic model assets
+        shell: bash
+        env:
+          MODEL_REV: acc85025f9078147bcc1ce55a4ddb9ec5e0d87cf
+        run: |
+          set -euo pipefail
+          ASSET_DIR=project/app/src/main/assets/semantic
+          BASE="https://huggingface.co/sentence-transformers/distiluse-base-multilingual-cased-v2/resolve/${MODEL_REV}"
+          mkdir -p "$ASSET_DIR"
+
+          curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 \
+            "$BASE/onnx/model_qint8_arm64.onnx?download=true" \
+            -o "$ASSET_DIR/semantic_model.onnx"
+          curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 \
+            "$BASE/vocab.txt?download=true" \
+            -o "$ASSET_DIR/vocab.txt"
+          curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 \
+            "$BASE/2_Dense/model.safetensors?download=true" \
+            -o "$ASSET_DIR/dense_model.safetensors"
+
+          echo 'c78c64bb0446ceb7086d2de24c2f4297e7a909eb457b4f68e5fdb6ab19f285c0  project/app/src/main/assets/semantic/semantic_model.onnx' | sha256sum -c -
+          echo '0a21b1ce908e772ebf09f93c20ca09524c32706e9918d9c0169a3f0663b191ed  project/app/src/main/assets/semantic/dense_model.safetensors' | sha256sum -c -
+          test -s "$ASSET_DIR/vocab.txt"
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon -p project :app:assembleDebug --stacktrace
+
+      - name: Verify merged manifest and offline APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=project/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          unzip -l "$APK" | grep -q 'assets/semantic/semantic_model.onnx'
+          unzip -l "$APK" | grep -q 'assets/semantic/vocab.txt'
+          unzip -l "$APK" | grep -q 'assets/semantic/dense_model.safetensors'
+
+          MANIFESTS=$(find project/app/build/intermediates -type f \( -name AndroidManifest.xml -o -name 'manifest-merger-report.txt' \) -print)
+          test -n "$MANIFESTS"
+          if grep -R -q 'android.permission.INTERNET' project/app/build/intermediates/merged_manifest* project/app/build/intermediates/merged_manifests* 2>/dev/null; then
+            echo 'Merged APK manifest unexpectedly requests INTERNET.' >&2
+            exit 1
+          fi
+          grep -R -q 'NotebookActivity' project/app/build/intermediates/merged_manifest* project/app/build/intermediates/merged_manifests*
+          ls -lh "$APK"
+
+      - name: Prepare validated artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          cp project/app/build/outputs/apk/debug/app-debug.apk output/Lupa-Semantica-3.2.apk
+          sha256sum output/Lupa-Semantica-3.2.apk | tee output/SHA256SUMS.txt
+          cat > output/OFFLINE-VERIFICATION.txt <<'EOF'
+          Lupa Semantica 3.2 Academic Strict
+          Base: Lupa Semantica 3.1 / commit 162563cfc2685ddb7958d367798be85567638afd
+          Runtime: fully offline
+          Network permission: none in merged APK
+          Generation: none
+          Output: verbatim source evidence only
+          Strict statuses: MATCH_DIRECT / TOPIC_ONLY / NO_MATCH
+          Pipeline: embeddings retrieval -> local discriminative direct-support verifier
+          Camera: CameraX KEEP_ONLY_LATEST + separate semantic worker
+          Multi-search: up to 8 active queries; OCR passage embeddings computed once per frame
+          Semantic zoom: continuous granularity control only; never changes truth threshold
+          Sources: live OCR, imported text, local PDF OCR
+          Save package: source PNG + highlighted PNG + metadata JSON in local ZIP
+          Tests: Romanian positive, paraphrase, same-topic neutral, contradiction, hard negative, broad/narrow, multi-query
+          EOF
+
+      - name: Upload test report
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lupa-Semantica-3.2-TESTS
+          path: project/app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: error
+
+      - name: Upload patched source without model binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lupa-Semantica-3.2-SOURCE
+          path: |
+            project
+            !project/.git
+            !project/app/src/main/assets/semantic/semantic_model.onnx
+            !project/app/src/main/assets/semantic/dense_model.safetensors
+            !project/app/src/main/assets/semantic/vocab.txt
+          if-no-files-found: error
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lupa-Semantica-3.2-APK
+          path: output
+          if-no-files-found: error
