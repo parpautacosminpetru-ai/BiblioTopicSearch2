@@ -1,0 +1,118 @@
+-            setStatus("Semantic explicit • caut: " + next, Color.rgb(78, 201, 126));
++            setStatus("Semantic live • " + activeQueryCount() + " teme/idei active",
++                    Color.rgb(78, 201, 126));
+         }
+     }
+ 
+     private void cycleSemanticDetail() {
+         semanticDetailLevel = (semanticDetailLevel + 1) % 3;
+         overlayView.setDetailLevel(semanticDetailLevel);
+-        if (semanticDetailLevel == 0) semanticDetailButton.setText("ZOOM: TOPIC");
+-        else if (semanticDetailLevel == 1) semanticDetailButton.setText("ZOOM: IDEE");
+-        else semanticDetailButton.setText("ZOOM: DETALIU");
++        if (semanticDetailLevel == 0) semanticDetailButton.setText("ZOOM: SPAN");
++        else if (semanticDetailLevel == 1) semanticDetailButton.setText("ZOOM: RELEVANȚĂ");
++        else semanticDetailButton.setText("ZOOM: NUCLEU");
+         redrawVisibleHits();
+     }
+ 
+@@ -525,7 +546,7 @@ public final class MainActivity extends AppCompatActivity {
+             setStatus("Camera live • OCR în pauză", Color.rgb(170, 178, 186));
+         } else {
+             if (semanticAnalyzer == null && !semanticReady) initializeSemanticEngine();
+-            setStatus(semanticReady ? "Semantic explicit • caut idee" : "OCR live • pregătesc semantic",
++            setStatus(semanticReady ? "Semantic live • " + activeQueryCount() + " teme active" : "OCR live • pregătesc semantic",
+                     Color.rgb(78, 201, 126));
+         }
+         updateOcrButton();
+@@ -634,10 +655,10 @@ public final class MainActivity extends AppCompatActivity {
+         List<MatchHit> out = new java.util.ArrayList<>();
+         for (MatchHit hit : source) {
+             if (hit == null || hit.node == null) continue;
+-            // A free semantic search is global; node filters only affect automatic topic scan.
+-            if (hit.semantic && !semanticQuery.isEmpty()) {
++            // Active semantic searches are global; node filters only affect lexical/topic fallback.
++            if (hit.semantic && isActiveQuery(hit.searchTerm)) {
+                 out.add(hit);
+-            } else if (visibleNodePaths.contains(hit.node.path)) {
++            } else if (!hit.semantic && visibleNodePaths.contains(hit.node.path)) {
+                 out.add(hit);
+             }
+         }
+@@ -654,49 +675,38 @@ public final class MainActivity extends AppCompatActivity {
+     private void updateLegend(List<MatchHit> visibleHits) {
+         if (legendPanel == null) return;
+ 
++        List<QuerySpec> queries = activeQuerySnapshot();
+         Map<String, Integer> counts = new LinkedHashMap<>();
+-        Map<String, MatchHit> first = new LinkedHashMap<>();
+         if (visibleHits != null) {
+             for (MatchHit hit : visibleHits) {
+-                if (hit == null || hit.node == null) continue;
+-                counts.put(hit.node.path, counts.getOrDefault(hit.node.path, 0) + 1);
+-                first.putIfAbsent(hit.node.path, hit);
++                if (hit == null || !hit.semantic) continue;
++                String key = canonicalQuery(hit.searchTerm);
++                counts.put(key, counts.getOrDefault(key, 0) + 1);
+             }
+         }
+ 
+-        StringBuilder signatureBuilder = new StringBuilder(counts.toString());
+-        for (Map.Entry<String, MatchHit> entry : first.entrySet()) {
+-            signatureBuilder.append('|').append(entry.getKey()).append('=').append(entry.getValue().originalText);
++        StringBuilder signatureBuilder = new StringBuilder();
++        for (QuerySpec query : queries) {
++            signatureBuilder.append(query.key).append(':').append(query.color)
++                    .append(':').append(counts.getOrDefault(query.key, 0)).append('|');
+         }
+         String signature = signatureBuilder.toString();
+         if (signature.equals(lastLegendSignature) && legendPanel.getChildCount() > 0) return;
+         lastLegendSignature = signature;
+         legendPanel.removeAllViews();
+ 
+-        if (counts.isEmpty()) {
+-            TextView empty = legendText("LEGENDĂ • fără potriviri afișate", Color.rgb(69, 92, 113));
++        if (queries.isEmpty()) {
++            TextView empty = legendText("LEGENDĂ • adaugă teme/idei din bara unică", Color.rgb(69, 92, 113));
+             legendPanel.addView(empty, legendLp());
+             return;
+         }
+ 
+-        for (Map.Entry<String, MatchHit> entry : first.entrySet()) {
+-            MatchHit hit = entry.getValue();
+-            int count = counts.get(entry.getKey());
+-            String original = hit.originalText == null ? "" : hit.originalText.trim();
+-            String label;
+-            if (hit.semantic) {
+-                String category = hit.semanticCategory == null || hit.semanticCategory.isEmpty()
+-                        ? "IDEE EXPLICITĂ" : hit.semanticCategory;
+-                String compression = hit.compressionLabels.isEmpty() ? "" : hit.compressionLabels.get(0);
+-                label = hit.node.title + " · " + category
+-                        + (compression.isEmpty() ? "" : " · " + compression)
+-                        + (count > 1 ? " ×" + count : "");
+-            } else {
+-                label = hit.node.title + (original.isEmpty() ? "" : " · " + original)
+-                        + (count > 1 ? " ×" + count : "");
+-            }
+-            TextView item = legendText(label, hit.node.color);
+-            item.setOnClickListener(v -> showHitDetails(hit));
++        for (QuerySpec query : queries) {
++            int count = counts.getOrDefault(query.key, 0);
++            String label = "×  " + query.text + (count > 0 ? "  · " + count : "");
++            TextView item = legendText(label, query.color);
++            item.setContentDescription("Elimină tema " + query.text);
++            item.setOnClickListener(v -> removeActiveQuery(query.key));
+             legendPanel.addView(item, legendLp());
+         }
+     }
+@@ -731,6 +741,15 @@ public final class MainActivity extends AppCompatActivity {
+         Intent intent = new Intent(this, NotebookActivity.class);
+         String snapshot = latestOcrText == null ? "" : latestOcrText;
+         if (!snapshot.trim().isEmpty()) intent.putExtra("ocr_text", snapshot);
++
++        ArrayList<String> queries = new ArrayList<>();
++        ArrayList<Integer> colors = new ArrayList<>();
++        for (QuerySpec query : activeQuerySnapshot()) {
++            queries.add(query.text);
++            colors.add(query.color);
++        }
