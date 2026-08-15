@@ -27,7 +27,7 @@ jobs:
           test -d project/app
           test -f project/app/src/main/AndroidManifest.xml
 
-      - name: Rebuild and validate semantic patch
+      - name: Rebuild professional semantic source
         run: |
           set -euo pipefail
           cat semantic-final/patch/semantic-final-*.part > /tmp/semantic-final.patch
@@ -35,6 +35,7 @@ jobs:
           git -C project init -q
           git -C project apply --exclude=README.md --check /tmp/semantic-final.patch
           git -C project apply --exclude=README.md /tmp/semantic-final.patch
+
           cp semantic-final/notebook/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java \
             project/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java
           cp semantic-final/notebook/app/src/main/java/ro/bibliotopicsearch/app/NotebookStore.java \
@@ -45,27 +46,35 @@ jobs:
           git -C project apply ../semantic-final/patch/live-ocr-stabilization.patch
           git -C project apply --check ../semantic-final/patch/semantic-precision-v23.patch
           git -C project apply ../semantic-final/patch/semantic-precision-v23.patch
+
+          cat semantic-final/patch/pro-v30-*.part > /tmp/pro-v30.patch
+          echo '42b161c2bef3822f429b2997fcc8a28f0cac91bec96f7ee48b0e21035b721756  /tmp/pro-v30.patch' | sha256sum -c -
+          git -C project apply --check /tmp/pro-v30.patch
+          git -C project apply /tmp/pro-v30.patch
+
           cp semantic-final/README_FINAL.md project/README.md
           cp semantic-final/MODEL_NOTICE.md project/MODEL_NOTICE.md
           sed -i 's/minSdk = 23/minSdk = 24/' project/app/build.gradle.kts
-          sed -i 's/versionCode = 22/versionCode = 23/; s/versionName = "2.2.0"/versionName = "2.3.0"/' project/app/build.gradle.kts
-          test -f project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
-          test -f project/app/src/main/java/ro/bibliotopicsearch/app/semantic/OnDeviceSentenceEmbedder.java
-          test -f project/app/src/main/java/ro/bibliotopicsearch/app/semantic/WordPieceTokenizer.java
-          test -f project/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java
-          test -f project/app/src/main/java/ro/bibliotopicsearch/app/NotebookStore.java
-          grep -q 'android:name=".NotebookActivity"' project/app/src/main/AndroidManifest.xml
-          grep -q 'versionName = "2.3.0"' project/app/build.gradle.kts
-          grep -q 'versionCode = 23' project/app/build.gradle.kts
+          sed -i 's/versionCode = 22/versionCode = 30/; s/versionName = "2.2.0"/versionName = "3.0.0"/' project/app/build.gradle.kts
+
+          grep -q 'versionName = "3.0.0"' project/app/build.gradle.kts
+          grep -q 'versionCode = 30' project/app/build.gradle.kts
           grep -q 'minSdk = 24' project/app/build.gradle.kts
           grep -q 'onnxruntime-android:1.26.0' project/app/build.gradle.kts
           grep -q 'STRATEGY_KEEP_ONLY_LATEST' project/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
-          grep -q 'blendEvidenceBoxes' project/app/src/main/java/ro/bibliotopicsearch/app/OverlayView.java
-          grep -q 'withGeometry' project/app/src/main/java/ro/bibliotopicsearch/app/MatchHit.java
-          grep -q 'evidence.contains(candidate.phrase)' project/app/src/main/java/ro/bibliotopicsearch/app/semantic/ExtractiveCompression.java
-          grep -q 'MAX_OCR_LINES_PER_SENTENCE' project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
-          grep -q 'hasSemanticSeparation' project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
-          grep -q 'topicScore' project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
+          grep -q 'MAX_ACTIVE_QUERIES = 8' project/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
+          grep -q 'semanticExecutor = Executors.newSingleThreadExecutor' project/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
+          grep -q 'enqueueSemanticFrame' project/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
+          grep -q 'pendingSemanticFrame = frame' project/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
+          grep -q 'intent.putStringArrayListExtra("semantic_queries"' project/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
+          grep -q 'analyzeQueries' project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
+          grep -q 'evidenceRelevance' project/app/src/main/java/ro/bibliotopicsearch/app/MatchHit.java
+          grep -q 'ZOOM: NUCLEU' project/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
+          grep -q 'runSearches' project/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java
+          if grep -q 'private EditText searchInput' project/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java; then
+            echo 'Notebook must not own a second semantic search bar' >&2
+            exit 1
+          fi
           grep -q 'xmlns:tools="http://schemas.android.com/tools"' project/app/src/main/AndroidManifest.xml
           grep -q 'android.permission.INTERNET' project/app/src/main/AndroidManifest.xml
           grep -q 'tools:node="remove"' project/app/src/main/AndroidManifest.xml
@@ -78,7 +87,6 @@ jobs:
           ASSET_DIR=project/app/src/main/assets/semantic
           BASE="https://huggingface.co/sentence-transformers/distiluse-base-multilingual-cased-v2/resolve/${MODEL_REV}"
           mkdir -p "$ASSET_DIR"
-
           curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 \
             "$BASE/onnx/model_qint8_arm64.onnx?download=true" \
             -o "$ASSET_DIR/semantic_model.onnx"
@@ -88,16 +96,14 @@ jobs:
           curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 \
             "$BASE/2_Dense/model.safetensors?download=true" \
             -o "$ASSET_DIR/dense_model.safetensors"
-
           echo 'c78c64bb0446ceb7086d2de24c2f4297e7a909eb457b4f68e5fdb6ab19f285c0  project/app/src/main/assets/semantic/semantic_model.onnx' | sha256sum -c -
           echo '0a21b1ce908e772ebf09f93c20ca09524c32706e9918d9c0169a3f0663b191ed  project/app/src/main/assets/semantic/dense_model.safetensors' | sha256sum -c -
           test -s "$ASSET_DIR/vocab.txt"
-          du -h "$ASSET_DIR"/*
 
-      - name: Upload patched source without model binaries
+      - name: Upload professional source without model binaries
         uses: actions/upload-artifact@v4
         with:
-          name: Lupa-Semantica-2.3-SOURCE
+          name: Lupa-Semantica-3.0-SOURCE
           path: |
             project
             !project/.git
@@ -130,7 +136,7 @@ jobs:
           set -euo pipefail
           gradle --no-daemon -p project :app:assembleDebug
 
-      - name: Verify offline APK contents
+      - name: Verify professional offline APK
         run: |
           set -euo pipefail
           APK=project/app/build/outputs/apk/debug/app-debug.apk
@@ -153,27 +159,27 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p output
-          cp project/app/build/outputs/apk/debug/app-debug.apk output/Lupa-Semantica-2.3.apk
-          sha256sum output/Lupa-Semantica-2.3.apk | tee output/SHA256SUMS.txt
+          cp project/app/build/outputs/apk/debug/app-debug.apk output/Lupa-Semantica-3.0.apk
+          sha256sum output/Lupa-Semantica-3.0.apk | tee output/SHA256SUMS.txt
           printf '%s\n' \
-            'Lupa Semantica 2.3' \
+            'Lupa Semantica 3.0 Professional' \
             'Runtime: fully offline' \
-            'Network permission: none' \
-            'Semantic model: bundled ONNX qint8' \
-            'Precision: OCR lines reconstructed into sentence units' \
-            'Precision: adaptive relative semantic threshold' \
-            'Topics: title and terms embedded independently' \
-            'OCR: live CameraX + ML Kit overlay' \
-            'Semantic span: START to END with stabilized per-line boxes' \
-            'Notebook: local semantic retrieval, verbatim evidence only' \
-            'Mode: explicit-only extractive semantic detection' \
-            'Output text: verbatim OCR/source only; no paraphrase or summary' \
-            'Generation: none; no interpretations' \
+            'Network permission: none in merged APK' \
+            'One semantic input bar' \
+            'Up to 8 themes/ideas active in parallel' \
+            'Legend: stable color per active theme' \
+            'Output: highlight on exact source span only' \
+            'Zoom: SPAN -> RELEVANCE -> NUCLEUS' \
+            'Pipeline: CameraX OCR latest-only + separate semantic worker' \
+            'Backpressure: one pending semantic frame, newer frame replaces older pending frame' \
+            'Efficiency: OCR-unit embeddings computed once per frame for all active queries' \
+            'Notebook: uses the same active query set; no second search field' \
+            'Generation: none; no summaries, paraphrases or interpretations' \
             > output/OFFLINE-VERIFICATION.txt
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Lupa-Semantica-2.3-APK
+          name: Lupa-Semantica-3.0-APK
           path: output
           if-no-files-found: error
