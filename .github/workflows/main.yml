@@ -2,6 +2,9 @@ name: Build Lupa Semantica APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - agent/semantic-final
 
 permissions:
   contents: read
@@ -15,22 +18,34 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Unzip project
+      - name: Unzip base project
         run: |
           set -euo pipefail
           rm -rf project
           mkdir -p project
           unzip -q BiblioTopicSearch_FINAL.zip -d project
           test -d project/app
-          test -d semantic-final/app
+          test -f project/app/src/main/AndroidManifest.xml
 
-      - name: Apply semantic final overlay
+      - name: Rebuild and validate semantic patch
         run: |
           set -euo pipefail
-          rsync -a semantic-final/app/ project/app/
+          cat semantic-final/patch/semantic-final-*.part > /tmp/semantic-final.patch
+          test "$(wc -c < /tmp/semantic-final.patch)" -gt 90000
+          cmp -s <(cat semantic-final/patch/semantic-final-*.part) /tmp/semantic-final.patch
+          git -C project init -q
+          git -C project apply --check /tmp/semantic-final.patch
+          git -C project apply /tmp/semantic-final.patch
           cp semantic-final/MODEL_NOTICE.md project/MODEL_NOTICE.md
           test -f project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
+          test -f project/app/src/main/java/ro/bibliotopicsearch/app/semantic/OnDeviceSentenceEmbedder.java
+          test -f project/app/src/main/java/ro/bibliotopicsearch/app/semantic/WordPieceTokenizer.java
           grep -q 'versionName = "2.2.0"' project/app/build.gradle.kts
+          grep -q 'onnxruntime-android:1.26.0' project/app/build.gradle.kts
+          if grep -q 'android.permission.INTERNET' project/app/src/main/AndroidManifest.xml; then
+            echo 'INTERNET permission is forbidden for offline build' >&2
+            exit 1
+          fi
 
       - name: Install pinned semantic model assets
         env:
@@ -40,20 +55,29 @@ jobs:
           ASSET_DIR=project/app/src/main/assets/semantic
           BASE="https://huggingface.co/sentence-transformers/distiluse-base-multilingual-cased-v2/resolve/${MODEL_REV}"
           mkdir -p "$ASSET_DIR"
-          curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 "$BASE/onnx/model_qint8_arm64.onnx?download=true" -o "$ASSET_DIR/semantic_model.onnx"
-          curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 "$BASE/vocab.txt?download=true" -o "$ASSET_DIR/vocab.txt"
-          curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 "$BASE/2_Dense/model.safetensors?download=true" -o "$ASSET_DIR/dense_model.safetensors"
+
+          curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 \
+            "$BASE/onnx/model_qint8_arm64.onnx?download=true" \
+            -o "$ASSET_DIR/semantic_model.onnx"
+          curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 \
+            "$BASE/vocab.txt?download=true" \
+            -o "$ASSET_DIR/vocab.txt"
+          curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 \
+            "$BASE/2_Dense/model.safetensors?download=true" \
+            -o "$ASSET_DIR/dense_model.safetensors"
+
           echo 'c78c64bb0446ceb7086d2de24c2f4297e7a909eb457b4f68e5fdb6ab19f285c0  project/app/src/main/assets/semantic/semantic_model.onnx' | sha256sum -c -
           echo '0a21b1ce908e772ebf09f93c20ca09524c32706e9918d9c0169a3f0663b191ed  project/app/src/main/assets/semantic/dense_model.safetensors' | sha256sum -c -
           test -s "$ASSET_DIR/vocab.txt"
           du -h "$ASSET_DIR"/*
 
-      - name: Upload patched source without model
+      - name: Upload patched source without model binaries
         uses: actions/upload-artifact@v4
         with:
           name: Lupa-Semantica-2.2-SOURCE
           path: |
             project
+            !project/.git
             !project/app/src/main/assets/semantic/semantic_model.onnx
             !project/app/src/main/assets/semantic/dense_model.safetensors
             !project/app/src/main/assets/semantic/vocab.txt
@@ -83,7 +107,7 @@ jobs:
           set -euo pipefail
           gradle --no-daemon -p project :app:assembleDebug
 
-      - name: Verify APK contents
+      - name: Verify offline APK contents
         run: |
           set -euo pipefail
           APK=project/app/build/outputs/apk/debug/app-debug.apk
@@ -91,13 +115,33 @@ jobs:
           unzip -l "$APK" | grep -q 'assets/semantic/semantic_model.onnx'
           unzip -l "$APK" | grep -q 'assets/semantic/vocab.txt'
           unzip -l "$APK" | grep -q 'assets/semantic/dense_model.safetensors'
+
+          MERGED_MANIFEST=$(find project/app/build/intermediates -path '*merged_manifest*' -o -path '*merged_manifests*' | head -1 || true)
+          if grep -R -q 'android.permission.INTERNET' project/app/build/intermediates/merged_manifest* project/app/build/intermediates/merged_manifests* 2>/dev/null; then
+            echo 'Merged APK manifest unexpectedly requests INTERNET' >&2
+            exit 1
+          fi
+
+          if grep -R -q -E 'https?://|HttpURLConnection|OkHttpClient|Retrofit' \
+              project/app/src/main/java 2>/dev/null; then
+            echo 'Runtime network reference found in app source' >&2
+            exit 1
+          fi
           ls -lh "$APK"
 
       - name: Prepare APK
         run: |
+          set -euo pipefail
           mkdir -p output
           cp project/app/build/outputs/apk/debug/app-debug.apk output/Lupa-Semantica-2.2.apk
           sha256sum output/Lupa-Semantica-2.2.apk | tee output/SHA256SUMS.txt
+          printf '%s\n' \
+            'Lupa Semantica 2.2' \
+            'Runtime: fully offline' \
+            'Network permission: none' \
+            'Semantic model: bundled ONNX qint8' \
+            'Mode: explicit-only extractive semantic detection' \
+            > output/OFFLINE-VERIFICATION.txt
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
