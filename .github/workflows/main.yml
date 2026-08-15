@@ -52,13 +52,16 @@ jobs:
           git -C project apply --check /tmp/pro-v30.patch
           git -C project apply /tmp/pro-v30.patch
 
+          git -C project apply --check ../semantic-final/patch/semantic-detection-v31.patch
+          git -C project apply ../semantic-final/patch/semantic-detection-v31.patch
+
           cp semantic-final/README_FINAL.md project/README.md
           cp semantic-final/MODEL_NOTICE.md project/MODEL_NOTICE.md
           sed -i 's/minSdk = 23/minSdk = 24/' project/app/build.gradle.kts
-          sed -i 's/versionCode = 22/versionCode = 30/; s/versionName = "2.2.0"/versionName = "3.0.0"/' project/app/build.gradle.kts
+          sed -i 's/versionCode = 22/versionCode = 31/; s/versionName = "2.2.0"/versionName = "3.1.0"/' project/app/build.gradle.kts
 
-          grep -q 'versionName = "3.0.0"' project/app/build.gradle.kts
-          grep -q 'versionCode = 30' project/app/build.gradle.kts
+          grep -q 'versionName = "3.1.0"' project/app/build.gradle.kts
+          grep -q 'versionCode = 31' project/app/build.gradle.kts
           grep -q 'minSdk = 24' project/app/build.gradle.kts
           grep -q 'onnxruntime-android:1.26.0' project/app/build.gradle.kts
           grep -q 'STRATEGY_KEEP_ONLY_LATEST' project/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
@@ -68,6 +71,14 @@ jobs:
           grep -q 'pendingSemanticFrame = frame' project/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
           grep -q 'intent.putStringArrayListExtra("semantic_queries"' project/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
           grep -q 'analyzeQueries' project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
+          grep -q 'DIRECT_LITERAL_CONFIDENCE' project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
+          grep -q 'baseQueryThreshold(int specificity)' project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
+          grep -q 'specificity <= 1) return 0.360f' project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
+          grep -q 'explicitSurfaceMatch(query, evidence)' project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
+          if grep -q 'AppPrefs.precision(context)' project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java; then
+            echo 'Camera targeting/smoothing must not alter semantic acceptance thresholds' >&2
+            exit 1
+          fi
           grep -q 'evidenceRelevance' project/app/src/main/java/ro/bibliotopicsearch/app/MatchHit.java
           grep -q 'ZOOM: NUCLEU' project/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
           grep -q 'runSearches' project/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java
@@ -103,7 +114,7 @@ jobs:
       - name: Upload professional source without model binaries
         uses: actions/upload-artifact@v4
         with:
-          name: Lupa-Semantica-3.0-SOURCE
+          name: Lupa-Semantica-3.1-SOURCE
           path: |
             project
             !project/.git
@@ -159,10 +170,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p output
-          cp project/app/build/outputs/apk/debug/app-debug.apk output/Lupa-Semantica-3.0.apk
-          sha256sum output/Lupa-Semantica-3.0.apk | tee output/SHA256SUMS.txt
+          cp project/app/build/outputs/apk/debug/app-debug.apk output/Lupa-Semantica-3.1.apk
+          sha256sum output/Lupa-Semantica-3.1.apk | tee output/SHA256SUMS.txt
           printf '%s\n' \
-            'Lupa Semantica 3.0 Professional' \
+            'Lupa Semantica 3.1 Professional' \
             'Runtime: fully offline' \
             'Network permission: none in merged APK' \
             'One semantic input bar' \
@@ -170,6 +181,9 @@ jobs:
             'Legend: stable color per active theme' \
             'Output: highlight on exact source span only' \
             'Zoom: SPAN -> RELEVANCE -> NUCLEUS' \
+            'Filtering: broad theme = wider semantic field; narrower query = stricter filter' \
+            'Literal explicit source occurrence bypasses embedding rejection' \
+            'Camera targeting/smoothing does not alter semantic thresholds' \
             'Pipeline: CameraX OCR latest-only + separate semantic worker' \
             'Backpressure: one pending semantic frame, newer frame replaces older pending frame' \
             'Efficiency: OCR-unit embeddings computed once per frame for all active queries' \
@@ -180,6 +194,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Lupa-Semantica-3.0-APK
+          name: Lupa-Semantica-3.1-APK
           path: output
           if-no-files-found: error
