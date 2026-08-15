@@ -1,8 +1,8 @@
 import argparse
 import hashlib
 import json
-import math
 import re
+import resource
 import time
 import unicodedata
 from dataclasses import dataclass, asdict
@@ -25,11 +25,14 @@ NLI_SHA256 = "55614f3c7da74184742eaa0006b978744437aa91de9ba4913db42f94d7844a8f"
 
 # Must mirror DirectSupportVerifier.java. These are model calibration parameters, not content rules.
 DIRECT_STRONG_RERANK = 6.0
+DIRECT_HIGH_MID_RERANK_MIN = 4.0
+DIRECT_HIGH_MID_RERANK_MAX = 6.0
+DIRECT_HIGH_MID_ENTAILMENT = 0.65
 DIRECT_MEDIUM_RERANK_MIN = 0.80
 DIRECT_MEDIUM_RERANK_MAX = 4.0
 DIRECT_MEDIUM_ENTAILMENT = 0.28
 DIRECT_LOW_RERANK_MIN = -4.20
-DIRECT_LOW_RERANK_MAX = 0.80
+DIRECT_LOW_RERANK_MAX = -3.50
 DIRECT_LOW_ENTAILMENT = 0.42
 FORWARD_CONTRADICTION_MIN = 0.67
 FORWARD_CONTRADICTION_MARGIN = 0.20
@@ -68,9 +71,9 @@ CASES = [
     Case("definition-topic-only", "same_topic_neutral", "Secularizarea a fost discutată intens în epocă.", "definiția secularizării", False),
     Case("multi-sentence-direct", "multi_sentence", "Regele a refuzat cererea. Din acest motiv, delegația a părăsit curtea și negocierile au încetat.", "motivul plecării delegației", True),
     Case("partial-support", "partial_support", "Reforma a produs schimbări politice importante.", "cauzele și consecințele economice ale Reformei", False),
-    # Coreference is present in the benchmark as required, but remains diagnostic until a dedicated
-    # compact coreference model is validated on Android. The product may extend a span only if the
-    # combined evidence passes the same direct-support verifier.
+    # Coreference remains diagnostic until a compact dedicated resolver is validated on Android.
+    # The production engine may extend a span only when the combined source evidence itself passes
+    # the same direct-support verifier; no pronoun dictionary or subject-specific rule is used.
     Case("coreference-papa", "coreference", "Papa a trimis o delegație la curte. El a cerut apoi negocieri.", "cererea de negocieri a Papei", True, gate=False),
 ]
 
@@ -128,9 +131,11 @@ def policy(r, fwd, rev):
     if forward_contradiction or reverse_veto:
         return False, "CONTRADICTION"
     strong = r >= DIRECT_STRONG_RERANK
+    high_mid = DIRECT_HIGH_MID_RERANK_MIN <= r < DIRECT_HIGH_MID_RERANK_MAX and fwd[0] >= DIRECT_HIGH_MID_ENTAILMENT
     medium = DIRECT_MEDIUM_RERANK_MIN <= r < DIRECT_MEDIUM_RERANK_MAX and fwd[0] >= DIRECT_MEDIUM_ENTAILMENT
     weak = DIRECT_LOW_RERANK_MIN <= r < DIRECT_LOW_RERANK_MAX and fwd[0] >= DIRECT_LOW_ENTAILMENT
-    return bool(strong or medium or weak), "DIRECT" if (strong or medium or weak) else "REJECT"
+    accepted = bool(strong or high_mid or medium or weak)
+    return accepted, "DIRECT" if accepted else "REJECT"
 
 
 def main():
@@ -201,6 +206,7 @@ def main():
 
     precision = tp / max(1, tp + fp)
     recall = tp / max(1, tp + fn)
+    peak_rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0
     report = {
         "models": {
             "reranker": {"repo": RERANKER_REPO, "revision": RERANKER_REV, "sha256": RERANKER_SHA256},
@@ -210,13 +216,15 @@ def main():
         "precision": precision,
         "recall": recall,
         "median_pair_ms_x64_ci": None if not inference_times else float(np.median(inference_times)),
+        "peak_rss_mb_x64_ci": peak_rss_mb,
         "gating_failures": gating_failures,
         "results": results,
     }
     Path(args.report).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    print("REPORT", json.dumps({k: report[k] for k in ("counts", "precision", "recall", "median_pair_ms_x64_ci", "gating_failures")}, ensure_ascii=False))
+    summary = {k: report[k] for k in ("counts", "precision", "recall", "median_pair_ms_x64_ci", "peak_rss_mb_x64_ci", "gating_failures")}
+    print("REPORT", json.dumps(summary, ensure_ascii=False))
 
-    # Precision is the primary product invariant. All false positives are hard failures.
+    # Precision is the primary product invariant. Every false positive is a hard failure.
     if fp:
         raise SystemExit(f"Benchmark failed: {fp} false positives")
     if gating_failures and not args.allow_gating_failures:
