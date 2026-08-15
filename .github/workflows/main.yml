@@ -35,14 +35,29 @@ jobs:
           git -C project init -q
           git -C project apply --exclude=README.md --check /tmp/semantic-final.patch
           git -C project apply --exclude=README.md /tmp/semantic-final.patch
+          cp semantic-final/notebook/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java \
+            project/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java
+          cp semantic-final/notebook/app/src/main/java/ro/bibliotopicsearch/app/NotebookStore.java \
+            project/app/src/main/java/ro/bibliotopicsearch/app/NotebookStore.java
+          git -C project apply --check ../semantic-final/notebook/integration.patch
+          git -C project apply ../semantic-final/notebook/integration.patch
+          git -C project apply --check ../semantic-final/patch/live-ocr-stabilization.patch
+          git -C project apply ../semantic-final/patch/live-ocr-stabilization.patch
+          cp semantic-final/README_FINAL.md project/README.md
           cp semantic-final/MODEL_NOTICE.md project/MODEL_NOTICE.md
           sed -i 's/minSdk = 23/minSdk = 24/' project/app/build.gradle.kts
           test -f project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
           test -f project/app/src/main/java/ro/bibliotopicsearch/app/semantic/OnDeviceSentenceEmbedder.java
           test -f project/app/src/main/java/ro/bibliotopicsearch/app/semantic/WordPieceTokenizer.java
+          test -f project/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java
+          test -f project/app/src/main/java/ro/bibliotopicsearch/app/NotebookStore.java
+          grep -q 'android:name=".NotebookActivity"' project/app/src/main/AndroidManifest.xml
           grep -q 'versionName = "2.2.0"' project/app/build.gradle.kts
           grep -q 'minSdk = 24' project/app/build.gradle.kts
           grep -q 'onnxruntime-android:1.26.0' project/app/build.gradle.kts
+          grep -q 'STRATEGY_KEEP_ONLY_LATEST' project/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
+          grep -q 'blendEvidenceBoxes' project/app/src/main/java/ro/bibliotopicsearch/app/OverlayView.java
+          grep -q 'withGeometry' project/app/src/main/java/ro/bibliotopicsearch/app/MatchHit.java
           if grep -q 'android.permission.INTERNET' project/app/src/main/AndroidManifest.xml; then
             echo 'INTERNET permission is forbidden for offline build' >&2
             exit 1
@@ -137,8 +152,11 @@ jobs:
             'Runtime: fully offline' \
             'Network permission: none' \
             'Semantic model: bundled ONNX qint8' \
+            'OCR: live CameraX + ML Kit overlay' \
+            'Semantic span: START to END with stabilized per-line boxes' \
+            'Notebook: local semantic retrieval, verbatim evidence only' \
             'Mode: explicit-only extractive semantic detection' \
-            'Output text: verbatim OCR only; no paraphrase' \
+            'Output text: verbatim OCR only; no paraphrase or summary' \
             > output/OFFLINE-VERIFICATION.txt
 
       - name: Upload APK
