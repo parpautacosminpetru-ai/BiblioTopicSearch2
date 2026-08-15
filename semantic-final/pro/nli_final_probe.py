@@ -31,10 +31,49 @@ print("IN", [(x.name, x.type.tensor_type.elem_type, [d.dim_value or d.dim_param 
 print("OUT", [(x.name, x.type.tensor_type.elem_type, [d.dim_value or d.dim_param for d in x.type.tensor_type.shape.dim]) for x in pre.graph.output])
 
 model_path = hf_hub_download(REPO, filename="onnx/model_int8.onnx", revision=REV)
-print("MODEL_SHA", hashlib.sha256(open(model_path, "rb").read()).hexdigest())
+model_sha = hashlib.sha256(open(model_path, "rb").read()).hexdigest()
+print("MODEL_SHA", model_sha)
+assert model_sha == "55614f3c7da74184742eaa0006b978744437aa91de9ba4913db42f94d7844a8f"
 so = ort.SessionOptions(); so.register_custom_ops_library(get_library_path())
 tokenizer_session = ort.InferenceSession(tok_path, so, providers=["CPUExecutionProvider"])
 classifier = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+
+
+def onnx_pair_ids(premise, hypothesis):
+    # The Extensions tokenizer graph tokenizes independent strings. Build the standard
+    # XLM-R pair sequence from the two separately tokenized sequences instead of inserting
+    # literal "</s>" text into one string.
+    name = tokenizer_session.get_inputs()[0].name
+    raw = tokenizer_session.run(None, {name: np.asarray([premise, hypothesis], dtype=object)})
+    tokens = np.asarray(raw[0], dtype=np.int64).reshape(-1)
+    instances = np.asarray(raw[1], dtype=np.int64).reshape(-1)
+    a = tokens[instances == 0]
+    b = tokens[instances == 1]
+    if len(a) < 2 or len(b) < 2:
+        raise RuntimeError(f"Unexpected tokenizer output: a={a.tolist()} b={b.tolist()} instances={instances.tolist()}")
+    # Independent XLM-R sequences are <s> A </s> and <s> B </s>.
+    # A pair is <s> A </s></s> B </s>.
+    if a[0] != tok.cls_token_id or a[-1] != tok.sep_token_id or b[0] != tok.cls_token_id or b[-1] != tok.sep_token_id:
+        raise RuntimeError(f"Unexpected XLM-R special tokens: a={a.tolist()} b={b.tolist()}")
+    combined = np.concatenate([a, np.asarray([tok.sep_token_id], dtype=np.int64), b[1:]])
+    return combined
+
+
+def probabilities(premise, hypothesis):
+    ids = onnx_pair_ids(premise, hypothesis)
+    expected = np.asarray(tok(premise, hypothesis, truncation=True, max_length=512)["input_ids"], dtype=np.int64)
+    if len(ids) > 512:
+        ids = ids[:511]
+        ids[-1] = tok.sep_token_id
+    expected = expected[:512]
+    if not np.array_equal(ids, expected):
+        raise AssertionError(f"PAIR_TOKEN_MISMATCH\nonnx={ids.tolist()}\nhf={expected.tolist()}")
+    ids = ids.reshape(1, -1)
+    mask = np.ones_like(ids, dtype=np.int64)
+    logits = np.asarray(classifier.run(None, {"input_ids": ids, "attention_mask": mask})[0], dtype=np.float32)[0]
+    exp = np.exp(logits - logits.max())
+    return exp / exp.sum()
+
 
 pairs = [
     ("Dumnezeu este bun și milostiv.", "Dumnezeu este bun"),
@@ -51,11 +90,7 @@ pairs = [
 ]
 
 for premise, hypothesis in pairs:
-    packed = premise + " </s></s> " + hypothesis
-    raw = tokenizer_session.run(None, {tokenizer_session.get_inputs()[0].name: np.asarray([packed], dtype=object)})
-    ids = np.asarray(raw[0], dtype=np.int64).reshape(1, -1)
-    mask = np.ones_like(ids, dtype=np.int64)
-    logits = np.asarray(classifier.run(None, {"input_ids": ids, "attention_mask": mask})[0], dtype=np.float32)[0]
-    exp = np.exp(logits - logits.max())
-    probs = exp / exp.sum()
+    probs = probabilities(premise, hypothesis)
     print("NLI", premise, "||", hypothesis, "=> entailment,neutral,contradiction", [round(float(x), 6) for x in probs])
+
+print("PAIR_TOKENIZATION_OK")
