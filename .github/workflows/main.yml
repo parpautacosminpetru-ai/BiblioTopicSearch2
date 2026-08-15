@@ -2,6 +2,9 @@ name: Build BiblioTopicSearch APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - agent/semantic-ocr-live
 
 permissions:
   contents: read
@@ -25,8 +28,10 @@ jobs:
       - name: Apply semantic live overlay patch
         run: |
           test -f patches/app/src/main/java/ro/bibliotopicsearch/app/OverlayView.java
+          test -f patches/app/src/main/java/ro/bibliotopicsearch/app/MatchHit.java
+          test -f patches/app/src/main/java/ro/bibliotopicsearch/app/TopicMatcher.java
           cp -a patches/app/. project/app/
-          echo "Applied semantic ultrasound-style live overlay"
+          echo "Applied offline semantic matcher + ultrasound-style live overlay"
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
