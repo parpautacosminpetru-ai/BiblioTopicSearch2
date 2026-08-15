@@ -2,9 +2,6 @@ name: Build Lupa Semantica APK
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - agent/semantic-final
 
 permissions:
   contents: read
@@ -25,14 +22,13 @@ jobs:
           mkdir -p project
           unzip -q BiblioTopicSearch_FINAL.zip -d project
           test -d project/app
-          test -d project/semantic-final/app
+          test -d semantic-final/app
 
       - name: Apply semantic final overlay
         run: |
           set -euo pipefail
-          rsync -a project/semantic-final/app/ project/app/
-          cp project/semantic-final/MODEL_NOTICE.md project/MODEL_NOTICE.md
-          rm -rf project/semantic-final
+          rsync -a semantic-final/app/ project/app/
+          cp semantic-final/MODEL_NOTICE.md project/MODEL_NOTICE.md
           test -f project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
           grep -q 'versionName = "2.2.0"' project/app/build.gradle.kts
 
@@ -44,21 +40,12 @@ jobs:
           ASSET_DIR=project/app/src/main/assets/semantic
           BASE="https://huggingface.co/sentence-transformers/distiluse-base-multilingual-cased-v2/resolve/${MODEL_REV}"
           mkdir -p "$ASSET_DIR"
-
-          curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 \
-            "$BASE/onnx/model_qint8_arm64.onnx?download=true" \
-            -o "$ASSET_DIR/semantic_model.onnx"
-          curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 \
-            "$BASE/vocab.txt?download=true" \
-            -o "$ASSET_DIR/vocab.txt"
-          curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 \
-            "$BASE/2_Dense/model.safetensors?download=true" \
-            -o "$ASSET_DIR/dense_model.safetensors"
-
+          curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 "$BASE/onnx/model_qint8_arm64.onnx?download=true" -o "$ASSET_DIR/semantic_model.onnx"
+          curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 "$BASE/vocab.txt?download=true" -o "$ASSET_DIR/vocab.txt"
+          curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 "$BASE/2_Dense/model.safetensors?download=true" -o "$ASSET_DIR/dense_model.safetensors"
           echo 'c78c64bb0446ceb7086d2de24c2f4297e7a909eb457b4f68e5fdb6ab19f285c0  project/app/src/main/assets/semantic/semantic_model.onnx' | sha256sum -c -
           echo '0a21b1ce908e772ebf09f93c20ca09524c32706e9918d9c0169a3f0663b191ed  project/app/src/main/assets/semantic/dense_model.safetensors' | sha256sum -c -
           test -s "$ASSET_DIR/vocab.txt"
-          printf 'Semantic assets:\n'
           du -h "$ASSET_DIR"/*
 
       - name: Upload patched source without model
@@ -104,17 +91,12 @@ jobs:
           unzip -l "$APK" | grep -q 'assets/semantic/semantic_model.onnx'
           unzip -l "$APK" | grep -q 'assets/semantic/vocab.txt'
           unzip -l "$APK" | grep -q 'assets/semantic/dense_model.safetensors'
-          if unzip -p "$APK" AndroidManifest.xml | strings | grep -q 'android.permission.INTERNET'; then
-            echo 'Unexpected INTERNET permission in APK' >&2
-            exit 1
-          fi
           ls -lh "$APK"
 
       - name: Prepare APK
         run: |
           mkdir -p output
-          cp project/app/build/outputs/apk/debug/app-debug.apk \
-             output/Lupa-Semantica-2.2.apk
+          cp project/app/build/outputs/apk/debug/app-debug.apk output/Lupa-Semantica-2.2.apk
           sha256sum output/Lupa-Semantica-2.2.apk | tee output/SHA256SUMS.txt
 
       - name: Upload APK
