@@ -32,7 +32,14 @@ jobs:
             .build-input/c16.b64 \
             .build-input/part09.b64 \
             .build-input/c19.b64 \
-            .build-input/c20.b64 \
+            .build-input/c20a1p0.b64 \
+            .build-input/c20a1p1.b64 \
+            .build-input/c20a1p2.b64 \
+            .build-input/c20a1p3.b64 \
+            .build-input/c20a2.b64 \
+            .build-input/c20a3.b64 \
+            .build-input/c20a4.b64 \
+            .build-input/c20b.b64 \
             .build-input/c21.b64 \
             .build-input/c22.b64 \
             .build-input/c23.b64 \
