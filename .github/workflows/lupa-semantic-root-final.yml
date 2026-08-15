@@ -1,0 +1,59 @@
+name: Build Lupa Semantica 2.1 Root
+
+on:
+  push:
+    branches:
+      - agent/lupa-semantica-2-1-final
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify final source
+        run: |
+          echo "e0ce999c23de7ea4e27b5539525d978353d5ca3ac0680689e640dd2b002a2db1  BiblioTopicSearch_FINAL.zip" | sha256sum -c -
+          unzip -t BiblioTopicSearch_FINAL.zip
+          rm -rf project
+          mkdir -p project
+          unzip -q BiblioTopicSearch_FINAL.zip -d project
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;35.0.0"
+
+      - name: Build Debug APK
+        run: gradle --no-daemon -p project :app:assembleDebug
+
+      - name: Prepare APK
+        run: |
+          mkdir -p output
+          cp project/app/build/outputs/apk/debug/app-debug.apk output/Lupa-Semantica-2.1.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lupa-Semantica-2.1-APK
+          path: output/Lupa-Semantica-2.1.apk
+          if-no-files-found: error
