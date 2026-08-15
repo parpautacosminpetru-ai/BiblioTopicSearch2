@@ -4,6 +4,7 @@ import requests
 import numpy as np
 import onnx
 import onnxruntime as ort
+from huggingface_hub import hf_hub_download
 from transformers import AutoTokenizer
 from onnxruntime_extensions import gen_processing_models, get_library_path
 
@@ -23,31 +24,38 @@ print("SIG", inspect.signature(gen_processing_models))
 tok = AutoTokenizer.from_pretrained(REPO, revision=REV, use_fast=True)
 tok.vocab_file = SPM_PATH
 print("TOK", tok.__class__.__name__, tok.model_max_length, tok.vocab_file)
+pre, _ = gen_processing_models(tok, pre_kwargs={}, opset=17)
+tok_path = "/tmp/nli_fast_tokenizer.onnx"
+onnx.save(pre, tok_path)
+print("IN", [(x.name, x.type.tensor_type.elem_type, [d.dim_value or d.dim_param for d in x.type.tensor_type.shape.dim]) for x in pre.graph.input])
+print("OUT", [(x.name, x.type.tensor_type.elem_type, [d.dim_value or d.dim_param for d in x.type.tensor_type.shape.dim]) for x in pre.graph.output])
 
-last_error = None
-for kwargs in ({}, {"WITH_DEFAULT_INPUTS": True}):
-    try:
-        pre, _ = gen_processing_models(tok, pre_kwargs=kwargs, opset=17)
-        path = "/tmp/nli_fast_tokenizer.onnx"
-        onnx.save(pre, path)
-        print("KW", kwargs)
-        print("IN", [(x.name, x.type.tensor_type.elem_type, [d.dim_value or d.dim_param for d in x.type.tensor_type.shape.dim]) for x in pre.graph.input])
-        print("OUT", [(x.name, x.type.tensor_type.elem_type, [d.dim_value or d.dim_param for d in x.type.tensor_type.shape.dim]) for x in pre.graph.output])
-        print("NODES", [(n.op_type, n.domain) for n in pre.graph.node])
-        so = ort.SessionOptions()
-        so.register_custom_ops_library(get_library_path())
-        session = ort.InferenceSession(path, so, providers=["CPUExecutionProvider"])
-        name = session.get_inputs()[0].name
-        packed = "Dumnezeu este bun și milostiv. </s></s> Dumnezeu este rău"
-        outputs = session.run(None, {name: np.asarray([packed], dtype=object)})
-        for i, value in enumerate(outputs):
-            arr = np.asarray(value)
-            print("VAL", i, arr.dtype, arr.shape, arr.tolist())
-        last_error = None
-        break
-    except Exception as exc:
-        last_error = exc
-        print("ERR", kwargs, repr(exc))
+model_path = hf_hub_download(REPO, filename="onnx/model_int8.onnx", revision=REV)
+print("MODEL_SHA", hashlib.sha256(open(model_path, "rb").read()).hexdigest())
+so = ort.SessionOptions(); so.register_custom_ops_library(get_library_path())
+tokenizer_session = ort.InferenceSession(tok_path, so, providers=["CPUExecutionProvider"])
+classifier = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
 
-if last_error is not None:
-    raise last_error
+pairs = [
+    ("Dumnezeu este bun și milostiv.", "Dumnezeu este bun"),
+    ("Dumnezeu este bun și milostiv.", "Dumnezeu este rău"),
+    ("Dumnezeu este bun și milostiv.", "Dumnezeu și iubire"),
+    ("Nemulțumirile față de vânzarea indulgențelor au contribuit la izbucnirea Reformei protestante.", "cauzele Reformei protestante"),
+    ("Nemulțumirile față de vânzarea indulgențelor au contribuit la izbucnirea Reformei protestante.", "consecințele Reformei protestante"),
+    ("Nu avea voie să părăsească orașul.", "interdicție de deplasare"),
+    ("Privea mereu drumul spre exterior și își amintea de vremurile când călătorea.", "interdicție de deplasare"),
+    ("Dumnezeu iubește omul.", "iubirea lui Dumnezeu față de om"),
+    ("Omul îl iubește pe Dumnezeu.", "iubirea lui Dumnezeu față de om"),
+    ("Ion îl atacă pe Petru.", "Ion îl atacă pe Petru"),
+    ("Petru îl atacă pe Ion.", "Ion îl atacă pe Petru"),
+]
+
+for premise, hypothesis in pairs:
+    packed = premise + " </s></s> " + hypothesis
+    raw = tokenizer_session.run(None, {tokenizer_session.get_inputs()[0].name: np.asarray([packed], dtype=object)})
+    ids = np.asarray(raw[0], dtype=np.int64).reshape(1, -1)
+    mask = np.ones_like(ids, dtype=np.int64)
+    logits = np.asarray(classifier.run(None, {"input_ids": ids, "attention_mask": mask})[0], dtype=np.float32)[0]
+    exp = np.exp(logits - logits.max())
+    probs = exp / exp.sum()
+    print("NLI", premise, "||", hypothesis, "=> entailment,neutral,contradiction", [round(float(x), 6) for x in probs])
