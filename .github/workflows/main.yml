@@ -32,10 +32,9 @@ jobs:
           set -euo pipefail
           cat semantic-final/patch/semantic-final-*.part > /tmp/semantic-final.patch
           test "$(wc -c < /tmp/semantic-final.patch)" -gt 90000
-          cmp -s <(cat semantic-final/patch/semantic-final-*.part) /tmp/semantic-final.patch
           git -C project init -q
-          git -C project apply --check /tmp/semantic-final.patch
-          git -C project apply /tmp/semantic-final.patch
+          git -C project apply --exclude=README.md --check /tmp/semantic-final.patch
+          git -C project apply --exclude=README.md /tmp/semantic-final.patch
           cp semantic-final/MODEL_NOTICE.md project/MODEL_NOTICE.md
           test -f project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
           test -f project/app/src/main/java/ro/bibliotopicsearch/app/semantic/OnDeviceSentenceEmbedder.java
@@ -115,15 +114,11 @@ jobs:
           unzip -l "$APK" | grep -q 'assets/semantic/semantic_model.onnx'
           unzip -l "$APK" | grep -q 'assets/semantic/vocab.txt'
           unzip -l "$APK" | grep -q 'assets/semantic/dense_model.safetensors'
-
-          MERGED_MANIFEST=$(find project/app/build/intermediates -path '*merged_manifest*' -o -path '*merged_manifests*' | head -1 || true)
           if grep -R -q 'android.permission.INTERNET' project/app/build/intermediates/merged_manifest* project/app/build/intermediates/merged_manifests* 2>/dev/null; then
             echo 'Merged APK manifest unexpectedly requests INTERNET' >&2
             exit 1
           fi
-
-          if grep -R -q -E 'https?://|HttpURLConnection|OkHttpClient|Retrofit' \
-              project/app/src/main/java 2>/dev/null; then
+          if grep -R -q -E 'https?://|HttpURLConnection|OkHttpClient|Retrofit' project/app/src/main/java 2>/dev/null; then
             echo 'Runtime network reference found in app source' >&2
             exit 1
           fi
