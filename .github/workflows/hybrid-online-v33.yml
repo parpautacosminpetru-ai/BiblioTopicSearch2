@@ -56,6 +56,10 @@ jobs:
           echo '10be704be8672a4b497ace58266933ef212415b94d0fd06b7904e1c28a77599c  /tmp/hybrid-v33.patch' | sha256sum -c -
           git -C project apply --check /tmp/hybrid-v33.patch
           git -C project apply /tmp/hybrid-v33.patch
+          base64 -d semantic-final/patch/hybrid-online-v33-newfiles.patch.b64 | gzip -d > /tmp/hybrid-v33-newfiles.patch
+          echo 'e57adf1bf43e74a91265623d32c261d2382052aed316faf6dad21504eae5e95e  /tmp/hybrid-v33-newfiles.patch' | sha256sum -c -
+          git -C project apply --check /tmp/hybrid-v33-newfiles.patch
+          git -C project apply /tmp/hybrid-v33-newfiles.patch
           git -C project diff --check
 
       - name: Verify product invariants
