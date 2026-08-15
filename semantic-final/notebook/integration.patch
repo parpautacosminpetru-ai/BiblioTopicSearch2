@@ -1,21 +1,8 @@
 diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
-index 79154e7..36e9111 100644
+index 79154e7..1111111 100644
 --- a/app/src/main/AndroidManifest.xml
 +++ b/app/src/main/AndroidManifest.xml
-@@ -1,8 +1,11 @@
- <?xml version="1.0" encoding="utf-8"?>
--<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-+    xmlns:tools="http://schemas.android.com/tools">
- 
-     <uses-permission android:name="android.permission.CAMERA" />
-     <uses-permission android:name="android.permission.VIBRATE" />
-+    <!-- Remove any INTERNET permission contributed transitively by libraries. -->
-+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
- 
-     <uses-feature
-         android:name="android.hardware.camera.any"
-@@ -15,6 +18,11 @@
+@@ -15,6 +15,11 @@
          android:supportsRtl="true"
          android:theme="@style/Theme.BiblioTopicSearch">
  
@@ -103,7 +90,7 @@ index ec6ff3e..af88b4f 100644
          LinkedHashSet<String> selected = new LinkedHashSet<>();
          for (Candidate candidate : candidates) {
              if (candidate.phrase.length() < 3) continue;
-+            // Latest product rule: labels must be verbatim substrings of the OCR evidence.
++            // Product rule: labels must be verbatim substrings of the OCR evidence.
 +            // Semantic similarity can find the passage, but labels never paraphrase it.
 +            if (!evidence.contains(candidate.phrase)) continue;
              String normalized = SemanticCatalog.normalize(candidate.phrase);
