@@ -1,0 +1,111 @@
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 79154e7..36e9111 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -1,8 +1,11 @@
+ <?xml version="1.0" encoding="utf-8"?>
+-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
++<manifest xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:tools="http://schemas.android.com/tools">
+ 
+     <uses-permission android:name="android.permission.CAMERA" />
+     <uses-permission android:name="android.permission.VIBRATE" />
++    <!-- Remove any INTERNET permission contributed transitively by libraries. -->
++    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+ 
+     <uses-feature
+         android:name="android.hardware.camera.any"
+@@ -15,6 +18,11 @@
+         android:supportsRtl="true"
+         android:theme="@style/Theme.BiblioTopicSearch">
+ 
++        <activity
++            android:name=".NotebookActivity"
++            android:screenOrientation="portrait"
++            android:exported="false" />
++
+         <activity
+             android:name=".SettingsActivity"
+             android:screenOrientation="portrait"
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java b/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
+index 49c7f15..e2c2bcf 100644
+--- a/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
+@@ -81,6 +81,7 @@ public final class MainActivity extends AppCompatActivity {
+     private Button labelsButton;
+     private Button semanticSearchButton;
+     private Button semanticDetailButton;
++    private Button notebookButton;
+     private EditText semanticSearchInput;
+     private LinearLayout nodePanel;
+     private LinearLayout nodeChips;
+@@ -96,6 +97,7 @@ public final class MainActivity extends AppCompatActivity {
+     private volatile boolean semanticReady = false;
+     private volatile String semanticFailure = "";
+     private volatile String semanticQuery = "";
++    private volatile String latestOcrText = "";
+     private int semanticDetailLevel = 1;
+ 
+     private TopicMap topicMap;
+@@ -293,6 +295,7 @@ public final class MainActivity extends AppCompatActivity {
+         nodesButton = toolbarButton("NODURI");
+         labelsButton = toolbarButton("ETICHETE");
+         Button libraryButton = toolbarButton("TEME");
++        notebookButton = toolbarButton("NOTEBOOK");
+         freezeButton = toolbarButton("CADRU");
+         saveButton = toolbarButton("SALVEAZĂ");
+         torchButton = toolbarButton("LUMINĂ");
+@@ -303,6 +306,7 @@ public final class MainActivity extends AppCompatActivity {
+         toolbar.addView(nodesButton, toolbarLp());
+         toolbar.addView(labelsButton, toolbarLp());
+         toolbar.addView(libraryButton, toolbarLp());
++        toolbar.addView(notebookButton, toolbarLp());
+         toolbar.addView(freezeButton, toolbarLp());
+         toolbar.addView(saveButton, toolbarLp());
+         toolbar.addView(torchButton, toolbarLp());
+@@ -361,6 +365,7 @@ public final class MainActivity extends AppCompatActivity {
+         });
+         labelsButton.setOnClickListener(v -> toggleFloatingLabels());
+         libraryButton.setOnClickListener(v -> openLibrary());
++        notebookButton.setOnClickListener(v -> openNotebook());
+         settingsButton.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
+         freezeButton.setOnClickListener(v -> toggleFreeze());
+         saveButton.setOnClickListener(v -> saveFrozenFrame());
+@@ -403,6 +408,8 @@ public final class MainActivity extends AppCompatActivity {
+                         return;
+                     }
+ 
++                    latestOcrText = text.getText() == null ? "" : text.getText();
++
+                     List<MatchHit> hits;
+                     int searchableTerms;
+                     SemanticAnalyzer semantic = semanticAnalyzer;
+@@ -719,6 +726,14 @@ public final class MainActivity extends AppCompatActivity {
+         }
+     }
+ 
++
++    private void openNotebook() {
++        Intent intent = new Intent(this, NotebookActivity.class);
++        String snapshot = latestOcrText == null ? "" : latestOcrText;
++        if (!snapshot.trim().isEmpty()) intent.putExtra("ocr_text", snapshot);
++        startActivity(intent);
++    }
++
+     private void openLibrary() {
+         startActivity(new Intent(this, TopicLibraryActivity.class));
+     }
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/semantic/ExtractiveCompression.java b/app/src/main/java/ro/bibliotopicsearch/app/semantic/ExtractiveCompression.java
+index ec6ff3e..af88b4f 100644
+--- a/app/src/main/java/ro/bibliotopicsearch/app/semantic/ExtractiveCompression.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/semantic/ExtractiveCompression.java
+@@ -63,6 +63,9 @@ final class ExtractiveCompression {
+         LinkedHashSet<String> selected = new LinkedHashSet<>();
+         for (Candidate candidate : candidates) {
+             if (candidate.phrase.length() < 3) continue;
++            // Latest product rule: labels must be verbatim substrings of the OCR evidence.
++            // Semantic similarity can find the passage, but labels never paraphrase it.
++            if (!evidence.contains(candidate.phrase)) continue;
+             String normalized = SemanticCatalog.normalize(candidate.phrase);
+             boolean redundant = false;
+             for (String existing : selected) {
