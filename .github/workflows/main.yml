@@ -2,6 +2,9 @@ name: Build BiblioTopicSearch APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - agent/semantic-final
 
 permissions:
   contents: read
@@ -21,6 +24,13 @@ jobs:
           unzip -q BiblioTopicSearch_FINAL.zip -d project
           echo "Project contents:"
           ls -la project
+
+      - name: Upload unpacked source
+        uses: actions/upload-artifact@v4
+        with:
+          name: BiblioTopicSearch-SOURCE
+          path: project
+          if-no-files-found: error
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
