@@ -1,0 +1,366 @@
++        denseWeight = dense.weight;
++        denseBias = dense.bias;
++
++        environment = OrtEnvironment.getEnvironment();
++        OrtSession.SessionOptions options = new OrtSession.SessionOptions();
++        options.setIntraOpNumThreads(2);
++        options.setInterOpNumThreads(1);
++        options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
++        File model = materializeModel(this.context, MODEL_ASSET);
++        session = environment.createSession(model.getAbsolutePath(), options);
++
++        Set<String> names = session.getInputNames();
++        String ids = null;
++        String mask = null;
++        for (String name : names) {
++            String lower = name.toLowerCase();
++            if (lower.contains("input_ids") || lower.equals("ids")) ids = name;
++            if (lower.contains("attention_mask") || lower.equals("mask")) mask = name;
++        }
++        if (ids == null || mask == null) {
++            throw new IOException("Unexpected ONNX inputs: " + names);
++        }
++        inputIdsName = ids;
++        attentionMaskName = mask;
++    }
++
++    public synchronized float[] embed(String text) throws OrtException {
++        if (text == null) text = "";
++        float[] found = cache.get(text);
++        if (found != null) return found;
++        List<float[]> values = embedAll(Collections.singletonList(text));
++        return values.isEmpty() ? new float[OUTPUT_DIM] : values.get(0);
++    }
++
++    public synchronized List<float[]> embedAll(List<String> texts) throws OrtException {
++        if (texts == null || texts.isEmpty()) return Collections.emptyList();
++        List<float[]> output = new ArrayList<>(Collections.nCopies(texts.size(), null));
++        List<Integer> missingIndices = new ArrayList<>();
++        List<String> missingTexts = new ArrayList<>();
++
++        for (int i = 0; i < texts.size(); i++) {
++            String text = texts.get(i) == null ? "" : texts.get(i);
++            float[] found = cache.get(text);
++            if (found != null) output.set(i, found);
++            else {
++                missingIndices.add(i);
++                missingTexts.add(text);
++            }
++        }
++
++        for (int base = 0; base < missingTexts.size(); base += BATCH_SIZE) {
++            int end = Math.min(missingTexts.size(), base + BATCH_SIZE);
++            List<String> batch = missingTexts.subList(base, end);
++            List<float[]> vectors = runBatch(batch);
++            for (int j = 0; j < vectors.size(); j++) {
++                String text = batch.get(j);
++                float[] vector = vectors.get(j);
++                cache.put(text, vector);
++                output.set(missingIndices.get(base + j), vector);
++            }
++        }
++        return output;
++    }
++
++    public static float cosine(float[] a, float[] b) {
++        if (a == null || b == null || a.length == 0 || a.length != b.length) return -1f;
++        float dot = 0f;
++        float na = 0f;
++        float nb = 0f;
++        for (int i = 0; i < a.length; i++) {
++            dot += a[i] * b[i];
++            na += a[i] * a[i];
++            nb += b[i] * b[i];
++        }
++        if (na <= 0f || nb <= 0f) return -1f;
++        return (float) (dot / Math.sqrt(na * nb));
++    }
++
++    private List<float[]> runBatch(List<String> texts) throws OrtException {
++        int batch = texts.size();
++        int seq = WordPieceTokenizer.MAX_SEQUENCE_LENGTH;
++        long[] idsFlat = new long[batch * seq];
++        long[] masksFlat = new long[batch * seq];
++        for (int i = 0; i < batch; i++) {
++            WordPieceTokenizer.Encoding encoded = tokenizer.encode(texts.get(i));
++            System.arraycopy(encoded.inputIds, 0, idsFlat, i * seq, seq);
++            System.arraycopy(encoded.attentionMask, 0, masksFlat, i * seq, seq);
++        }
++
++        long[] shape = new long[]{batch, seq};
++        try (
++                OnnxTensor idsTensor = OnnxTensor.createTensor(
++                        environment, LongBuffer.wrap(idsFlat), shape
++                );
++                OnnxTensor maskTensor = OnnxTensor.createTensor(
++                        environment, LongBuffer.wrap(masksFlat), shape
++                )
++        ) {
++            Map<String, OnnxTensor> inputs = new HashMap<>();
++            inputs.put(inputIdsName, idsTensor);
++            inputs.put(attentionMaskName, maskTensor);
++            try (OrtSession.Result result = session.run(inputs)) {
++                Object hidden = first3dFloatOutput(result);
++                if (!(hidden instanceof float[][][])) {
++                    throw new IllegalStateException("Expected [batch, sequence, hidden] float output");
++                }
++                float[][][] values = (float[][][]) hidden;
++                List<float[]> out = new ArrayList<>(batch);
++                for (int b = 0; b < batch; b++) {
++                    out.add(poolProjectNormalize(values[b], masksFlat, b * seq, seq));
++                }
++                return out;
++            }
++        }
++    }
++
++    private Object first3dFloatOutput(OrtSession.Result result) throws OrtException {
++        for (int i = 0; i < result.size(); i++) {
++            OnnxValue value = result.get(i);
++            Object raw = value.getValue();
++            if (raw instanceof float[][][]) return raw;
++        }
++        return result.get(0).getValue();
++    }
++
++    private float[] poolProjectNormalize(float[][] hidden, long[] mask, int maskOffset, int seq) {
++        float[] pooled = new float[INPUT_DIM];
++        float count = 0f;
++        int usable = Math.min(seq, hidden.length);
++        for (int token = 0; token < usable; token++) {
++            if (mask[maskOffset + token] == 0L) continue;
++            float[] row = hidden[token];
++            int dims = Math.min(INPUT_DIM, row.length);
++            for (int d = 0; d < dims; d++) pooled[d] += row[d];
++            count += 1f;
++        }
++        if (count <= 0f) count = 1f;
++        for (int d = 0; d < pooled.length; d++) pooled[d] /= count;
++
++        float[] projected = new float[OUTPUT_DIM];
++        float norm = 0f;
++        for (int out = 0; out < OUTPUT_DIM; out++) {
++            int rowOffset = out * INPUT_DIM;
++            float sum = denseBias[out];
++            for (int in = 0; in < INPUT_DIM; in++) {
++                sum += denseWeight[rowOffset + in] * pooled[in];
++            }
++            float value = (float) Math.tanh(sum);
++            projected[out] = value;
++            norm += value * value;
++        }
++        norm = (float) Math.sqrt(Math.max(norm, 1e-12f));
++        for (int i = 0; i < projected.length; i++) projected[i] /= norm;
++        return projected;
++    }
++
++    private static File materializeModel(Context context, String assetPath) throws IOException {
++        File dir = new File(context.getFilesDir(), "semantic-model");
++        if (!dir.exists() && !dir.mkdirs()) throw new IOException("Cannot create semantic model directory");
++        File target = new File(dir, "distiluse-multilingual-qint8.onnx");
++        long expected = assetSize(context, assetPath);
++        if (target.exists() && target.length() == expected && expected > 0) return target;
++
++        File temp = new File(dir, target.getName() + ".tmp");
++        try (
++                InputStream in = new BufferedInputStream(context.getAssets().open(assetPath));
++                BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(temp))
++        ) {
++            byte[] buffer = new byte[256 * 1024];
++            int read;
++            while ((read = in.read(buffer)) >= 0) out.write(buffer, 0, read);
++        }
++        if (target.exists() && !target.delete()) throw new IOException("Cannot replace old semantic model");
++        if (!temp.renameTo(target)) throw new IOException("Cannot install semantic model");
++        return target;
++    }
++
++    private static long assetSize(Context context, String assetPath) throws IOException {
++        try (AssetFileDescriptor descriptor = context.getAssets().openFd(assetPath)) {
++            return descriptor.getLength();
++        } catch (IOException notUncompressed) {
++            // Fallback for development builds where the asset might still be compressed.
++            try (InputStream in = context.getAssets().open(assetPath)) {
++                long total = 0;
++                byte[] buffer = new byte[64 * 1024];
++                int read;
++                while ((read = in.read(buffer)) >= 0) total += read;
++                return total;
++            }
++        }
++    }
++
++    private static DenseParameters loadDense(Context context, String assetPath)
++            throws IOException, JSONException {
++        byte[] bytes = readAll(context.getAssets().open(assetPath));
++        if (bytes.length < 16) throw new IOException("Dense safetensors asset is invalid");
++        ByteBuffer top = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
++        long headerLengthLong = top.getLong(0);
++        if (headerLengthLong <= 0 || headerLengthLong > Integer.MAX_VALUE) {
++            throw new IOException("Invalid safetensors header");
++        }
++        int headerLength = (int) headerLengthLong;
++        int dataStart = 8 + headerLength;
++        if (dataStart > bytes.length) throw new IOException("Truncated safetensors header");
++        JSONObject header = new JSONObject(new String(bytes, 8, headerLength, StandardCharsets.UTF_8));
++
++        float[] weight = null;
++        float[] bias = null;
++        JSONArray names = header.names();
++        if (names != null) {
++            for (int i = 0; i < names.length(); i++) {
++                String key = names.getString(i);
++                if ("__metadata__".equals(key)) continue;
++                JSONObject tensor = header.getJSONObject(key);
++                if (!"F32".equals(tensor.optString("dtype"))) continue;
++                JSONArray shape = tensor.getJSONArray("shape");
++                JSONArray offsets = tensor.getJSONArray("data_offsets");
++                int begin = dataStart + offsets.getInt(0);
++                int end = dataStart + offsets.getInt(1);
++                if (begin < dataStart || end > bytes.length || end <= begin) continue;
++
++                if (shape.length() == 2
++                        && shape.getInt(0) == OUTPUT_DIM
++                        && shape.getInt(1) == INPUT_DIM) {
++                    weight = readFloatArray(bytes, begin, end, OUTPUT_DIM * INPUT_DIM);
++                } else if (shape.length() == 1 && shape.getInt(0) == OUTPUT_DIM) {
++                    bias = readFloatArray(bytes, begin, end, OUTPUT_DIM);
++                }
++            }
++        }
++        if (weight == null || bias == null) {
++            throw new IOException("Dense projection tensors not found in safetensors asset");
++        }
++        return new DenseParameters(weight, bias);
++    }
++
++    private static float[] readFloatArray(byte[] bytes, int begin, int end, int expected) throws IOException {
++        int length = end - begin;
++        if (length != expected * 4) {
++            throw new IOException("Unexpected dense tensor length: " + length + " != " + (expected * 4));
++        }
++        float[] out = new float[expected];
++        ByteBuffer buffer = ByteBuffer.wrap(bytes, begin, length).order(ByteOrder.LITTLE_ENDIAN);
++        for (int i = 0; i < expected; i++) out[i] = buffer.getFloat();
++        return out;
++    }
++
++    private static byte[] readAll(InputStream input) throws IOException {
++        try (InputStream in = input; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
++            byte[] buffer = new byte[64 * 1024];
++            int read;
++            while ((read = in.read(buffer)) >= 0) out.write(buffer, 0, read);
++            return out.toByteArray();
++        }
++    }
++
++    @Override
++    public void close() throws IOException {
++        try {
++            session.close();
++        } catch (OrtException e) {
++            throw new IOException(e);
++        }
++    }
++
++    private static final class DenseParameters {
++        final float[] weight;
++        final float[] bias;
++
++        DenseParameters(float[] weight, float[] bias) {
++            this.weight = weight;
++            this.bias = bias;
++        }
++    }
++}
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java b/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..1c30b371562b7f8cc85275406aa1dad7207c1f17
+--- /dev/null
++++ b/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
+@@ -0,0 +1,560 @@
++package ro.bibliotopicsearch.app.semantic;
++
++import android.content.Context;
++import android.graphics.Color;
++import android.graphics.Rect;
++import android.graphics.RectF;
++
++import com.google.mlkit.vision.text.Text;
++
++import ro.bibliotopicsearch.app.AppPrefs;
++import ro.bibliotopicsearch.app.MatchHit;
++import ro.bibliotopicsearch.app.TopicMap;
++import ro.bibliotopicsearch.app.TopicNode;
++
++import java.io.Closeable;
++import java.io.IOException;
++import java.util.ArrayList;
++import java.util.Collections;
++import java.util.Comparator;
++import java.util.HashSet;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Locale;
++import java.util.Map;
++import java.util.Set;
++
++import ai.onnxruntime.OrtException;
++
++/**
++ * Extractive, explicit-only semantic detector.
++ *
++ * It never generates an explanation. It only returns OCR evidence spans that are
++ * semantically close enough to a query/topic, then anchors every classification
++ * and compression label back to the exact OCR text.
++ */
++public final class SemanticAnalyzer implements Closeable {
++    private static final float TOPIC_DIRECT_THRESHOLD = 0.54f;
++    private static final float TOPIC_RELATED_THRESHOLD = 0.47f;
++    private static final float CATEGORY_DIRECT_THRESHOLD = 0.66f;
++    private static final float CATEGORY_CUE_MIN_THRESHOLD = 0.30f;
++    private static final float COHERENCE_CONTINUATION = 0.76f;
++    private static final float QUERY_CONTINUATION_FLOOR = 0.34f;
++    private static final int MAX_SPAN_LINES = 10;
++
++    private final Context context;
++    private final OnDeviceSentenceEmbedder embedder;
++    private final List<float[]> categoryVectors;
++    private final Map<String, float[]> topicVectors = new LinkedHashMap<>();
++    private String topicSignature = "";
++
++    public SemanticAnalyzer(Context context) throws Exception {
++        this.context = context.getApplicationContext();
++        embedder = new OnDeviceSentenceEmbedder(this.context);
++        List<String> categoryTexts = new ArrayList<>();
++        for (SemanticCatalog.Category category : SemanticCatalog.CATEGORIES) {
++            categoryTexts.add(category.descriptor);
++        }
++        categoryVectors = embedder.embedAll(categoryTexts);
++    }
++
++    public List<MatchHit> analyze(Text text, String query, TopicMap topicMap) throws OrtException {
++        List<LineUnit> units = extractUnits(text);
++        if (units.isEmpty()) return Collections.emptyList();
++
++        List<String> unitTexts = new ArrayList<>(units.size());
++        for (LineUnit unit : units) unitTexts.add(unit.text);
++        List<float[]> unitVectors = embedder.embedAll(unitTexts);
++        ensureTopicVectors(topicMap);
++
++        String semanticQuery = query == null ? "" : query.trim();
++        if (!semanticQuery.isEmpty()) {
++            return analyzeQuery(units, unitVectors, semanticQuery, topicMap);
++        }
++        return analyzeTopics(units, unitVectors, topicMap);
++    }
++
++    private List<MatchHit> analyzeQuery(
++            List<LineUnit> units,
++            List<float[]> vectors,
++            String query,
++            TopicMap topicMap
++    ) throws OrtException {
++        float[] queryVector = embedder.embed(query);
++        float[] scores = new float[units.size()];
++        float best = -1f;
