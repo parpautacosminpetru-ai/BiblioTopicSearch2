@@ -1,0 +1,37 @@
+name: Extract Android source
+
+on:
+  push:
+    branches:
+      - agent/semantic-ocr-live
+    paths:
+      - .github/workflows/extract-source.yml
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+
+      - name: Extract project source
+        run: |
+          rm -rf project source
+          mkdir -p project source
+          unzip -q BiblioTopicSearch_FINAL.zip -d project
+          cp -a project/. source/
+
+      - name: Commit extracted source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add source
+          if git diff --cached --quiet; then
+            echo "Source already extracted"
+          else
+            git commit -m "Extract Android source for semantic OCR work"
+            git push
+          fi
