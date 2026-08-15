@@ -2,7 +2,7 @@ name: Probe Final NLI Tokenizer
 
 on:
   push:
-    branches: [agent/lupa-semantica-3-1-upgrade]
+    branches: [agent/lupa-semantic-neural-verifier-v34]
     paths:
       - 'semantic-final/pro/nli_final_probe.py'
       - '.github/workflows/nli-final-probe.yml'
