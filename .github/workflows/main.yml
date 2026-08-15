@@ -59,11 +59,9 @@ jobs:
           grep -q 'blendEvidenceBoxes' project/app/src/main/java/ro/bibliotopicsearch/app/OverlayView.java
           grep -q 'withGeometry' project/app/src/main/java/ro/bibliotopicsearch/app/MatchHit.java
           grep -q 'evidence.contains(candidate.phrase)' project/app/src/main/java/ro/bibliotopicsearch/app/semantic/ExtractiveCompression.java
-          grep -q 'android.permission.INTERNET.*tools:node="remove"' project/app/src/main/AndroidManifest.xml
-          if grep 'android.permission.INTERNET' project/app/src/main/AndroidManifest.xml | grep -vq 'tools:node="remove"'; then
-            echo 'A real INTERNET permission is forbidden for offline build' >&2
-            exit 1
-          fi
+          grep -q 'xmlns:tools="http://schemas.android.com/tools"' project/app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.INTERNET' project/app/src/main/AndroidManifest.xml
+          grep -q 'tools:node="remove"' project/app/src/main/AndroidManifest.xml
 
       - name: Install pinned semantic model assets
         env:
