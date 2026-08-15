@@ -22,6 +22,12 @@ jobs:
           echo "Project contents:"
           ls -la project
 
+      - name: Apply semantic live overlay patch
+        run: |
+          test -f patches/app/src/main/java/ro/bibliotopicsearch/app/OverlayView.java
+          cp -a patches/app/. project/app/
+          echo "Applied semantic ultrasound-style live overlay"
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
