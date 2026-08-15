@@ -1,0 +1,107 @@
+--- a/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
+@@ -731,6 +731,13 @@
+         Intent intent = new Intent(this, NotebookActivity.class);
+         String snapshot = latestOcrText == null ? "" : latestOcrText;
+         if (!snapshot.trim().isEmpty()) intent.putExtra("ocr_text", snapshot);
++
++        // One search bar for the entire product. Notebook never owns a second query field;
++        // it receives the current text from the main semantic bar and performs retrieval only.
++        String unifiedQuery = semanticSearchInput == null
++                ? semanticQuery
++                : semanticSearchInput.getText().toString().trim();
++        intent.putExtra("semantic_query", unifiedQuery == null ? "" : unifiedQuery);
+         startActivity(intent);
+     }
+ 
+--- a/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java
+@@ -9,7 +9,6 @@
+ import android.provider.OpenableColumns;
+ import android.view.Gravity;
+ import android.view.ViewGroup;
+-import android.view.inputmethod.EditorInfo;
+ import android.widget.Button;
+ import android.widget.EditText;
+ import android.widget.LinearLayout;
+@@ -42,10 +41,10 @@
+ 
+     private NotebookStore store;
+     private OnDeviceSentenceEmbedder embedder;
+-    private EditText searchInput;
+     private TextView status;
+     private LinearLayout content;
+     private String incomingOcr = "";
++    private String activeQuery = "";
+ 
+     @Override
+     protected void onCreate(@Nullable Bundle savedInstanceState) {
+@@ -53,9 +52,12 @@
+         store = new NotebookStore(this);
+         incomingOcr = getIntent().getStringExtra("ocr_text");
+         if (incomingOcr == null) incomingOcr = "";
++        activeQuery = getIntent().getStringExtra("semantic_query");
++        if (activeQuery == null) activeQuery = "";
++        activeQuery = activeQuery.trim();
+         buildUi();
+-        showSources();
+-        executor.execute(this::ensureEmbedder);
++        if (activeQuery.isEmpty()) showSources();
++        else runSearch(activeQuery);
+     }
+ 
+     @Override
+@@ -91,19 +93,14 @@
+         actions.addView(showSources, weighted());
+         root.addView(actions);
+ 
+-        LinearLayout searchRow = new LinearLayout(this);
+-        searchRow.setOrientation(LinearLayout.HORIZONTAL);
+-        searchRow.setPadding(0, dp(10), 0, dp(6));
+-        searchInput = new EditText(this);
+-        searchInput.setSingleLine(true);
+-        searchInput.setTextColor(Color.WHITE);
+-        searchInput.setHintTextColor(Color.rgb(135, 157, 172));
+-        searchInput.setHint("Caută semantic în toate sursele…");
+-        searchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+-        searchRow.addView(searchInput, new LinearLayout.LayoutParams(0, dp(44), 1f));
+-        Button search = button("CAUTĂ");
+-        searchRow.addView(search, new LinearLayout.LayoutParams(dp(86), dp(44)));
+-        root.addView(searchRow);
++        TextView unifiedSearch = text(
++                activeQuery.isEmpty()
++                        ? "BARĂ UNICĂ • nicio interogare activă — caută din ecranul camerei"
++                        : "BARĂ UNICĂ • " + activeQuery,
++                12, Color.rgb(98, 211, 255), true
++        );
++        unifiedSearch.setPadding(0, dp(10), 0, dp(6));
++        root.addView(unifiedSearch);
+ 
+         status = text("", 11, Color.rgb(98, 211, 255), false);
+         root.addView(status);
+@@ -120,14 +117,6 @@
+         addOcr.setOnClickListener(v -> addIncomingOcr());
+         importText.setOnClickListener(v -> importText());
+         showSources.setOnClickListener(v -> showSources());
+-        search.setOnClickListener(v -> runSearch());
+-        searchInput.setOnEditorActionListener((v, actionId, event) -> {
+-            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+-                runSearch();
+-                return true;
+-            }
+-            return false;
+-        });
+         setContentView(root);
+     }
+ 
+@@ -211,8 +200,8 @@
+         });
+     }
+ 
+-    private void runSearch() {
+-        String query = searchInput.getText().toString().trim();
++    private void runSearch(String requestedQuery) {
++        String query = requestedQuery == null ? "" : requestedQuery.trim();
+         if (query.isEmpty()) {
+             showSources();
+             return;

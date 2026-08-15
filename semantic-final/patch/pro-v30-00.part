@@ -1,0 +1,226 @@
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java b/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
+index e2c2bcf..5f62b97 100644
+--- a/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
+@@ -50,6 +50,7 @@ import com.google.mlkit.vision.text.TextRecognizer;
+ import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
+ 
+ import java.io.OutputStream;
++import java.util.ArrayList;
+ import java.util.Collections;
+ import java.util.HashSet;
+ import java.util.LinkedHashMap;
+@@ -64,7 +65,18 @@ import ro.bibliotopicsearch.app.semantic.SemanticAnalyzer;
+ public final class MainActivity extends AppCompatActivity {
+     private static final int REQ_CAMERA = 101;
+     private static final int REQ_SAVE_FRAME = 501;
+-    private static final long STALE_OVERLAY_MS = 750L;
++    private static final long STALE_OVERLAY_MS = 2500L;
++    private static final int MAX_ACTIVE_QUERIES = 8;
++    private static final int[] QUERY_COLORS = new int[]{
++            Color.rgb(26, 188, 156),
++            Color.rgb(52, 152, 219),
++            Color.rgb(155, 89, 182),
++            Color.rgb(241, 196, 15),
++            Color.rgb(230, 126, 34),
++            Color.rgb(231, 76, 60),
++            Color.rgb(46, 204, 113),
++            Color.rgb(236, 112, 99)
++    };
+ 
+     private PreviewView previewView;
+     private ImageView freezeImage;
+@@ -90,15 +102,21 @@ public final class MainActivity extends AppCompatActivity {
+     private LifecycleCameraController cameraController;
+     private TextRecognizer recognizer;
+     private MlKitAnalyzer analyzer;
++    // CameraX/ML Kit must stay responsive; semantic inference never runs on this executor.
+     private final ExecutorService analysisExecutor = Executors.newSingleThreadExecutor();
++    private final ExecutorService semanticExecutor = Executors.newSingleThreadExecutor();
+     private final Handler mainHandler = new Handler(Looper.getMainLooper());
++    private final Object semanticQueueLock = new Object();
++    private final LinkedHashMap<String, QuerySpec> activeSemanticQueries = new LinkedHashMap<>();
++    private SemanticFrame pendingSemanticFrame;
++    private boolean semanticWorkerRunning = false;
++    private long queryRevision = 0L;
+     private volatile TopicMatcher.SearchPlan searchPlan;
+     private volatile SemanticAnalyzer semanticAnalyzer;
+     private volatile boolean semanticReady = false;
+     private volatile String semanticFailure = "";
+-    private volatile String semanticQuery = "";
+     private volatile String latestOcrText = "";
+-    private int semanticDetailLevel = 1;
++    private int semanticDetailLevel = 0;
+ 
+     private TopicMap topicMap;
+     private boolean frozen = false;
+@@ -119,7 +137,7 @@ public final class MainActivity extends AppCompatActivity {
+         if (!frozen && ocrEnabled && overlayView != null) {
+             overlayView.clearHits();
+             updateLegend(Collections.emptyList());
+-            setStatus(semanticReady ? "Semantic explicit • caut idee nouă" : "OCR live • caut text nou", Color.rgb(78, 201, 126));
++            setStatus(semanticReady ? "Semantic live • " + activeQueryCount() + " teme active" : "OCR live • caut text nou", Color.rgb(78, 201, 126));
+         }
+     };
+ 
+@@ -130,7 +148,10 @@ public final class MainActivity extends AppCompatActivity {
+         floatingLabelsEnabled = AppPrefs.floatingLabels(this);
+         buildUi();
+         toneGenerator = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 22);
+-        overlayView.setOnHitTapListener(this::showHitDetails);
++        overlayView.setOnHitTapListener(hit -> {
++            // Professional mode: semantic output is the highlighted source span itself.
++            if (hit != null && !hit.semantic) showHitDetails(hit);
++        });
+         overlayView.setDetailLevel(semanticDetailLevel);
+         initializeSemanticEngine();
+ 
+@@ -169,7 +190,12 @@ public final class MainActivity extends AppCompatActivity {
+         if (semantic != null) {
+             try { semantic.close(); } catch (Exception ignored) {}
+         }
++        synchronized (semanticQueueLock) {
++            pendingSemanticFrame = null;
++            semanticWorkerRunning = false;
++        }
+         analysisExecutor.shutdown();
++        semanticExecutor.shutdown();
+         if (toneGenerator != null) toneGenerator.release();
+         super.onDestroy();
+     }
+@@ -233,7 +259,7 @@ public final class MainActivity extends AppCompatActivity {
+ 
+         semanticSearchInput = new EditText(this);
+         semanticSearchInput.setSingleLine(true);
+-        semanticSearchInput.setHint("Caută semantic o idee explicită…");
++        semanticSearchInput.setHint("Adaugă temă / idee…");
+         semanticSearchInput.setHintTextColor(Color.rgb(150, 169, 183));
+         semanticSearchInput.setTextColor(Color.WHITE);
+         semanticSearchInput.setTextSize(13);
+@@ -242,7 +268,7 @@ public final class MainActivity extends AppCompatActivity {
+         semanticSearchInput.setBackgroundTintList(ColorStateList.valueOf(Color.rgb(74, 111, 132)));
+         semanticSearchRow.addView(semanticSearchInput, new LinearLayout.LayoutParams(0, dp(40), 1f));
+ 
+-        semanticSearchButton = actionButton("CAUTĂ");
++        semanticSearchButton = actionButton("ADAUGĂ");
+         semanticSearchButton.setMinWidth(dp(72));
+         LinearLayout.LayoutParams searchButtonLp = new LinearLayout.LayoutParams(
+                 ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)
+@@ -291,7 +317,7 @@ public final class MainActivity extends AppCompatActivity {
+         toolbar.setPadding(0, dp(4), 0, dp(3));
+ 
+         ocrButton = toolbarButton(ocrEnabled ? "● OCR LIVE" : "Ⅱ OCR PAUZĂ");
+-        semanticDetailButton = toolbarButton("ZOOM: IDEE");
++        semanticDetailButton = toolbarButton("ZOOM: SPAN");
+         nodesButton = toolbarButton("NODURI");
+         labelsButton = toolbarButton("ETICHETE");
+         Button libraryButton = toolbarButton("TEME");
+@@ -304,7 +330,6 @@ public final class MainActivity extends AppCompatActivity {
+         toolbar.addView(ocrButton, toolbarLp());
+         toolbar.addView(semanticDetailButton, toolbarLp());
+         toolbar.addView(nodesButton, toolbarLp());
+-        toolbar.addView(labelsButton, toolbarLp());
+         toolbar.addView(libraryButton, toolbarLp());
+         toolbar.addView(notebookButton, toolbarLp());
+         toolbar.addView(freezeButton, toolbarLp());
+@@ -324,7 +349,7 @@ public final class MainActivity extends AppCompatActivity {
+         nodePanel.setPadding(0, dp(4), 0, dp(4));
+ 
+         TextView nodeHint = new TextView(this);
+-        nodeHint.setText("AFIȘARE LIVE • căutarea rămâne activă în fundal");
++        nodeHint.setText("TEME ACTIVE • highlight-ul rămâne live și non-blocant");
+         nodeHint.setTextColor(Color.rgb(205, 216, 225));
+         nodeHint.setTextSize(10);
+         nodePanel.addView(nodeHint);
+@@ -409,29 +434,11 @@ public final class MainActivity extends AppCompatActivity {
+                     }
+ 
+                     latestOcrText = text.getText() == null ? "" : text.getText();
+-
+-                    List<MatchHit> hits;
+-                    int searchableTerms;
+-                    SemanticAnalyzer semantic = semanticAnalyzer;
+-                    if (semanticReady && semantic != null) {
+-                        try {
+-                            TopicMap activeMap = topicMap == null ? TopicMapStore.load(MainActivity.this) : topicMap;
+-                            hits = semantic.analyze(text, semanticQuery, activeMap);
+-                            searchableTerms = semanticQuery.isEmpty() ? activeNodeCount(activeMap) : 1;
+-                        } catch (Throwable semanticError) {
+-                            semanticFailure = semanticError.getClass().getSimpleName() + ": "
+-                                    + String.valueOf(semanticError.getMessage());
+-                            hits = lexicalFallback(text);
+-                            searchableTerms = searchPlan == null ? 0 : searchPlan.termCount();
+-                        }
+-                    } else {
+-                        hits = lexicalFallback(text);
+-                        searchableTerms = searchPlan == null ? 0 : searchPlan.termCount();
+-                    }
+                     int recognizedWords = countRecognizedWords(text);
+-                    int finalSearchableTerms = searchableTerms;
+-                    List<MatchHit> finalHits = hits;
+-                    runOnUiThread(() -> applyHits(finalHits, recognizedWords, finalSearchableTerms));
++
++                    // OCR returns immediately. Semantic work is latest-only on a separate executor,
++                    // so camera frames never queue behind ONNX inference.
++                    enqueueSemanticFrame(text, recognizedWords);
+                 }
+         );
+ 
+@@ -448,16 +455,16 @@ public final class MainActivity extends AppCompatActivity {
+     private void initializeSemanticEngine() {
+         if (!ocrEnabled) return;
+         setStatus("Încarc modelul semantic explicit offline…", Color.rgb(244, 188, 77));
+-        analysisExecutor.execute(() -> {
++        semanticExecutor.execute(() -> {
+             try {
+                 SemanticAnalyzer engine = new SemanticAnalyzer(getApplicationContext());
+                 semanticAnalyzer = engine;
+                 semanticReady = true;
+                 semanticFailure = "";
+                 runOnUiThread(() -> setStatus(
+-                        semanticQuery.isEmpty()
+-                                ? "Semantic explicit pregătit • detecție TOPIC/NOD"
+-                                : "Semantic explicit pregătit • caut: " + semanticQuery,
++                        activeQueryCount() == 0
++                                ? "Semantic pregătit • adaugă o temă / idee"
++                                : "Semantic pregătit • " + activeQueryCount() + " teme active",
+                         Color.rgb(78, 201, 126)
+                 ));
+             } catch (Throwable error) {
+@@ -483,29 +490,43 @@ public final class MainActivity extends AppCompatActivity {
+ 
+     private void submitSemanticSearch() {
+         String next = semanticSearchInput == null ? "" : semanticSearchInput.getText().toString().trim();
+-        semanticQuery = next;
+-        latestAllHits = Collections.emptyList();
+-        overlayView.clearHits();
+-        updateLegend(Collections.emptyList());
++        if (next.isEmpty()) return;
++
++        if (!isActiveQuery(next) && activeQueryCount() >= MAX_ACTIVE_QUERIES) {
++            setStatus("Maxim " + MAX_ACTIVE_QUERIES + " teme active • elimină una din legendă",
++                    Color.rgb(244, 188, 77));
++            return;
++        }
++        boolean added = addActiveQuery(next);
++        if (semanticSearchInput != null) semanticSearchInput.setText("");
+         InputMethodManager keyboard = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+         if (keyboard != null && semanticSearchInput != null) {
+             keyboard.hideSoftInputFromWindow(semanticSearchInput.getWindowToken(), 0);
+         }
++
++        if (!added) {
++            setStatus("Tema este deja activă • " + activeQueryCount() + " în paralel",
++                    Color.rgb(244, 188, 77));
++            return;
++        }
++
++        invalidateSemanticResults();
++        updateLegend(Collections.emptyList());
+         if (!semanticReady) {
+-            setStatus("Motorul semantic încă nu este disponibil • verifică modelul", Color.rgb(244, 188, 77));
+-        } else if (next.isEmpty()) {
+-            setStatus("Semantic explicit • mod TOPIC/NOD automat", Color.rgb(78, 201, 126));
++            setStatus("Tema a fost adăugată • motorul semantic se inițializează",
++                    Color.rgb(244, 188, 77));
+         } else {

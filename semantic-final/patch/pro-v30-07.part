@@ -1,0 +1,101 @@
++        for (int i = 0; i < cleaned.size(); i++) {
++            combined.addAll(analyzeQuery(
++                    units,
++                    unitVectors,
++                    cleaned.get(i),
++                    queryVectors.get(i),
++                    topicMap,
++                    spanVectorCache
++            ));
+         }
+-        return analyzeTopics(units, unitVectors, topicMap);
++        combined.sort(Comparator.comparingDouble((MatchHit hit) -> hit.similarity).reversed());
++        return combined;
+     }
+ 
+     private List<MatchHit> analyzeQuery(
+             List<LineUnit> units,
+             List<float[]> vectors,
+             String query,
+-            TopicMap topicMap
++            float[] queryVector,
++            TopicMap topicMap,
++            Map<String, float[]> spanVectorCache
+     ) throws OrtException {
+-        float[] queryVector = embedder.embed(query);
+         float[] scores = new float[units.size()];
+         float best = -1f;
+         for (int i = 0; i < units.size(); i++) {
+@@ -107,7 +151,11 @@ public final class SemanticAnalyzer implements Closeable {
+             if (consumed[nucleus]) continue;
+             Span span = expandSpan(units, vectors, scores, nucleus, continuation);
+             String evidence = join(units, span.start, span.end);
+-            float[] spanVector = embedder.embed(evidence);
++            float[] spanVector = spanVectorCache.get(evidence);
++            if (spanVector == null) {
++                spanVector = embedder.embed(evidence);
++                spanVectorCache.put(evidence, spanVector);
++            }
+             float spanScore = OnDeviceSentenceEmbedder.cosine(queryVector, spanVector);
+ 
+             // Explicit-only gate: the final evidence itself must stay close to the query;
+@@ -122,6 +170,7 @@ public final class SemanticAnalyzer implements Closeable {
+             MatchHit hit = buildHit(
+                     units,
+                     span,
++                    scores,
+                     evidence,
+                     query,
+                     node,
+@@ -132,6 +181,7 @@ public final class SemanticAnalyzer implements Closeable {
+             );
+             hits.add(hit);
+             for (int i = span.start; i <= span.end; i++) consumed[i] = true;
++            if (hits.size() >= 5) break;
+         }
+         hits.sort(Comparator.comparingDouble((MatchHit hit) -> hit.similarity).reversed());
+         return hits;
+@@ -180,6 +230,7 @@ public final class SemanticAnalyzer implements Closeable {
+             hits.add(buildHit(
+                     units,
+                     span,
++                    scores,
+                     evidence,
+                     node.title,
+                     node,
+@@ -294,6 +345,7 @@ public final class SemanticAnalyzer implements Closeable {
+     private MatchHit buildHit(
+             List<LineUnit> units,
+             Span span,
++            float[] unitScores,
+             String evidence,
+             String query,
+             TopicNode node,
+@@ -304,13 +356,18 @@ public final class SemanticAnalyzer implements Closeable {
+     ) {
+         RectF union = null;
+         List<RectF> evidenceBoxes = new ArrayList<>();
++        List<Float> evidenceRelevance = new ArrayList<>();
+         for (int i = span.start; i <= span.end; i++) {
+             LineUnit unit = units.get(i);
+             if (unit.box != null) {
+                 if (union == null) union = new RectF(unit.box);
+                 else union.union(unit.box);
+             }
+-            for (RectF box : unit.evidenceBoxes) evidenceBoxes.add(new RectF(box));
++            float localScore = unitScores != null && i < unitScores.length ? unitScores[i] : score;
++            for (RectF box : unit.evidenceBoxes) {
++                evidenceBoxes.add(new RectF(box));
++                evidenceRelevance.add(localScore);
++            }
+         }
+         if (union == null) union = new RectF();
+         String startText = units.get(span.start).startText;
+@@ -328,6 +385,7 @@ public final class SemanticAnalyzer implements Closeable {
+                 labels,
+                 relatedTopics,
+                 evidenceBoxes,
++                evidenceRelevance,
+                 startText,
+                 endText
+         );

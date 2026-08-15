@@ -1,0 +1,72 @@
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/MatchHit.java b/app/src/main/java/ro/bibliotopicsearch/app/MatchHit.java
+index 06af2d2..e5f7356 100644
+--- a/app/src/main/java/ro/bibliotopicsearch/app/MatchHit.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/MatchHit.java
+@@ -74,6 +74,25 @@ public final class MatchHit {
+         this.evidenceEnd = evidenceEnd == null ? "" : evidenceEnd;
+     }
+ 
++    public MatchHit withGeometry(RectF newBox, List<RectF> newEvidenceBoxes) {
++        return new MatchHit(
++                newBox == null ? box : newBox,
++                originalText,
++                searchTerm,
++                node,
++                detectedAt,
++                semantic,
++                explicitOnly,
++                similarity,
++                semanticCategory,
++                compressionLabels,
++                relatedTopics,
++                newEvidenceBoxes == null ? evidenceBoxes : newEvidenceBoxes,
++                evidenceStart,
++                evidenceEnd
++        );
++    }
++
+     public String identityKey() {
+         String nodePath = node == null || node.path == null ? "" : node.path;
+         if (!semantic) return nodePath + "|" + searchTerm;
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/OverlayView.java b/app/src/main/java/ro/bibliotopicsearch/app/OverlayView.java
+index d818547..b9a2073 100644
+--- a/app/src/main/java/ro/bibliotopicsearch/app/OverlayView.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/OverlayView.java
+@@ -132,7 +132,11 @@ public final class OverlayView extends View {
+ 
+             if (nearest != null) {
+                 usedOld.add(nearestIndex);
+-                fresh.box = blend(nearest.box, fresh.box, currentWeight);
++                RectF blendedBox = blend(nearest.box, fresh.box, currentWeight);
++                List<RectF> blendedEvidence = blendEvidenceBoxes(
++                        nearest.evidenceBoxes, fresh.evidenceBoxes, currentWeight
++                );
++                fresh = fresh.withGeometry(blendedBox, blendedEvidence);
+             }
+             adjusted.add(fresh);
+         }
+@@ -162,6 +166,24 @@ public final class OverlayView extends View {
+         }
+     }
+ 
++    private List<RectF> blendEvidenceBoxes(
++            List<RectF> oldBoxes,
++            List<RectF> newBoxes,
++            float currentWeight
++    ) {
++        if (newBoxes == null || newBoxes.isEmpty()) return new ArrayList<>();
++        if (oldBoxes == null || oldBoxes.size() != newBoxes.size()) {
++            List<RectF> copied = new ArrayList<>();
++            for (RectF box : newBoxes) copied.add(new RectF(box));
++            return copied;
++        }
++        List<RectF> blended = new ArrayList<>(newBoxes.size());
++        for (int i = 0; i < newBoxes.size(); i++) {
++            blended.add(blend(oldBoxes.get(i), newBoxes.get(i), currentWeight));
++        }
++        return blended;
++    }
++
+     private RectF blend(RectF oldBox, RectF newBox, float currentWeight) {
+         float previousWeight = 1f - currentWeight;
+         return new RectF(
