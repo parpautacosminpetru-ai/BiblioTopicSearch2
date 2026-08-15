@@ -1,20 +1,20 @@
 diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
-index 79154e7..2222222 100644
+index 79154e7..1111111 100644
 --- a/app/src/main/AndroidManifest.xml
 +++ b/app/src/main/AndroidManifest.xml
-@@ -1,8 +1,11 @@
+@@ -1,5 +1,10 @@
  <?xml version="1.0" encoding="utf-8"?>
 -<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 +<manifest xmlns:android="http://schemas.android.com/apk/res/android"
 +    xmlns:tools="http://schemas.android.com/tools">
++
++    <uses-permission
++        android:name="android.permission.INTERNET"
++        tools:node="remove" />
  
      <uses-permission android:name="android.permission.CAMERA" />
      <uses-permission android:name="android.permission.VIBRATE" />
-+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
- 
-     <uses-feature
-         android:name="android.hardware.camera.any"
-@@ -15,6 +18,11 @@
+@@ -15,6 +20,11 @@
          android:supportsRtl="true"
          android:theme="@style/Theme.BiblioTopicSearch">
  
