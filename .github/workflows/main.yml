@@ -43,22 +43,29 @@ jobs:
           git -C project apply ../semantic-final/notebook/integration.patch
           git -C project apply --check ../semantic-final/patch/live-ocr-stabilization.patch
           git -C project apply ../semantic-final/patch/live-ocr-stabilization.patch
+          git -C project apply --check ../semantic-final/patch/semantic-precision-v23.patch
+          git -C project apply ../semantic-final/patch/semantic-precision-v23.patch
           cp semantic-final/README_FINAL.md project/README.md
           cp semantic-final/MODEL_NOTICE.md project/MODEL_NOTICE.md
           sed -i 's/minSdk = 23/minSdk = 24/' project/app/build.gradle.kts
+          sed -i 's/versionCode = 22/versionCode = 23/; s/versionName = "2.2.0"/versionName = "2.3.0"/' project/app/build.gradle.kts
           test -f project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
           test -f project/app/src/main/java/ro/bibliotopicsearch/app/semantic/OnDeviceSentenceEmbedder.java
           test -f project/app/src/main/java/ro/bibliotopicsearch/app/semantic/WordPieceTokenizer.java
           test -f project/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java
           test -f project/app/src/main/java/ro/bibliotopicsearch/app/NotebookStore.java
           grep -q 'android:name=".NotebookActivity"' project/app/src/main/AndroidManifest.xml
-          grep -q 'versionName = "2.2.0"' project/app/build.gradle.kts
+          grep -q 'versionName = "2.3.0"' project/app/build.gradle.kts
+          grep -q 'versionCode = 23' project/app/build.gradle.kts
           grep -q 'minSdk = 24' project/app/build.gradle.kts
           grep -q 'onnxruntime-android:1.26.0' project/app/build.gradle.kts
           grep -q 'STRATEGY_KEEP_ONLY_LATEST' project/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
           grep -q 'blendEvidenceBoxes' project/app/src/main/java/ro/bibliotopicsearch/app/OverlayView.java
           grep -q 'withGeometry' project/app/src/main/java/ro/bibliotopicsearch/app/MatchHit.java
           grep -q 'evidence.contains(candidate.phrase)' project/app/src/main/java/ro/bibliotopicsearch/app/semantic/ExtractiveCompression.java
+          grep -q 'MAX_OCR_LINES_PER_SENTENCE' project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
+          grep -q 'hasSemanticSeparation' project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
+          grep -q 'topicScore' project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
           grep -q 'xmlns:tools="http://schemas.android.com/tools"' project/app/src/main/AndroidManifest.xml
           grep -q 'android.permission.INTERNET' project/app/src/main/AndroidManifest.xml
           grep -q 'tools:node="remove"' project/app/src/main/AndroidManifest.xml
@@ -90,7 +97,7 @@ jobs:
       - name: Upload patched source without model binaries
         uses: actions/upload-artifact@v4
         with:
-          name: Lupa-Semantica-2.2-SOURCE
+          name: Lupa-Semantica-2.3-SOURCE
           path: |
             project
             !project/.git
@@ -146,13 +153,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p output
-          cp project/app/build/outputs/apk/debug/app-debug.apk output/Lupa-Semantica-2.2.apk
-          sha256sum output/Lupa-Semantica-2.2.apk | tee output/SHA256SUMS.txt
+          cp project/app/build/outputs/apk/debug/app-debug.apk output/Lupa-Semantica-2.3.apk
+          sha256sum output/Lupa-Semantica-2.3.apk | tee output/SHA256SUMS.txt
           printf '%s\n' \
-            'Lupa Semantica 2.2' \
+            'Lupa Semantica 2.3' \
             'Runtime: fully offline' \
             'Network permission: none' \
             'Semantic model: bundled ONNX qint8' \
+            'Precision: OCR lines reconstructed into sentence units' \
+            'Precision: adaptive relative semantic threshold' \
+            'Topics: title and terms embedded independently' \
             'OCR: live CameraX + ML Kit overlay' \
             'Semantic span: START to END with stabilized per-line boxes' \
             'Notebook: local semantic retrieval, verbatim evidence only' \
@@ -164,6 +174,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Lupa-Semantica-2.2-APK
+          name: Lupa-Semantica-2.3-APK
           path: output
           if-no-files-found: error
