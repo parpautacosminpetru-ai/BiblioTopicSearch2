@@ -36,10 +36,12 @@ jobs:
           git -C project apply --exclude=README.md --check /tmp/semantic-final.patch
           git -C project apply --exclude=README.md /tmp/semantic-final.patch
           cp semantic-final/MODEL_NOTICE.md project/MODEL_NOTICE.md
+          sed -i 's/minSdk = 23/minSdk = 24/' project/app/build.gradle.kts
           test -f project/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
           test -f project/app/src/main/java/ro/bibliotopicsearch/app/semantic/OnDeviceSentenceEmbedder.java
           test -f project/app/src/main/java/ro/bibliotopicsearch/app/semantic/WordPieceTokenizer.java
           grep -q 'versionName = "2.2.0"' project/app/build.gradle.kts
+          grep -q 'minSdk = 24' project/app/build.gradle.kts
           grep -q 'onnxruntime-android:1.26.0' project/app/build.gradle.kts
           if grep -q 'android.permission.INTERNET' project/app/src/main/AndroidManifest.xml; then
             echo 'INTERNET permission is forbidden for offline build' >&2
@@ -136,6 +138,7 @@ jobs:
             'Network permission: none' \
             'Semantic model: bundled ONNX qint8' \
             'Mode: explicit-only extractive semantic detection' \
+            'Output text: verbatim OCR only; no paraphrase' \
             > output/OFFLINE-VERIFICATION.txt
 
       - name: Upload APK
