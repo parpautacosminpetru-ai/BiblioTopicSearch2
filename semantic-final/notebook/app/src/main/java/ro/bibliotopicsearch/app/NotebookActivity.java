@@ -151,7 +151,7 @@ public final class NotebookActivity extends AppCompatActivity {
 
     private void importText() {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.setCategory(Intent.CATEGORY_OPENABLE);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("text/*");
         startActivityForResult(intent, REQ_IMPORT_TEXT);
     }
