@@ -1,16 +1,21 @@
 import hashlib
 import numpy as np
 import onnxruntime as ort
-from huggingface_hub import hf_hub_download
+from huggingface_hub import HfApi, hf_hub_download
 from transformers import AutoTokenizer
 
 REPO = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
-REV = "8008f0154ca2387468013ed439df09d70c122412"
 MODEL = "onnx/model_qint8_arm64.onnx"
+EXPECTED_MODEL_SHA256 = "1825907d6c1a9001ff78124780bbde20a614a8c3df3b63409cf3c72c6fe5c8b4"
 
+info = HfApi().model_info(REPO)
+REV = info.sha
+print("RERANK_REV", REV)
 tok = AutoTokenizer.from_pretrained(REPO, revision=REV, use_fast=True)
 model_path = hf_hub_download(REPO, filename=MODEL, revision=REV)
-print("RERANK_MODEL_SHA", hashlib.sha256(open(model_path, "rb").read()).hexdigest())
+model_sha = hashlib.sha256(open(model_path, "rb").read()).hexdigest()
+print("RERANK_MODEL_SHA", model_sha)
+assert model_sha == EXPECTED_MODEL_SHA256
 print("RERANK_TOKENIZER", tok.__class__.__name__, tok.cls_token_id, tok.sep_token_id, tok.model_max_length)
 session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
 print("RERANK_IN", [(x.name, x.type, x.shape) for x in session.get_inputs()])
