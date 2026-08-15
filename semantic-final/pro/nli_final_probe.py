@@ -1,4 +1,6 @@
+import hashlib
 import inspect
+import requests
 import numpy as np
 import onnx
 import onnxruntime as ort
@@ -7,10 +9,20 @@ from onnxruntime_extensions import gen_processing_models, get_library_path
 
 REPO = "onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX"
 REV = "ca5daf3d11b6c4b3143b1f4602a2edfb64c3ad7e"
+BASE_REPO = "MoritzLaurer/multilingual-MiniLMv2-L6-mnli-xnli"
+SPM_SHA256 = "cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865"
+SPM_PATH = "/tmp/sentencepiece.bpe.model"
+
+url = f"https://huggingface.co/{BASE_REPO}/resolve/main/sentencepiece.bpe.model?download=true"
+response = requests.get(url, timeout=120)
+response.raise_for_status()
+open(SPM_PATH, "wb").write(response.content)
+assert hashlib.sha256(response.content).hexdigest() == SPM_SHA256
 
 print("SIG", inspect.signature(gen_processing_models))
 tok = AutoTokenizer.from_pretrained(REPO, revision=REV, use_fast=True)
-print("TOK", tok.__class__.__name__, tok.model_max_length)
+tok.vocab_file = SPM_PATH
+print("TOK", tok.__class__.__name__, tok.model_max_length, tok.vocab_file)
 
 last_error = None
 for kwargs in ({}, {"WITH_DEFAULT_INPUTS": True}):
