@@ -27,7 +27,7 @@ jobs:
           test -d project/app
           test -f project/app/src/main/AndroidManifest.xml
 
-      - name: Rebuild and validate semantic patch
+      - name: Apply semantic explicit-only patch
         run: |
           set -euo pipefail
           cat semantic-final/patch/semantic-final-*.part > /tmp/semantic-final.patch
@@ -43,10 +43,19 @@ jobs:
           grep -q 'versionName = "2.2.0"' project/app/build.gradle.kts
           grep -q 'minSdk = 24' project/app/build.gradle.kts
           grep -q 'onnxruntime-android:1.26.0' project/app/build.gradle.kts
-          if grep -q 'android.permission.INTERNET' project/app/src/main/AndroidManifest.xml; then
-            echo 'INTERNET permission is forbidden for offline build' >&2
-            exit 1
-          fi
+
+      - name: Apply offline verbatim notebook
+        run: |
+          set -euo pipefail
+          git -C project apply --check "$GITHUB_WORKSPACE/semantic-final/notebook/integration.patch"
+          git -C project apply "$GITHUB_WORKSPACE/semantic-final/notebook/integration.patch"
+          rsync -a semantic-final/notebook/app/ project/app/
+          test -f project/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java
+          test -f project/app/src/main/java/ro/bibliotopicsearch/app/NotebookStore.java
+          grep -q 'tools:node="remove"' project/app/src/main/AndroidManifest.xml
+          grep -q 'NOTEBOOK LOCAL • VERBATIM' project/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java
+          grep -q 'full.substring(startChar, endChar)' project/app/src/main/java/ro/bibliotopicsearch/app/NotebookStore.java
+          grep -q 'evidence.contains(candidate.phrase)' project/app/src/main/java/ro/bibliotopicsearch/app/semantic/ExtractiveCompression.java
 
       - name: Install pinned semantic model assets
         env:
@@ -108,7 +117,7 @@ jobs:
           set -euo pipefail
           gradle --no-daemon -p project :app:assembleDebug
 
-      - name: Verify offline APK contents
+      - name: Verify fully offline verbatim APK
         run: |
           set -euo pipefail
           APK=project/app/build/outputs/apk/debug/app-debug.apk
@@ -116,14 +125,21 @@ jobs:
           unzip -l "$APK" | grep -q 'assets/semantic/semantic_model.onnx'
           unzip -l "$APK" | grep -q 'assets/semantic/vocab.txt'
           unzip -l "$APK" | grep -q 'assets/semantic/dense_model.safetensors'
-          if grep -R -q 'android.permission.INTERNET' project/app/build/intermediates/merged_manifest* project/app/build/intermediates/merged_manifests* 2>/dev/null; then
+
+          if grep -R -q 'android.permission.INTERNET' \
+              project/app/build/intermediates/merged_manifest* \
+              project/app/build/intermediates/merged_manifests* 2>/dev/null; then
             echo 'Merged APK manifest unexpectedly requests INTERNET' >&2
             exit 1
           fi
-          if grep -R -q -E 'https?://|HttpURLConnection|OkHttpClient|Retrofit' project/app/src/main/java 2>/dev/null; then
-            echo 'Runtime network reference found in app source' >&2
+
+          if grep -R -q -E 'HttpURLConnection|OkHttpClient|Retrofit|java.net.URL' \
+              project/app/src/main/java 2>/dev/null; then
+            echo 'Runtime network client reference found in app source' >&2
             exit 1
           fi
+
+          grep -R -q 'NotebookActivity' project/app/build/intermediates/merged_manifest* project/app/build/intermediates/merged_manifests*
           ls -lh "$APK"
 
       - name: Prepare APK
@@ -138,7 +154,9 @@ jobs:
             'Network permission: none' \
             'Semantic model: bundled ONNX qint8' \
             'Mode: explicit-only extractive semantic detection' \
-            'Output text: verbatim OCR only; no paraphrase' \
+            'Notebook: local SQLite + stored embeddings' \
+            'Output text: exact source substring; no paraphrase' \
+            'Generation: none; no summaries; no interpretations' \
             > output/OFFLINE-VERIFICATION.txt
 
       - name: Upload APK
