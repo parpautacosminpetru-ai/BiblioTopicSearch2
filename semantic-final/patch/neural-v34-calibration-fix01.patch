@@ -1,0 +1,69 @@
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/semantic/DirectSupportVerifier.java b/app/src/main/java/ro/bibliotopicsearch/app/semantic/DirectSupportVerifier.java
+index 36dd131..406627e 100644
+--- a/app/src/main/java/ro/bibliotopicsearch/app/semantic/DirectSupportVerifier.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/semantic/DirectSupportVerifier.java
+@@ -92,14 +92,17 @@ public final class DirectSupportVerifier {
+      * Reranker scores are raw logits. The medium and low rescue paths both require NLI support.
+      */
+     private static final float DIRECT_STRONG_RERANK = 6.0f;
++    private static final float DIRECT_HIGH_MID_RERANK_MIN = 4.0f;
++    private static final float DIRECT_HIGH_MID_RERANK_MAX = 6.0f;
++    private static final float DIRECT_HIGH_MID_ENTAILMENT = 0.65f;
+     private static final float DIRECT_MEDIUM_RERANK_MIN = 0.80f;
+     private static final float DIRECT_MEDIUM_RERANK_MAX = 4.0f;
+     private static final float DIRECT_MEDIUM_ENTAILMENT = 0.28f;
+     private static final float DIRECT_LOW_RERANK_MIN = -4.20f;
+-    private static final float DIRECT_LOW_RERANK_MAX = 0.80f;
++    private static final float DIRECT_LOW_RERANK_MAX = -3.50f;
+     private static final float DIRECT_LOW_ENTAILMENT = 0.42f;
+ 
+-    private static final float PARTIAL_RERANK_MIN = -0.20f;
++    private static final float PARTIAL_RERANK_MIN = 0.20f;
+     private static final float PARTIAL_ENTAILMENT_MIN = 0.25f;
+     private static final float TOPIC_RETRIEVAL_FLOOR = 0.43f;
+ 
+@@ -155,6 +158,9 @@ public final class DirectSupportVerifier {
+         if (isConfidentContradiction(scores)) return contradiction();
+ 
+         boolean strong = scores.rerankLogit >= DIRECT_STRONG_RERANK;
++        boolean highMid = scores.rerankLogit >= DIRECT_HIGH_MID_RERANK_MIN
++                && scores.rerankLogit < DIRECT_HIGH_MID_RERANK_MAX
++                && scores.entailment >= DIRECT_HIGH_MID_ENTAILMENT;
+         boolean medium = scores.rerankLogit >= DIRECT_MEDIUM_RERANK_MIN
+                 && scores.rerankLogit < DIRECT_MEDIUM_RERANK_MAX
+                 && scores.entailment >= DIRECT_MEDIUM_ENTAILMENT;
+@@ -162,7 +168,7 @@ public final class DirectSupportVerifier {
+                 && scores.rerankLogit < DIRECT_LOW_RERANK_MAX
+                 && scores.entailment >= DIRECT_LOW_ENTAILMENT;
+ 
+-        if (strong || medium || lowSemanticRescue) {
++        if (strong || highMid || medium || lowSemanticRescue) {
+             float boundaryFloor = scores.rerankLogit - BOUNDARY_RELATIVE_MARGIN;
+             Range support = neuralBoundary(q, e, boundaryFloor);
+             Range core = neuralCore(q, e, support, boundaryFloor);
+diff --git a/app/src/test/java/ro/bibliotopicsearch/app/semantic/DirectSupportVerifierTest.java b/app/src/test/java/ro/bibliotopicsearch/app/semantic/DirectSupportVerifierTest.java
+index d6b310c..c588085 100644
+--- a/app/src/test/java/ro/bibliotopicsearch/app/semantic/DirectSupportVerifierTest.java
++++ b/app/src/test/java/ro/bibliotopicsearch/app/semantic/DirectSupportVerifierTest.java
+@@ -44,6 +44,21 @@ public final class DirectSupportVerifierTest {
+                 verify("Dumnezeu este rău", "Dumnezeu este bun și milostiv.").status);
+     }
+ 
++    @Test
++    public void highMidRerankerRequiresStrongEntailment() {
++        model.set(5.24f, 0.744f, 0.216f, 0.040f,
++                0.096f, 0.896f, 0.009f);
++        assertEquals(DirectSupportVerifier.Status.MATCH_DIRECT, verify(
++                "cerere semantică nominală", "Pasajul furnizează explicit conținutul cerut."
++        ).status);
++
++        model.set(4.76f, 0.484f, 0.449f, 0.067f,
++                0.300f, 0.583f, 0.117f);
++        assertEquals(DirectSupportVerifier.Status.NO_MATCH, verify(
++                "relația dintre A și B", "B are relația inversă față de A."
++        ).status);
++    }
++
+     @Test
+     public void weakRerankerCanPassOnlyThroughCalibratedNliRescue() {
+         model.set(-3.76f, 0.486f, 0.320f, 0.194f);
