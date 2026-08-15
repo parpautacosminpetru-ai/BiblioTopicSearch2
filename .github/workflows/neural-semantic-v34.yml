@@ -1,0 +1,267 @@
+name: Build Lupa Semantica 3.4 Neural Verifier
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [agent/lupa-semantic-neural-verifier-v34]
+    paths:
+      - 'semantic-final/patch/neural-v34.b64.part*'
+      - 'semantic-final/benchmark/**'
+      - '.github/workflows/neural-semantic-v34.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install benchmark runtime
+        run: python -m pip install -q 'numpy<2' 'onnxruntime==1.20.1' 'transformers==4.49.0' 'sentencepiece==0.2.0' 'huggingface_hub==0.28.1'
+      - name: Romanian neural semantic benchmark
+        run: |
+          mkdir -p output/benchmark
+          python semantic-final/benchmark/romanian_neural_benchmark.py \
+            --report output/benchmark/romanian-neural-benchmark.json \
+            | tee output/benchmark/benchmark.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Lupa-Semantica-3.4-BENCHMARK
+          path: output/benchmark
+          if-no-files-found: warn
+
+  build:
+    needs: benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild exact 3.2 source and apply 3.4
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf project && mkdir project
+          unzip -q BiblioTopicSearch_FINAL.zip -d project
+          cat semantic-final/patch/semantic-final-*.part > /tmp/final.patch
+          git -C project init -q
+          git -C project apply --exclude=README.md --check /tmp/final.patch
+          git -C project apply --exclude=README.md /tmp/final.patch
+          cp semantic-final/notebook/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java project/app/src/main/java/ro/bibliotopicsearch/app/
+          cp semantic-final/notebook/app/src/main/java/ro/bibliotopicsearch/app/NotebookStore.java project/app/src/main/java/ro/bibliotopicsearch/app/
+          for PATCH in \
+            ../semantic-final/notebook/integration.patch \
+            ../semantic-final/patch/live-ocr-stabilization.patch \
+            ../semantic-final/patch/semantic-precision-v23.patch; do
+            git -C project apply --check "$PATCH"
+            git -C project apply "$PATCH"
+          done
+          cat semantic-final/patch/pro-v30-*.part > /tmp/pro-v30.patch
+          echo '42b161c2bef3822f429b2997fcc8a28f0cac91bec96f7ee48b0e21035b721756  /tmp/pro-v30.patch' | sha256sum -c -
+          git -C project apply --check /tmp/pro-v30.patch
+          git -C project apply /tmp/pro-v30.patch
+          git -C project apply --check ../semantic-final/patch/semantic-detection-v31.patch
+          git -C project apply ../semantic-final/patch/semantic-detection-v31.patch
+          cp semantic-final/README_FINAL.md project/README.md
+          cp semantic-final/MODEL_NOTICE.md project/MODEL_NOTICE.md
+          sed -i 's/minSdk = 23/minSdk = 24/' project/app/build.gradle.kts
+          sed -i 's/versionCode = 22/versionCode = 31/; s/versionName = "2.2.0"/versionName = "3.1.0"/' project/app/build.gradle.kts
+
+          cat semantic-final/patch/academic-strict-v32.b64.part* | base64 -d | gzip -d > /tmp/v32.patch
+          echo '27fee158c4797415a577cdedd74cef18e707d8c167c3318773b86e0afe835e32  /tmp/v32.patch' | sha256sum -c -
+          echo '0664cd273b3e7abc81f2fe53ba694c1afbd9708f7f628c9d9f4e394fb809d5f4  semantic-final/patch/academic-strict-v32-fix01.patch' | sha256sum -c -
+          git -C project apply --check /tmp/v32.patch
+          git -C project apply /tmp/v32.patch
+          git -C project apply --check ../semantic-final/patch/academic-strict-v32-fix01.patch
+          git -C project apply ../semantic-final/patch/academic-strict-v32-fix01.patch
+
+          cat semantic-final/patch/neural-v34.b64.part* | base64 -d | gzip -d > /tmp/v34.patch
+          echo '07b4c6e71a2d66efc5d26089c6bf17439f23fbeccb40401be3cb358fc71b2cb1  /tmp/v34.patch' | sha256sum -c -
+          git -C project apply --check /tmp/v34.patch
+          git -C project apply /tmp/v34.patch
+          git -C project diff --check
+
+      - name: Verify extractive product invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          A=project/app/src/main/java/ro/bibliotopicsearch/app
+          S=$A/semantic
+          grep -q 'versionCode = 34' project/app/build.gradle.kts
+          grep -q 'versionName = "3.4.0"' project/app/build.gradle.kts
+          grep -q 'STRATEGY_KEEP_ONLY_LATEST' "$A/MainActivity.java"
+          grep -q 'MAX_ACTIVE_QUERIES = 8' "$A/MainActivity.java"
+          grep -q 'semanticFrameGeneration' "$A/MainActivity.java"
+          grep -q 'SEMANTIC_FRAME_DEBOUNCE_MS' "$A/MainActivity.java"
+          grep -q 'NeuralPairScorer' "$S/SemanticAnalyzer.java"
+          grep -q 'analyzeQueriesDetailed' "$S/SemanticAnalyzer.java"
+          grep -q 'BooleanSupplier' "$S/SemanticAnalyzer.java"
+          grep -q 'setSemanticZoom' "$A/OverlayView.java"
+          grep -q 'analyzeExploration' "$S/SemanticAnalyzer.java"
+          grep -q 'PdfRenderer' "$A/NotebookActivity.java"
+          grep -q 'metadata.json' "$A/MainActivity.java"
+          grep -q 'Parțial' "$A/MainActivity.java"
+          grep -q 'Tema apare, dar criteriul specific lipsește' "$A/MainActivity.java"
+          grep -q 'Nu există' "$A/MainActivity.java"
+          ! grep -q 'CAUSE_CUES\|EFFECT_CUES\|REFORMATION\|indulgen' "$S/DirectSupportVerifier.java"
+          ! grep -q 'LocalDictionaryLexicon' "$S/SemanticAnalyzer.java"
+          ! grep -R -q -E 'https?://|HttpURLConnection|OkHttpClient|Retrofit|java.net.URL' "$A"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - uses: android-actions/setup-android@v3
+      - name: Android SDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+
+      - name: JVM semantic policy tests
+        run: gradle --no-daemon -p project :app:testDebugUnitTest --stacktrace
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install asset tooling
+        run: python -m pip install -q 'numpy<2' 'onnx==1.17.0' 'onnxruntime==1.20.1' 'onnxruntime-extensions==0.13.0' 'transformers==4.49.0' 'sentencepiece==0.2.0' 'huggingface_hub==0.28.1'
+
+      - name: Bundle pinned offline semantic assets
+        shell: bash
+        env:
+          EMBED_REV: acc85025f9078147bcc1ce55a4ddb9ec5e0d87cf
+          RERANK_REV: 1427fd652930e4ba29e8149678df786c240d8825
+          NLI_REV: ca5daf3d11b6c4b3143b1f4602a2edfb64c3ad7e
+        run: |
+          set -euo pipefail
+          D=project/app/src/main/assets/semantic
+          mkdir -p "$D"
+
+          B="https://huggingface.co/sentence-transformers/distiluse-base-multilingual-cased-v2/resolve/$EMBED_REV"
+          curl -fL --retry 4 "$B/onnx/model_qint8_arm64.onnx?download=true" -o "$D/semantic_model.onnx"
+          curl -fL --retry 4 "$B/vocab.txt?download=true" -o "$D/vocab.txt"
+          curl -fL --retry 4 "$B/2_Dense/model.safetensors?download=true" -o "$D/dense_model.safetensors"
+          echo 'c78c64bb0446ceb7086d2de24c2f4297e7a909eb457b4f68e5fdb6ab19f285c0  project/app/src/main/assets/semantic/semantic_model.onnx' | sha256sum -c -
+          echo '0a21b1ce908e772ebf09f93c20ca09524c32706e9918d9c0169a3f0663b191ed  project/app/src/main/assets/semantic/dense_model.safetensors' | sha256sum -c -
+          test -s "$D/vocab.txt"
+
+          python - <<'PY'
+          import hashlib
+          import shutil
+          import requests
+          import numpy as np
+          import onnx
+          import onnxruntime as ort
+          from huggingface_hub import hf_hub_download
+          from transformers import AutoTokenizer
+          from onnxruntime_extensions import gen_processing_models, get_library_path
+
+          out = 'project/app/src/main/assets/semantic'
+          rerank_repo = 'cross-encoder/mmarco-mMiniLMv2-L12-H384-v1'
+          rerank_rev = '1427fd652930e4ba29e8149678df786c240d8825'
+          rerank_file = 'onnx/model_qint8_arm64.onnx'
+          rerank_sha = '1825907d6c1a9001ff78124780bbde20a614a8c3df3b63409cf3c72c6fe5c8b4'
+          nli_repo = 'onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX'
+          nli_rev = 'ca5daf3d11b6c4b3143b1f4602a2edfb64c3ad7e'
+          nli_file = 'onnx/model_int8.onnx'
+          nli_sha = '55614f3c7da74184742eaa0006b978744437aa91de9ba4913db42f94d7844a8f'
+          spm_sha = 'cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865'
+
+          def digest(path):
+              h = hashlib.sha256()
+              with open(path, 'rb') as f:
+                  for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                      h.update(chunk)
+              return h.hexdigest()
+
+          rerank = hf_hub_download(rerank_repo, filename=rerank_file, revision=rerank_rev)
+          nli = hf_hub_download(nli_repo, filename=nli_file, revision=nli_rev)
+          assert digest(rerank) == rerank_sha
+          assert digest(nli) == nli_sha
+          shutil.copyfile(rerank, f'{out}/reranker_qint8_arm64.onnx')
+          shutil.copyfile(nli, f'{out}/nli_int8.onnx')
+
+          spm = requests.get('https://huggingface.co/MoritzLaurer/multilingual-MiniLMv2-L6-mnli-xnli/resolve/main/sentencepiece.bpe.model?download=true', timeout=120)
+          spm.raise_for_status()
+          assert hashlib.sha256(spm.content).hexdigest() == spm_sha
+          spm_path = '/tmp/sentencepiece.bpe.model'
+          open(spm_path, 'wb').write(spm.content)
+
+          tokenizer = AutoTokenizer.from_pretrained(nli_repo, revision=nli_rev, use_fast=True)
+          tokenizer.vocab_file = spm_path
+          pre, _ = gen_processing_models(tokenizer, pre_kwargs={}, opset=17)
+          tokenizer_path = f'{out}/neural_tokenizer.onnx'
+          onnx.save(pre, tokenizer_path)
+
+          so = ort.SessionOptions()
+          so.register_custom_ops_library(get_library_path())
+          ts = ort.InferenceSession(tokenizer_path, so, providers=['CPUExecutionProvider'])
+          raw = ts.run(None, {ts.get_inputs()[0].name: np.asarray(['Dumnezeu este bun și milostiv.', 'Dumnezeu este bun'], dtype=object)})
+          tokens = np.asarray(raw[0], dtype=np.int64).reshape(-1)
+          offsets = np.asarray(raw[1], dtype=np.int64).reshape(-1)
+          assert offsets.tolist() == [0, int(offsets[1]), len(tokens)]
+          a = tokens[offsets[0]:offsets[1]]
+          b = tokens[offsets[1]:offsets[2]]
+          pair = np.concatenate([a, np.asarray([tokenizer.sep_token_id], dtype=np.int64), b[1:]])
+          expected = np.asarray(tokenizer('Dumnezeu este bun și milostiv.', 'Dumnezeu este bun')['input_ids'], dtype=np.int64)
+          assert np.array_equal(pair, expected), (pair.tolist(), expected.tolist())
+          print('NEURAL_ASSETS_OK', digest(tokenizer_path), digest(f'{out}/reranker_qint8_arm64.onnx'), digest(f'{out}/nli_int8.onnx'))
+          PY
+
+      - name: Build APK
+        run: gradle --no-daemon -p project :app:assembleDebug --stacktrace
+
+      - name: Verify APK and merged manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=project/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          unzip -l "$APK" | grep -q 'assets/semantic/semantic_model.onnx'
+          unzip -l "$APK" | grep -q 'assets/semantic/vocab.txt'
+          unzip -l "$APK" | grep -q 'assets/semantic/dense_model.safetensors'
+          unzip -l "$APK" | grep -q 'assets/semantic/neural_tokenizer.onnx'
+          unzip -l "$APK" | grep -q 'assets/semantic/reranker_qint8_arm64.onnx'
+          unzip -l "$APK" | grep -q 'assets/semantic/nli_int8.onnx'
+          ! grep -R -q 'android.permission.INTERNET' project/app/build/intermediates/merged_manifest* project/app/build/intermediates/merged_manifests* 2>/dev/null
+          grep -R -q 'NotebookActivity' project/app/build/intermediates/merged_manifest* project/app/build/intermediates/merged_manifests*
+          mkdir -p output/apk
+          cp "$APK" output/apk/Lupa-Semantica-3.4.apk
+          sha256sum output/apk/Lupa-Semantica-3.4.apk | tee output/apk/SHA256SUMS.txt
+          du -h output/apk/Lupa-Semantica-3.4.apk | tee output/apk/APK-SIZE.txt
+          printf '%s\n' \
+            'Lupa Semantica 3.4 Neural Verifier' \
+            'Base: exact reconstructed 3.2 source plus neural-v34 patch' \
+            'Runtime: fully offline; merged manifest has no INTERNET permission' \
+            'Generation: none; visible evidence remains verbatim source text' \
+            'Decision: embeddings retrieve candidates; pairwise reranker + NLI verify direct support' \
+            'Live freshness: per-OCR generation guard plus cooperative cancellation' \
+            'Performance note: CI benchmark is an x64 inference proxy, not a physical Android camera benchmark' \
+            > output/apk/OFFLINE-VERIFICATION.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Lupa-Semantica-3.4-TESTS
+          path: project/app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lupa-Semantica-3.4-SOURCE
+          path: |
+            project
+            !project/.git
+            !project/app/src/main/assets/semantic/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lupa-Semantica-3.4-APK
+          path: output/apk
