@@ -1,10 +1,11 @@
-name: Probe Final NLI Tokenizer
+name: Probe Neural Semantic Models
 
 on:
   push:
     branches: [agent/lupa-semantic-neural-verifier-v34]
     paths:
       - 'semantic-final/pro/nli_final_probe.py'
+      - 'semantic-final/pro/reranker_probe.py'
       - '.github/workflows/nli-final-probe.yml'
   workflow_dispatch:
 
@@ -22,10 +23,12 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: python -m pip install -q 'numpy<2' 'onnx==1.17.0' 'onnxruntime==1.20.1' 'onnxruntime-extensions==0.14.0' 'transformers==4.49.0' 'sentencepiece==0.2.0' 'huggingface_hub==0.28.1'
-      - name: Probe tokenizer
+      - name: Probe NLI tokenizer
         run: python semantic-final/pro/nli_final_probe.py
+      - name: Probe reranker
+        run: python semantic-final/pro/reranker_probe.py
       - uses: actions/upload-artifact@v4
         with:
-          name: nli-fast-tokenizer
+          name: neural-tokenizer
           path: /tmp/nli_fast_tokenizer.onnx
           if-no-files-found: warn
