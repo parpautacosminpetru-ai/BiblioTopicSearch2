@@ -69,6 +69,42 @@ public final class AppPrefs {
         prefs(context).edit().putBoolean("floating_labels", value).apply();
     }
 
+    /** User-created theme/target layer. On by default for backwards compatibility. */
+    public static boolean themeLayer(Context context) {
+        return prefs(context).getBoolean("layer_theme", true);
+    }
+
+    public static void setThemeLayer(Context context, boolean value) {
+        prefs(context).edit().putBoolean("layer_theme", value).apply();
+    }
+
+    /** Built-in textual/discourse/syntactic helpers. Available without any user theme. */
+    public static boolean textualLayer(Context context) {
+        return prefs(context).getBoolean("layer_textual", false);
+    }
+
+    public static void setTextualLayer(Context context, boolean value) {
+        prefs(context).edit().putBoolean("layer_textual", value).apply();
+    }
+
+    /** Built-in semantic-function vocabulary. Available without any user theme. */
+    public static boolean semanticLayer(Context context) {
+        return prefs(context).getBoolean("layer_semantic", false);
+    }
+
+    public static void setSemanticLayer(Context context, boolean value) {
+        prefs(context).edit().putBoolean("layer_semantic", value).apply();
+    }
+
+    /** 0..3 preset used by the live magnifier/zoom button. */
+    public static int zoomLevel(Context context) {
+        return Math.max(0, Math.min(3, prefs(context).getInt("zoom_level", 0)));
+    }
+
+    public static void setZoomLevel(Context context, int value) {
+        prefs(context).edit().putInt("zoom_level", Math.max(0, Math.min(3, value))).apply();
+    }
+
     /** Compatibilitate cu versiunile anterioare. */
     public static boolean showLabels(Context context) {
         return floatingLabels(context);
