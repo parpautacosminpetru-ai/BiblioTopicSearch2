@@ -19,6 +19,8 @@ import java.util.Set;
 public final class TopicMatcher {
     private TopicMatcher() {}
 
+    private static final String PUNCTUATION = ".,;:?!…—–()[]„”«»\"";
+
     private static final class CompiledTerm {
         final String raw;
         final String normalized;
@@ -36,6 +38,7 @@ public final class TopicMatcher {
     /**
      * Planul de căutare este construit o singură dată când harta/setările se schimbă.
      * Astfel termenii nu mai sunt normalizați și reconstruiți pentru fiecare cadru OCR.
+     * Punctuația este păstrată separat și inspectată pe textul OCR brut, înainte de normalizare.
      */
     public static final class SearchPlan {
         private final boolean stripDiacritics;
@@ -45,6 +48,7 @@ public final class TopicMatcher {
         private final Map<Integer, Map<Character, List<CompiledTerm>>> termsByFirstChar;
         private final List<Integer> tokenCounts;
         private final int termCount;
+        private final TopicNode punctuationNode;
 
         private SearchPlan(
                 boolean stripDiacritics,
@@ -53,7 +57,8 @@ public final class TopicMatcher {
                 Map<Integer, List<CompiledTerm>> termsByTokenCount,
                 Map<Integer, Map<Character, List<CompiledTerm>>> termsByFirstChar,
                 List<Integer> tokenCounts,
-                int termCount
+                int termCount,
+                TopicNode punctuationNode
         ) {
             this.stripDiacritics = stripDiacritics;
             this.compareChars = compareChars;
@@ -62,6 +67,7 @@ public final class TopicMatcher {
             this.termsByFirstChar = termsByFirstChar;
             this.tokenCounts = tokenCounts;
             this.termCount = termCount;
+            this.punctuationNode = punctuationNode;
         }
 
         public int termCount() {
@@ -74,8 +80,6 @@ public final class TopicMatcher {
                 return Collections.emptyList();
             }
 
-            // Pentru EXACT/PREFIX primul caracter trebuie să coincidă. Reducem mult
-            // numărul de comparații când harta conține sute sau mii de termeni.
             if (mode != AppPrefs.MatchMode.CONTAINS && mode != AppPrefs.MatchMode.FLEXIBLE) {
                 Map<Character, List<CompiledTerm>> byChar = termsByFirstChar.get(tokenCount);
                 if (byChar == null) return Collections.emptyList();
@@ -96,10 +100,19 @@ public final class TopicMatcher {
         Map<Integer, Map<Character, List<CompiledTerm>>> byFirstChar = new HashMap<>();
         Set<Integer> counts = new HashSet<>();
         int termCount = 0;
+        TopicNode punctuationNode = null;
 
         if (map != null) {
             for (TopicNode node : map.nodes) {
                 if (!node.enabled) continue;
+
+                // Special built-in structural detector. It must never pass through normalize(),
+                // because normalize intentionally removes punctuation for lexical search.
+                if (BuiltInMaps.isPunctuationNode(node)) {
+                    punctuationNode = node;
+                    termCount++;
+                    continue;
+                }
 
                 List<String> searchTerms = node.terms.isEmpty()
                         ? Collections.singletonList(node.title)
@@ -131,7 +144,8 @@ public final class TopicMatcher {
                 byCount,
                 byFirstChar,
                 tokenCounts,
-                termCount
+                termCount,
+                punctuationNode
         );
     }
 
@@ -157,8 +171,6 @@ public final class TopicMatcher {
                 String[] originalElements = new String[size];
                 RectF[] boxes = new RectF[size];
 
-                // Fiecare cuvânt OCR este normalizat o singură dată pe cadru.
-                // În versiunea veche era normalizat din nou pentru fiecare termen din hartă.
                 for (int i = 0; i < size; i++) {
                     Text.Element element = elements.get(i);
                     originalElements[i] = element.getText();
@@ -167,11 +179,26 @@ public final class TopicMatcher {
                     boxes[i] = box == null ? null : new RectF(box);
                 }
 
-                // Termeni de un singur cuvânt.
+                // Structural punctuation scan on the raw OCR token, before punctuation is stripped.
+                if (plan.punctuationNode != null) {
+                    for (int i = 0; i < size; i++) {
+                        if (boxes[i] == null || originalElements[i] == null) continue;
+                        addPunctuationHits(
+                                hits,
+                                dedupe,
+                                boxes[i],
+                                originalElements[i],
+                                plan.punctuationNode,
+                                now
+                        );
+                    }
+                }
+
                 if (plan.termsByTokenCount.containsKey(1)) {
                     for (int i = 0; i < size; i++) {
                         if (boxes[i] == null) continue;
                         String actual = normalizedElements[i];
+                        if (actual == null || actual.isEmpty()) continue;
                         for (CompiledTerm term : plan.candidates(1, actual)) {
                             if (matches(actual, term.normalized, plan.mode, plan.compareChars)) {
                                 addHit(
@@ -188,8 +215,6 @@ public final class TopicMatcher {
                     }
                 }
 
-                // Expresiile cu mai multe cuvinte sunt construite o singură dată
-                // pentru fiecare fereastră, apoi comparate cu termenii de aceeași lungime.
                 for (int tokenCount : plan.tokenCounts) {
                     if (tokenCount <= 1 || tokenCount > size) continue;
 
@@ -237,6 +262,31 @@ public final class TopicMatcher {
         }
 
         return hits;
+    }
+
+    private static void addPunctuationHits(
+            List<MatchHit> hits,
+            Set<String> dedupe,
+            RectF box,
+            String rawToken,
+            TopicNode node,
+            long timestamp
+    ) {
+        if (rawToken.contains("...")) {
+            addHit(hits, dedupe, new RectF(box), "...", "...", node, timestamp);
+        }
+        if (rawToken.indexOf('…') >= 0) {
+            addHit(hits, dedupe, new RectF(box), "…", "…", node, timestamp);
+        }
+
+        Set<Character> seen = new HashSet<>();
+        for (int i = 0; i < rawToken.length(); i++) {
+            char c = rawToken.charAt(i);
+            if (c == '.' && rawToken.contains("...")) continue;
+            if (PUNCTUATION.indexOf(c) < 0 || !seen.add(c)) continue;
+            String mark = String.valueOf(c);
+            addHit(hits, dedupe, new RectF(box), mark, mark, node, timestamp);
+        }
     }
 
     private static int countTokens(String normalized) {
