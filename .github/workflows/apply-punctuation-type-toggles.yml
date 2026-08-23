@@ -1,0 +1,39 @@
+name: Apply punctuation type toggles
+
+on:
+  push:
+    branches:
+      - feature/punctuation-type-toggles
+    paths:
+      - tools/apply_punctuation_type_toggles.py
+      - .github/workflows/apply-punctuation-type-toggles.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/punctuation-type-toggles
+
+      - name: Apply patch
+        run: python3 tools/apply_punctuation_type_toggles.py
+
+      - name: Commit patched source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add project-src/app/src/main/java/ro/bibliotopicsearch/app/BuiltInMaps.java \
+                  project-src/app/src/main/java/ro/bibliotopicsearch/app/TopicMatcher.java \
+                  project-src/app/build.gradle.kts
+          if git diff --cached --quiet; then
+            echo "No patch changes"
+          else
+            git commit -m "Add independently activatable punctuation types"
+            git push origin HEAD:feature/punctuation-type-toggles
+          fi
