@@ -1,0 +1,38 @@
+name: Extract source for feature work
+
+on:
+  push:
+    branches:
+      - feature/implicit-text-semantic-tools
+    paths:
+      - .github/workflows/extract-source.yml
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/implicit-text-semantic-tools
+
+      - name: Extract project archive
+        run: |
+          rm -rf project-src
+          mkdir -p project-src
+          unzip -q BiblioTopicSearch_FINAL.zip -d project-src
+
+      - name: Commit extracted source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add project-src
+          if git diff --cached --quiet; then
+            echo "No extracted changes to commit"
+          else
+            git commit -m "Extract project source for implicit tools feature"
+            git push origin HEAD:feature/implicit-text-semantic-tools
+          fi
