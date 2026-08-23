@@ -51,6 +51,24 @@ public final class SettingsActivity extends AppCompatActivity {
 
         root.addView(heading("SETĂRI DE CĂUTARE", 22));
 
+        root.addView(sectionGap());
+        root.addView(heading("CULORI CATEGORII", 18));
+        TextView colorHelp = body(
+                "Personalizează culorile pentru toate categoriile: harta custom, TEXTUAL și SEMANTIC. " +
+                "Poți alege orice culoare RGB/HEX sau poți interschimba direct culorile dintre două categorii."
+        );
+        colorHelp.setPadding(0, dp(4), 0, dp(6));
+        root.addView(colorHelp);
+        Button categoryColors = new Button(this);
+        categoryColors.setText("PERSONALIZEAZĂ / SCHIMBĂ CULORILE");
+        categoryColors.setAllCaps(false);
+        root.addView(categoryColors, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48)
+        ));
+        categoryColors.setOnClickListener(v ->
+                startActivity(new Intent(this, CategoryColorActivity.class))
+        );
+
         root.addView(label("Potrivire"));
         RadioGroup modes = new RadioGroup(this);
         modes.setOrientation(RadioGroup.VERTICAL);
