@@ -1,9 +1,13 @@
-name: Build implicit textual-semantic tools
+name: Build source-based BiblioTopicSearch
 
 on:
   push:
     branches:
+      - main
       - feature/implicit-text-semantic-tools
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -14,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout feature branch
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Java 17
