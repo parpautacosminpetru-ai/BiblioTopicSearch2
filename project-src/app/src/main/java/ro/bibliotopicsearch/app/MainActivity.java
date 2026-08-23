@@ -74,6 +74,10 @@ public final class MainActivity extends AppCompatActivity {
     private Button torchButton;
     private Button nodesButton;
     private Button labelsButton;
+    private Button textualButton;
+    private Button semanticButton;
+    private Button themeLayerButton;
+    private Button zoomButton;
     private LinearLayout nodePanel;
     private LinearLayout nodeChips;
     private LinearLayout legendPanel;
@@ -86,9 +90,14 @@ public final class MainActivity extends AppCompatActivity {
     private volatile TopicMatcher.SearchPlan searchPlan;
 
     private TopicMap topicMap;
+    private TopicMap userTopicMap;
     private boolean frozen = false;
     private boolean torchEnabled = false;
     private boolean ocrEnabled = true;
+    private boolean textualLayerEnabled = false;
+    private boolean semanticLayerEnabled = false;
+    private boolean themeLayerEnabled = true;
+    private int zoomLevel = 0;
     private Bitmap frozenBitmap;
     private ToneGenerator toneGenerator;
     private long lastFeedbackAt = 0L;
@@ -113,6 +122,10 @@ public final class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         ocrEnabled = AppPrefs.ocrEnabled(this);
         floatingLabelsEnabled = AppPrefs.floatingLabels(this);
+        textualLayerEnabled = AppPrefs.textualLayer(this);
+        semanticLayerEnabled = AppPrefs.semanticLayer(this);
+        themeLayerEnabled = AppPrefs.themeLayer(this);
+        zoomLevel = AppPrefs.zoomLevel(this);
         buildUi();
         toneGenerator = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 22);
         overlayView.setOnHitTapListener(this::showHitDetails);
@@ -128,15 +141,11 @@ public final class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        MapProfile activeProfile = TopicLibraryStore.getActive(this);
-        topicMap = TopicMapStore.load(this);
-        searchPlan = TopicMatcher.compile(this, topicMap);
-        syncVisibleNodes(activeProfile.id);
-        updateHeader();
+        reloadSearchLayers();
         updateOcrButton();
         updateLabelsButton();
-        rebuildNodeChips();
-        redrawVisibleHits();
+        updateLayerButtons();
+        updateZoomButton();
     }
 
     @Override
@@ -242,6 +251,10 @@ public final class MainActivity extends AppCompatActivity {
         toolbar.setPadding(0, dp(4), 0, dp(3));
 
         ocrButton = toolbarButton(ocrEnabled ? "● OCR LIVE" : "Ⅱ OCR PAUZĂ");
+        textualButton = toolbarButton("TEXT");
+        semanticButton = toolbarButton("SEM");
+        themeLayerButton = toolbarButton("ȚINTĂ");
+        zoomButton = toolbarButton("LUPĂ");
         nodesButton = toolbarButton("NODURI");
         labelsButton = toolbarButton("ETICHETE");
         Button libraryButton = toolbarButton("TEME");
@@ -251,6 +264,10 @@ public final class MainActivity extends AppCompatActivity {
         Button settingsButton = toolbarButton("SETĂRI");
 
         toolbar.addView(ocrButton, toolbarLp());
+        toolbar.addView(textualButton, toolbarLp());
+        toolbar.addView(semanticButton, toolbarLp());
+        toolbar.addView(themeLayerButton, toolbarLp());
+        toolbar.addView(zoomButton, toolbarLp());
         toolbar.addView(nodesButton, toolbarLp());
         toolbar.addView(labelsButton, toolbarLp());
         toolbar.addView(libraryButton, toolbarLp());
@@ -297,6 +314,10 @@ public final class MainActivity extends AppCompatActivity {
         root.addView(top, topLp);
 
         ocrButton.setOnClickListener(v -> toggleOcr());
+        textualButton.setOnClickListener(v -> toggleTextualLayer());
+        semanticButton.setOnClickListener(v -> toggleSemanticLayer());
+        themeLayerButton.setOnClickListener(v -> toggleThemeLayer());
+        zoomButton.setOnClickListener(v -> toggleZoom());
         nodesButton.setOnClickListener(v -> {
             nodePanel.setVisibility(nodePanel.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
             nodesButton.setText(nodePanel.getVisibility() == View.VISIBLE ? "ÎNCHIDE NODURI" : "NODURI");
@@ -312,6 +333,8 @@ public final class MainActivity extends AppCompatActivity {
         setContentView(root);
         updateOcrButton();
         updateLabelsButton();
+        updateLayerButtons();
+        updateZoomButton();
         setStatus(
                 ocrEnabled ? "Pregătit • OCR local live" : "Camera live • OCR în pauză",
                 ocrEnabled ? Color.rgb(78, 201, 126) : Color.rgb(170, 178, 186)
@@ -324,7 +347,9 @@ public final class MainActivity extends AppCompatActivity {
         cameraController = new LifecycleCameraController(this);
         cameraController.setEnabledUseCases(CameraController.IMAGE_ANALYSIS);
         cameraController.setImageAnalysisBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST);
+        cameraController.setPinchToZoomEnabled(true);
         previewView.setController(cameraController);
+        applyZoom();
 
         recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         analyzer = new MlKitAnalyzer(
@@ -347,7 +372,7 @@ public final class MainActivity extends AppCompatActivity {
 
                     TopicMatcher.SearchPlan activePlan = searchPlan;
                     if (activePlan == null) {
-                        TopicMap activeMap = topicMap == null ? TopicMapStore.load(MainActivity.this) : topicMap;
+                        TopicMap activeMap = topicMap == null ? buildActiveSearchMap() : topicMap;
                         activePlan = TopicMatcher.compile(MainActivity.this, activeMap);
                         searchPlan = activePlan;
                     }
@@ -412,6 +437,114 @@ public final class MainActivity extends AppCompatActivity {
         ));
     }
 
+    private TopicMap buildActiveSearchMap() {
+        java.util.List<TopicMap> layers = new java.util.ArrayList<>();
+        if (themeLayerEnabled) {
+            if (userTopicMap == null) userTopicMap = TopicMapStore.load(this);
+            layers.add(userTopicMap);
+        }
+        if (textualLayerEnabled) layers.add(BuiltInMaps.textual(this));
+        if (semanticLayerEnabled) layers.add(BuiltInMaps.semantic(this));
+        return TopicMapMerger.merge("Straturi active", layers.toArray(new TopicMap[0]));
+    }
+
+    private void reloadSearchLayers() {
+        MapProfile activeProfile = TopicLibraryStore.getActive(this);
+        userTopicMap = TopicMapStore.load(this);
+        topicMap = buildActiveSearchMap();
+        searchPlan = TopicMatcher.compile(this, topicMap);
+        syncVisibleNodes(activeProfile.id);
+        latestAllHits = Collections.emptyList();
+        if (overlayView != null) overlayView.clearHits();
+        updateLegend(Collections.emptyList());
+        updateHeader();
+        rebuildNodeChips();
+        redrawVisibleHits();
+    }
+
+    private void toggleTextualLayer() {
+        textualLayerEnabled = !textualLayerEnabled;
+        AppPrefs.setTextualLayer(this, textualLayerEnabled);
+        reloadSearchLayers();
+        updateLayerButtons();
+        if (textualLayerEnabled) openNodePanelForBuiltIns("TEXTUAL activ • selectează categoria din NODURI");
+        else setStatus("TEXTUAL oprit", Color.rgb(170, 178, 186));
+    }
+
+    private void toggleSemanticLayer() {
+        semanticLayerEnabled = !semanticLayerEnabled;
+        AppPrefs.setSemanticLayer(this, semanticLayerEnabled);
+        reloadSearchLayers();
+        updateLayerButtons();
+        if (semanticLayerEnabled) openNodePanelForBuiltIns("SEMANTIC activ • selectează categoria din NODURI");
+        else setStatus("SEMANTIC oprit", Color.rgb(170, 178, 186));
+    }
+
+    private void toggleThemeLayer() {
+        themeLayerEnabled = !themeLayerEnabled;
+        AppPrefs.setThemeLayer(this, themeLayerEnabled);
+        reloadSearchLayers();
+        updateLayerButtons();
+        setStatus(themeLayerEnabled ? "Ținta tematică activă" : "Ținta tematică oprită • poți lucra doar textual/semantic",
+                themeLayerEnabled ? Color.rgb(78, 201, 126) : Color.rgb(244, 188, 77));
+    }
+
+    private void openNodePanelForBuiltIns(String message) {
+        if (nodePanel != null) nodePanel.setVisibility(View.VISIBLE);
+        if (nodesButton != null) nodesButton.setText("ÎNCHIDE NODURI");
+        setStatus(message, Color.rgb(98, 211, 255));
+    }
+
+    private void updateLayerButtons() {
+        if (textualButton != null) {
+            textualButton.setText(textualLayerEnabled ? "TEXT ON" : "TEXT OFF");
+            textualButton.setBackgroundTintList(ColorStateList.valueOf(
+                    textualLayerEnabled ? Color.rgb(40, 146, 177) : Color.rgb(74, 84, 94)
+            ));
+        }
+        if (semanticButton != null) {
+            semanticButton.setText(semanticLayerEnabled ? "SEM ON" : "SEM OFF");
+            semanticButton.setBackgroundTintList(ColorStateList.valueOf(
+                    semanticLayerEnabled ? Color.rgb(210, 126, 49) : Color.rgb(74, 84, 94)
+            ));
+        }
+        if (themeLayerButton != null) {
+            themeLayerButton.setText(themeLayerEnabled ? "ȚINTĂ ON" : "ȚINTĂ OFF");
+            themeLayerButton.setBackgroundTintList(ColorStateList.valueOf(
+                    themeLayerEnabled ? Color.rgb(42, 128, 94) : Color.rgb(74, 84, 94)
+            ));
+        }
+    }
+
+    private void toggleZoom() {
+        if (frozen) {
+            toast("Reia camera pentru a schimba lupa.");
+            return;
+        }
+        zoomLevel = (zoomLevel + 1) % 4;
+        AppPrefs.setZoomLevel(this, zoomLevel);
+        applyZoom();
+    }
+
+    private void applyZoom() {
+        updateZoomButton();
+        if (cameraController == null) return;
+        float[] levels = {0f, 0.20f, 0.42f, 0.68f};
+        try {
+            cameraController.setLinearZoom(levels[Math.max(0, Math.min(3, zoomLevel))]);
+        } catch (Exception ignored) {
+            // Some camera devices expose a restricted zoom range; keep OCR usable.
+        }
+    }
+
+    private void updateZoomButton() {
+        if (zoomButton == null) return;
+        zoomButton.setText("LUPĂ " + (zoomLevel + 1));
+        zoomButton.setBackgroundTintList(ColorStateList.valueOf(
+                zoomLevel > 0 ? Color.rgb(123, 88, 154) : Color.rgb(53, 92, 125)
+        ));
+    }
+
     private void syncVisibleNodes(String profileId) {
         Set<String> current = new HashSet<>();
         if (topicMap != null) {
@@ -423,11 +556,17 @@ public final class MainActivity extends AppCompatActivity {
         boolean profileChanged = profileId != null && !profileId.equals(visibleProfileId);
         if (profileChanged || knownNodePaths.isEmpty()) {
             visibleNodePaths.clear();
-            visibleNodePaths.addAll(current);
+            for (String path : current) {
+                // Built-in libraries are available immediately, but start visually quiet.
+                // The user chooses one or more categories from NODURI.
+                if (!BuiltInMaps.isBuiltInPath(path)) visibleNodePaths.add(path);
+            }
         } else {
             visibleNodePaths.retainAll(current);
             for (String path : current) {
-                if (!knownNodePaths.contains(path)) visibleNodePaths.add(path);
+                if (!knownNodePaths.contains(path) && !BuiltInMaps.isBuiltInPath(path)) {
+                    visibleNodePaths.add(path);
+                }
             }
         }
         knownNodePaths.clear();
@@ -558,12 +697,16 @@ public final class MainActivity extends AppCompatActivity {
 
     private void updateHeader() {
         MapProfile active = TopicLibraryStore.getActive(this);
-        topicMap = TopicMapStore.load(this);
         int activeNodes = activeNodeCount(topicMap);
         int terms = activeTermCount(topicMap);
         if (mapTitle != null) mapTitle.setText(active.folder + "  ›  " + active.name + "   ▾");
         if (mapMetrics != null) {
-            mapMetrics.setText(activeNodes + " noduri active • " + terms + " termeni • atinge pentru schimbare rapidă");
+            StringBuilder layers = new StringBuilder();
+            if (themeLayerEnabled) layers.append("ȚINTĂ ");
+            if (textualLayerEnabled) layers.append("TEXT ");
+            if (semanticLayerEnabled) layers.append("SEM ");
+            if (layers.length() == 0) layers.append("NICIUN STRAT");
+            mapMetrics.setText(activeNodes + " noduri • " + terms + " termeni • " + layers.toString().trim());
         }
     }
 
@@ -587,7 +730,7 @@ public final class MainActivity extends AppCompatActivity {
         for (MatchHit hit : visibleHits) shownNodes.add(hit.node.path);
 
         if (searchableTerms <= 0) {
-            setStatus("OCR: " + recognizedWords + " cuvinte • adaugă termeni în hartă", Color.rgb(244, 188, 77));
+            setStatus("OCR: " + recognizedWords + " cuvinte • activează TEXT, SEM sau ȚINTĂ", Color.rgb(244, 188, 77));
             return;
         }
         if (recognizedWords <= 0) {
