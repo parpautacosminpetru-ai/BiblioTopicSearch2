@@ -9,6 +9,7 @@ import com.google.mlkit.vision.text.Text;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -18,8 +19,6 @@ import java.util.Set;
 
 public final class TopicMatcher {
     private TopicMatcher() {}
-
-    private static final String PUNCTUATION = ".,;:?!…—–-()[]„”«»\"";
 
     private static final class CompiledTerm {
         final String raw;
@@ -49,6 +48,7 @@ public final class TopicMatcher {
         private final List<Integer> tokenCounts;
         private final int termCount;
         private final Map<String, TopicNode> punctuationNodes;
+        private final List<String> punctuationMarks;
 
         private SearchPlan(
                 boolean stripDiacritics,
@@ -58,7 +58,8 @@ public final class TopicMatcher {
                 Map<Integer, Map<Character, List<CompiledTerm>>> termsByFirstChar,
                 List<Integer> tokenCounts,
                 int termCount,
-                Map<String, TopicNode> punctuationNodes
+                Map<String, TopicNode> punctuationNodes,
+                List<String> punctuationMarks
         ) {
             this.stripDiacritics = stripDiacritics;
             this.compareChars = compareChars;
@@ -68,6 +69,7 @@ public final class TopicMatcher {
             this.tokenCounts = tokenCounts;
             this.termCount = termCount;
             this.punctuationNodes = punctuationNodes;
+            this.punctuationMarks = punctuationMarks;
         }
 
         public int termCount() {
@@ -101,24 +103,23 @@ public final class TopicMatcher {
         Set<Integer> counts = new HashSet<>();
         int termCount = 0;
         Map<String, TopicNode> punctuationNodes = new HashMap<>();
+        List<TopicNode> punctuationStyleNodes = new ArrayList<>();
 
         if (map != null) {
             for (TopicNode node : map.nodes) {
                 if (!node.enabled) continue;
 
-                // Punctuation subtype nodes are structural detectors. Their raw characters
-                // never pass through normalize(), because normalize removes punctuation.
-                if (BuiltInMaps.isPunctuationTypeNode(node)) {
-                    List<String> marks = node.terms.isEmpty()
-                            ? Collections.singletonList(node.title)
-                            : node.terms;
-                    for (String mark : marks) {
+                List<String> punctuationMarks = PunctuationSupport.marksForNode(node);
+                if (!punctuationMarks.isEmpty()) {
+                    punctuationStyleNodes.add(node);
+                    for (String mark : punctuationMarks) {
                         String raw = mark == null ? "" : mark.trim();
                         if (raw.isEmpty()) continue;
-                        punctuationNodes.put(raw, node);
-                        termCount++;
+                        if (!punctuationNodes.containsKey(raw)) {
+                            punctuationNodes.put(raw, node);
+                            termCount++;
+                        }
                     }
-                    continue;
                 }
 
                 List<String> searchTerms = node.terms.isEmpty()
@@ -126,6 +127,11 @@ public final class TopicMatcher {
                         : node.terms;
 
                 for (String rawTerm : searchTerms) {
+                    if (!punctuationMarks.isEmpty()
+                            && (node.terms.isEmpty() || PunctuationSupport.isPunctuationTerm(rawTerm))) {
+                        continue;
+                    }
+
                     String normalized = normalize(rawTerm, stripDiacritics);
                     if (normalized.isEmpty()) continue;
 
@@ -142,8 +148,18 @@ public final class TopicMatcher {
             }
         }
 
+        PunctuationSupport.ensureDistinctColors(punctuationStyleNodes);
+
         List<Integer> tokenCounts = new ArrayList<>(counts);
         Collections.sort(tokenCounts);
+
+        List<String> punctuationMarks = new ArrayList<>(punctuationNodes.keySet());
+        punctuationMarks.sort(
+                Comparator.comparingInt(String::length)
+                        .reversed()
+                        .thenComparing(Comparator.naturalOrder())
+        );
+
         return new SearchPlan(
                 stripDiacritics,
                 compareChars,
@@ -152,7 +168,8 @@ public final class TopicMatcher {
                 byFirstChar,
                 tokenCounts,
                 termCount,
-                punctuationNodes
+                punctuationNodes,
+                punctuationMarks
         );
     }
 
@@ -186,7 +203,8 @@ public final class TopicMatcher {
                     boxes[i] = box == null ? null : new RectF(box);
                 }
 
-                // Structural punctuation scan on raw OCR tokens, with independently enabled types.
+                // Structural punctuation scan on raw OCR tokens, including custom maps
+                // and multi-character punctuation sequences.
                 if (!plan.punctuationNodes.isEmpty()) {
                     for (int i = 0; i < size; i++) {
                         if (boxes[i] == null || originalElements[i] == null) continue;
@@ -196,6 +214,7 @@ public final class TopicMatcher {
                                 boxes[i],
                                 originalElements[i],
                                 plan.punctuationNodes,
+                                plan.punctuationMarks,
                                 now
                         );
                     }
@@ -277,24 +296,49 @@ public final class TopicMatcher {
             RectF box,
             String rawToken,
             Map<String, TopicNode> punctuationNodes,
+            List<String> punctuationMarks,
             long timestamp
     ) {
-        String scan = rawToken;
-        if (scan.contains("...") && punctuationNodes.containsKey("...")) {
-            addHit(hits, dedupe, new RectF(box), "...", "...", punctuationNodes.get("..."), timestamp);
-            scan = scan.replace("...", "");
-        }
-        if (scan.indexOf('…') >= 0 && punctuationNodes.containsKey("…")) {
-            addHit(hits, dedupe, new RectF(box), "…", "…", punctuationNodes.get("…"), timestamp);
-            scan = scan.replace("…", "");
-        }
-        Set<Character> seen = new HashSet<>();
-        for (int i = 0; i < scan.length(); i++) {
-            char c = scan.charAt(i);
-            if (PUNCTUATION.indexOf(c) < 0 || !seen.add(c)) continue;
-            String mark = String.valueOf(c);
+        if (rawToken == null || rawToken.isEmpty() || punctuationMarks.isEmpty()) return;
+
+        boolean[] occupied = new boolean[rawToken.length()];
+
+        // Longest marks are scanned first, so "..." masks its dots and a custom
+        // sequence like "?!" can win over its component characters when defined.
+        for (String mark : punctuationMarks) {
+            if (mark == null || mark.isEmpty()) continue;
             TopicNode node = punctuationNodes.get(mark);
-            if (node != null) addHit(hits, dedupe, new RectF(box), mark, mark, node, timestamp);
+            if (node == null) continue;
+
+            int from = 0;
+            while (from <= rawToken.length() - mark.length()) {
+                int index = rawToken.indexOf(mark, from);
+                if (index < 0) break;
+
+                int end = index + mark.length();
+                boolean free = true;
+                for (int i = index; i < end; i++) {
+                    if (occupied[i]) {
+                        free = false;
+                        break;
+                    }
+                }
+
+                if (free) {
+                    addHit(
+                            hits,
+                            dedupe,
+                            new RectF(box),
+                            mark,
+                            mark,
+                            node,
+                            timestamp
+                    );
+                    for (int i = index; i < end; i++) occupied[i] = true;
+                }
+
+                from = index + Math.max(1, mark.length());
+            }
         }
     }
 
