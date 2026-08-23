@@ -51,6 +51,13 @@ public final class BuiltInMaps {
                 && node.path.startsWith(TEXTUAL_PREFIX + " > ");
     }
 
+    public static boolean isPunctuationTypeNode(TopicNode node) {
+        return node != null
+                && node.level >= 3
+                && node.path != null
+                && node.path.startsWith(TEXTUAL_PREFIX + " > " + PUNCTUATION_TITLE + " > ");
+    }
+
     private static void styleBuiltIn(TopicMap map, boolean textual) {
         if (map == null) return;
         int[] textualPalette = {
@@ -65,19 +72,65 @@ public final class BuiltInMaps {
         int index = 0;
         for (TopicNode node : map.nodes) {
             // Root is a namespace, never a search term.
-            if (node.level == 1) {
+            if (node.level == 1 || (textual && isPunctuationNode(node))) {
                 node.enabled = false;
                 continue;
             }
             node.enabled = true;
-            node.color = palette[index++ % palette.length];
-            node.symbol = textual ? "T" : "S";
+            if (textual && isPunctuationTypeNode(node)) {
+                stylePunctuationType(node);
+            } else {
+                node.color = palette[index++ % palette.length];
+                node.symbol = textual ? "T" : "S";
+            }
+        }
+    }
+
+    private static void stylePunctuationType(TopicNode node) {
+        switch (node.title) {
+            case "PUNCT • FINALIZARE": node.color = Color.rgb(220, 73, 79); node.symbol = "."; break;
+            case "VIRGULĂ • SEPARARE LOCALĂ": node.color = Color.rgb(46, 160, 197); node.symbol = ","; break;
+            case "PUNCT ȘI VIRGULĂ • SEPARARE PUTERNICĂ": node.color = Color.rgb(230, 139, 55); node.symbol = ";"; break;
+            case "DOUĂ PUNCTE • DESCHIDERE": node.color = Color.rgb(216, 175, 60); node.symbol = ":"; break;
+            case "ÎNTREBARE": node.color = Color.rgb(142, 99, 191); node.symbol = "?"; break;
+            case "EXCLAMARE": node.color = Color.rgb(213, 74, 124); node.symbol = "!"; break;
+            case "SUSPENSIE": node.color = Color.rgb(119, 93, 169); node.symbol = "…"; break;
+            case "LINIE • PAUZĂ / INSERȚIE": node.color = Color.rgb(63, 108, 180); node.symbol = "—"; break;
+            case "CRATIMĂ • LEGARE": node.color = Color.rgb(92, 123, 168); node.symbol = "-"; break;
+            case "PARANTEZE • ÎNCADRARE": node.color = Color.rgb(65, 157, 112); node.symbol = "( )"; break;
+            case "PARANTEZE DREPTE • ÎNCADRARE": node.color = Color.rgb(54, 145, 145); node.symbol = "[ ]"; break;
+            case "GHILIMELE • CITARE": node.color = Color.rgb(188, 115, 56); node.symbol = "„ ”"; break;
+            default: node.color = Color.rgb(80, 130, 160); node.symbol = "P"; break;
         }
     }
 
     private static final String TEXTUAL_RAW = String.join("\n",
             "# TEXTUAL",
             "## PUNCTUAȚIE",
+            "### PUNCT • FINALIZARE",
+            ".",
+            "### VIRGULĂ • SEPARARE LOCALĂ",
+            ",",
+            "### PUNCT ȘI VIRGULĂ • SEPARARE PUTERNICĂ",
+            ";",
+            "### DOUĂ PUNCTE • DESCHIDERE",
+            ":",
+            "### ÎNTREBARE",
+            "?",
+            "### EXCLAMARE",
+            "!",
+            "### SUSPENSIE",
+            "… | ...",
+            "### LINIE • PAUZĂ / INSERȚIE",
+            "— | –",
+            "### CRATIMĂ • LEGARE",
+            "-",
+            "### PARANTEZE • ÎNCADRARE",
+            "( | )",
+            "### PARANTEZE DREPTE • ÎNCADRARE",
+            "[ | ]",
+            "### GHILIMELE • CITARE",
+            "„ | ” | « | » | \"",
 
             "## TEMATIZARE / INTRODUCERE NOD",
             "în ceea ce privește | în ceea ce priveste | în privința | in privinta | cu privire la | referitor la | referitoare la | privind | cât despre | cat despre | în legătură cu | in legatura cu",
