@@ -1,0 +1,56 @@
+name: Build source-based BiblioTopicSearch
+
+on:
+  push:
+    branches:
+      - main
+      - feature/implicit-text-semantic-tools
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;35.0.0"
+
+      - name: Build Debug APK
+        run: gradle --no-daemon -p project-src :app:assembleDebug
+
+      - name: Prepare APK
+        run: |
+          mkdir -p output
+          cp project-src/app/build/outputs/apk/debug/app-debug.apk output/BiblioTopicSearch-implicit-tools.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BiblioTopicSearch-implicit-tools-APK
+          path: output/BiblioTopicSearch-implicit-tools.apk
+          if-no-files-found: error
