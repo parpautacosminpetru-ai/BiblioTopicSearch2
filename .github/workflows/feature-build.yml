@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feature/implicit-text-semantic-tools
+      - feature/punctuation-colors
   pull_request:
     branches:
       - main
