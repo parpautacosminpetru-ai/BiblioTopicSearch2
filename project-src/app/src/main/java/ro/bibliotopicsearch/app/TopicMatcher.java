@@ -106,6 +106,10 @@ public final class TopicMatcher {
         List<TopicNode> punctuationStyleNodes = new ArrayList<>();
 
         if (map != null) {
+            // Built-in maps assign their visual defaults on every load. Reapply the
+            // user's persisted TEXTUAL / SEMANTIC colors after those defaults exist.
+            BuiltInColorStore.apply(context, map);
+
             for (TopicNode node : map.nodes) {
                 if (!node.enabled) continue;
 
