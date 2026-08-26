@@ -17,17 +17,18 @@ import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /** Displays the latest finalized one-pass semantic organization. */
 public final class OrganizedSessionActivity extends AppCompatActivity {
     private OnePassSemanticOrganizer.Snapshot snapshot;
+    private MultiAxisSemanticRuntime.Index multiAxis;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         snapshot = OrganizedSessionStore.loadLatest(this);
+        multiAxis = MultiAxisSemanticRuntime.build(snapshot);
         buildUi();
     }
 
@@ -42,9 +43,9 @@ public final class OrganizedSessionActivity extends AppCompatActivity {
         titleRow.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView title = new TextView(this);
-        title.setText("Organizare One-Pass");
+        title.setText("Organizare One-Pass • Multi-Axis");
         title.setTextColor(Color.WHITE);
-        title.setTextSize(20);
+        title.setTextSize(19);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         titleRow.addView(title, new LinearLayout.LayoutParams(0, dp(44), 1f));
 
@@ -86,9 +87,9 @@ public final class OrganizedSessionActivity extends AppCompatActivity {
             public android.view.View getView(int position, android.view.View convertView, ViewGroup parent) {
                 TextView view = (TextView) super.getView(position, convertView, parent);
                 view.setTextColor(Color.rgb(235, 241, 245));
-                view.setTextSize(12.5f);
+                view.setTextSize(12.2f);
                 view.setPadding(dp(12), dp(10), dp(12), dp(10));
-                view.setMinHeight(dp(78));
+                view.setMinHeight(dp(92));
                 return view;
             }
         };
@@ -115,6 +116,11 @@ public final class OrganizedSessionActivity extends AppCompatActivity {
                 .append("  •  MAX L").append(value.maxDepth())
                 .append("\nDUPLICATE OCR ABSORBITE: ").append(value.duplicatesMerged())
                 .append("  •  CADRE: ").append(value.framesObserved());
+        if (multiAxis != null && !multiAxis.isEmpty()) {
+            out.append("\nMULTI-AXIS: ").append(multiAxis.multiAxisParagraphs())
+                    .append(" paragrafe  •  AXE ACTIVE: ").append(multiAxis.axisMembership().size())
+                    .append("  •  TOOL:MODE: ").append(multiAxis.activeToolModes());
+        }
         if (!value.globalSubject().isEmpty()) {
             out.append("\nSUBIECT GLOBAL: ").append(value.globalSubject());
         }
@@ -137,12 +143,21 @@ public final class OrganizedSessionActivity extends AppCompatActivity {
                 .append("  •  ").append(paragraph.link().name())
                 .append("\nS: ").append(paragraph.subject().isEmpty() ? "?" : paragraph.subject())
                 .append("  •  F: ").append(functionLabel(paragraph.function()));
+
+        MultiAxisSemanticRuntime.Entry entry = multiAxis == null
+                ? null : multiAxis.entryForParagraph(paragraph.index());
+        if (entry != null) {
+            UniversalSubjectFrame.Frame frame = entry.frame();
+            out.append("\nA: ").append(frame.type().name());
+            if (!frame.head().isEmpty()) out.append(" • HEAD=").append(frame.head());
+            if (!frame.axes().isEmpty()) out.append(" • ").append(shortAxes(frame));
+        }
         if (!paragraph.answerSegment().isEmpty()) {
             out.append("  •  R ")
                     .append((int) Math.round(paragraph.answerScore() * 100.0))
                     .append("%");
         }
-        out.append("\n").append(ellipsize(paragraph.text(), 180));
+        out.append("\n").append(ellipsize(paragraph.text(), 170));
         return out.toString();
     }
 
@@ -159,8 +174,13 @@ public final class OrganizedSessionActivity extends AppCompatActivity {
                 .append("% / ")
                 .append((int) Math.round(paragraph.functionConfidence() * 100.0))
                 .append("%")
-                .append("\nSTABILITATE OCR: ").append(paragraph.sightings()).append(" apariții")
-                .append("\n\nTEXT\n").append(paragraph.text());
+                .append("\nSTABILITATE OCR: ").append(paragraph.sightings()).append(" apariții");
+
+        MultiAxisSemanticRuntime.Entry entry = multiAxis == null
+                ? null : multiAxis.entryForParagraph(paragraph.index());
+        if (entry != null) appendMultiAxisDetails(details, entry);
+
+        details.append("\n\nTEXT\n").append(paragraph.text());
 
         if (!paragraph.answerSegment().isEmpty()) {
             details.append("\n\nRĂSPUNS EXPLICIT • ")
@@ -178,9 +198,7 @@ public final class OrganizedSessionActivity extends AppCompatActivity {
                         .append(" • ")
                         .append((int) Math.round(claim.confidence() * 100.0)).append("%")
                         .append("\n").append(claim.raw());
-                if (!claim.operators().isEmpty()) {
-                    details.append("\nOP: ").append(claim.operators());
-                }
+                if (!claim.operators().isEmpty()) details.append("\nOP: ").append(claim.operators());
                 if (!claim.slots().isEmpty()) {
                     details.append("\nSLOTURI:");
                     for (Map.Entry<SemanticGraph.Slot, String> slot : claim.slots().entrySet()) {
@@ -199,6 +217,57 @@ public final class OrganizedSessionActivity extends AppCompatActivity {
                 .setView(content)
                 .setPositiveButton("ÎNCHIDE", null)
                 .show();
+    }
+
+    private void appendMultiAxisDetails(StringBuilder details, MultiAxisSemanticRuntime.Entry entry) {
+        UniversalSubjectFrame.Frame frame = entry.frame();
+        details.append("\n\nSUBJECT FRAME MULTI-AXIAL")
+                .append("\nHEAD: ").append(frame.head().isEmpty() ? "—" : frame.head())
+                .append("\nTIP: ").append(frame.type().name())
+                .append("\nÎNCREDERE: ").append((int) Math.round(frame.confidence() * 100.0)).append("%");
+        if (!frame.parentConcepts().isEmpty()) details.append("\nPĂRINȚI SEMANTICI: ").append(frame.parentConcepts());
+        if (!frame.axes().isEmpty()) {
+            details.append("\nAXE SUPRAPUSE:");
+            for (Map.Entry<UniversalSubjectFrame.Axis, List<String>> axis : frame.axes().entrySet()) {
+                details.append("\n • ").append(axis.getKey().name()).append(" = ")
+                        .append(ellipsize(axis.getValue().toString(), 180));
+            }
+        }
+        if (!frame.operators().isEmpty()) details.append("\nOPERATORI: ").append(frame.operators());
+
+        details.append("\n\nMATRICE DE INTEROGARE:");
+        for (SemanticQueryMatrix.QuerySlot slot : entry.matrix().orderedSlots()) {
+            details.append(" ").append(slot.name())
+                    .append("[").append(entry.matrix().priority(slot)).append("];");
+        }
+
+        if (!entry.routes().isEmpty()) {
+            details.append("\n\nSCULE + MOD:");
+            int shown = 0;
+            for (SemanticToolRouter.Route route : entry.routes()) {
+                if (shown++ >= 14) {
+                    details.append(" …");
+                    break;
+                }
+                details.append("\n • ").append(route.tool().name())
+                        .append(" → ").append(route.mode().name())
+                        .append(" [").append(route.priority()).append("]");
+            }
+        }
+    }
+
+    private String shortAxes(UniversalSubjectFrame.Frame frame) {
+        StringBuilder out = new StringBuilder();
+        int count = 0;
+        for (UniversalSubjectFrame.Axis axis : frame.axes().keySet()) {
+            if (count++ >= 5) {
+                out.append("+…");
+                break;
+            }
+            if (out.length() > 0) out.append("+");
+            out.append(axis.name());
+        }
+        return out.toString();
     }
 
     private TextView bodyText() {
