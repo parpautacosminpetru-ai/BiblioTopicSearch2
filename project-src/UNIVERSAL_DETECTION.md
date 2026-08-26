@@ -1,0 +1,149 @@
+# Detecție universală paralelă — subiect + funcție
+
+Acest strat adaugă un detector offline, fără model extern, pentru a transforma textul în unități interogabile rapid:
+
+`PARAGRAF → SUBIECT ȚINTIT → FUNCȚIE → OPERATORI → SLOTURI DE INTEROGARE`
+
+## Ce detectează
+
+### Subiect țintit
+
+Detectorul combină:
+
+- topic explicit (`în ceea ce privește`, `cât despre`, `referitor la` etc.);
+- eliminarea cadrelor inițiale temporale/spațiale;
+- grupul dinaintea unui predicat puternic;
+- persistența între propoziții;
+- reluările pronominale/demonstrative;
+- recurența lexicală și distribuția pe propoziții;
+- bonus pentru poziția inițială și pentru expresii nominale suficient de specifice.
+
+Ieșirea păstrează expresia țintită când există, de exemplu `efectele economice ale inflației`, în loc să reducă automat la `inflație`.
+
+### Funcția dominantă a paragrafului
+
+Schema conține:
+
+- INTRODUCTION
+- DEFINITION
+- DESCRIPTION
+- EXPLANATION
+- CAUSE_EFFECT
+- PURPOSE
+- CONDITION
+- EXAMPLE
+- ENUMERATION
+- CLASSIFICATION
+- COMPARISON
+- CONTRAST
+- ARGUMENTATION
+- EVIDENCE
+- PROBLEM
+- SOLUTION
+- SEQUENCE
+- TRANSITION
+- SUMMARY
+- CONCLUSION
+- DEVELOPMENT
+- UNKNOWN
+
+Detectorul păstrează și o funcție secundară atunci când două funcții au suport lexical comparabil.
+
+### Operatori care nu trebuie pierduți
+
+- NEGATION
+- MODALITY
+- QUANTITY
+- RESTRICTION
+- INCLUSION
+- EXCLUSION
+- TEMPORAL
+- SPATIAL
+- COMPARATIVE
+- COREFERENCE
+- TOPIC_FRAME
+
+Acești operatori împiedică reducerea greșită a unor afirmații precum `X poate produce Y` la `X produce Y` sau `X nu produce Y` la `X produce Y`.
+
+### Sloturi de interogare
+
+Funcția activează automat numai întrebările relevante din schema extinsă:
+
+- WHAT
+- WHO
+- WHERE
+- WHEN
+- WHY
+- HOW
+- WHICH
+- QUANTITY
+- CONDITION
+- EFFECT
+- COMPARISON
+- PURPOSE
+- EVIDENCE
+- CLAIM
+
+Exemplu: `CAUSE_EFFECT` activează prioritar `WHY + CONDITION + HOW + EFFECT`, iar `DEFINITION` activează `WHAT + WHICH`.
+
+## Execuție paralelă
+
+`ParallelTextDetectionEngine` rulează concomitent:
+
+1. potrivirea lexicală deja existentă prin `TopicMatcher`;
+2. detecția automată de subiect + funcție pe fiecare `ML Kit TextBlock`.
+
+Pool-ul este fix și reutilizabil; nu se creează fire noi la fiecare cadru OCR.
+
+Pentru text lipit/importat, `detectText(...)` separă paragrafele după liniile goale și le procesează concurent, păstrând ordinea originală.
+
+## Folosire cu OCR ML Kit
+
+```java
+private final ParallelTextDetectionEngine detector = new ParallelTextDetectionEngine();
+
+// după ce ML Kit a produs Text text:
+ParallelTextDetectionEngine.CombinedResult result = detector.detect(text, searchPlan);
+
+List<MatchHit> hits = result.lexicalHits();
+List<UniversalParagraphDetector.Detection> paragraphs = result.paragraphs();
+
+for (UniversalParagraphDetector.Detection p : paragraphs) {
+    String subject = p.subject();
+    UniversalDetectionLexicon.Function function = p.function();
+    List<UniversalDetectionLexicon.Slot> questions = p.querySlots();
+}
+
+// în onDestroy()/close:
+detector.close();
+```
+
+## Folosire cu text arbitrar
+
+```java
+ParallelTextDetectionEngine detector = new ParallelTextDetectionEngine();
+try {
+    List<UniversalParagraphDetector.Detection> result = detector.detectText(textIntegral);
+    for (UniversalParagraphDetector.Detection p : result) {
+        System.out.println(p.compactLabel());
+    }
+} finally {
+    detector.close();
+}
+```
+
+## Principiu de siguranță semantică
+
+Detectorul nu completează informația care nu există în text. Când dovezile lexicale/structurale sunt slabe:
+
+- `subjectConfidence` rămâne mic;
+- `functionConfidence` rămâne mic;
+- funcția cade pe `DEVELOPMENT` sau `UNKNOWN`.
+
+Aplicația poate folosi pragurile de încredere pentru a decide dacă afișează automat rezultatul sau cere validare vizuală.
+
+## Limbă și universalitate
+
+Ontologia (`Function`, `Operator`, `Slot`) și motorul sunt reutilizabile pentru orice limbă. Pachetul lexical inclus în această versiune este românesc și tolerant la diacritice. Pentru altă limbă se adaugă un pachet echivalent de forme lexicale fără a schimba algoritmul.
+
+„Orice complexitate” înseamnă că motorul nu presupune o lungime fixă a paragrafului și poate procesa multe paragrafe în paralel. Nu înseamnă acuratețe semantică absolută: fără parser sintactic/coreference neural, anumite texte eliptice, literare sau intenționat ambigue vor avea încredere scăzută.
