@@ -15,10 +15,10 @@ import java.util.regex.Pattern;
 /**
  * Offline, dependency-free scorer for research relevance and explicit answer spans.
  *
- * The engine deliberately rewards explicit lexical/structural evidence. It does not
- * infer an answer that is absent from the text. A question such as "de ce...?" must
- * find causal evidence in the candidate span (or a strongly classified causal
- * paragraph) before the span can cross the answer threshold.
+ * The engine rewards explicit lexical and discourse evidence. It does not infer an
+ * answer that is absent from the OCR text: relational queries such as WHY, EFFECT,
+ * CONDITION or COMPARISON must find corresponding evidence before a segment can be
+ * emitted as an answer.
  */
 public final class ResearchSemanticEngine {
     private ResearchSemanticEngine() {}
@@ -146,6 +146,7 @@ public final class ResearchSemanticEngine {
         boolean question = raw.contains("?") || intent != Intent.TOPIC;
 
         LinkedHashSet<String> direct = contentTerms(raw);
+        removeIntentControlTerms(direct, intent);
         LinkedHashSet<String> aliases = new LinkedHashSet<>();
 
         if (themeMap != null) {
@@ -167,8 +168,9 @@ public final class ResearchSemanticEngine {
             }
         }
 
-        // Never let alias expansion reduce the weight of the literal research query.
+        removeIntentControlTerms(aliases, intent);
         aliases.removeAll(direct);
+
         String display = raw;
         if (display.isEmpty() && themeMap != null) display = themeMap.name;
         return new Profile(raw, display, intent, question, direct, aliases);
@@ -190,6 +192,7 @@ public final class ResearchSemanticEngine {
         if (best == null) return null;
         double threshold = profile.explicitQuestion ? 0.54 : 0.44;
         if (best.score < threshold) return null;
+
         return new Answer(
                 best.paragraphIndex,
                 best.text,
@@ -225,15 +228,16 @@ public final class ResearchSemanticEngine {
         for (String alias : profile.aliasTerms) {
             if (containsConcept(tokens, alias)) aliasMatches++;
         }
-        double aliasSignal = profile.aliasTerms.isEmpty()
-                ? 0.0
-                : Math.min(1.0, aliasMatches / 3.0);
+        double aliasSignal = aliasSignal(profile, aliasMatches);
 
         double subjectAlignment = 0.0;
         if (detection.subject() != null && !detection.subject().isEmpty()) {
             LinkedHashSet<String> subjectTerms = contentTerms(detection.subject());
-            if (anyConceptMatch(profile.directTerms, subjectTerms)) subjectAlignment = detection.subjectConfidence();
-            else if (anyConceptMatch(profile.aliasTerms, subjectTerms)) subjectAlignment = detection.subjectConfidence() * 0.65;
+            if (anyConceptMatch(profile.directTerms, subjectTerms)) {
+                subjectAlignment = detection.subjectConfidence();
+            } else if (anyConceptMatch(profile.aliasTerms, subjectTerms)) {
+                subjectAlignment = detection.subjectConfidence() * 0.65;
+            }
         }
 
         out.relationEvidence = relationEvidence(profile.intent, segment);
@@ -257,18 +261,37 @@ public final class ResearchSemanticEngine {
                     + 0.08 * informativeness
                     + 0.05 * compactness;
         }
+
         out.score = clamp01(out.score);
         return out;
     }
 
+    private static double aliasSignal(Profile profile, int aliasMatches) {
+        if (profile.aliasTerms.isEmpty() || aliasMatches <= 0) return 0.0;
+
+        // When the bar is empty, aliases ARE the active research theme, so the first
+        // explicit theme term must be strong enough to act as a real lexical anchor.
+        if (profile.directTerms.isEmpty()) {
+            return Math.min(1.0, 0.84 + Math.max(0, aliasMatches - 1) * 0.08);
+        }
+
+        // With an explicit query, aliases only broaden vocabulary and remain weaker
+        // than the literal terms entered by the user.
+        return Math.min(1.0, aliasMatches / 3.0);
+    }
+
     private static boolean passesExplicitGate(Profile profile, Candidate c) {
         if (c == null || c.text == null || c.text.trim().isEmpty()) return false;
-        boolean conceptPresent = c.directCoverage > 0.0 || (!profile.aliasTerms.isEmpty() && anyConceptMatch(profile.aliasTerms, contentTerms(c.text)));
+
+        boolean conceptPresent = c.directCoverage > 0.0
+                || (!profile.aliasTerms.isEmpty() && anyConceptMatch(profile.aliasTerms, contentTerms(c.text)));
         if (!conceptPresent) return false;
         if (!profile.explicitQuestion) return true;
 
-        // A literal question needs at least some lexical anchoring to its target.
-        if (!profile.directTerms.isEmpty() && c.directCoverage < (profile.directTerms.size() <= 2 ? 0.5 : 0.34)) return false;
+        if (!profile.directTerms.isEmpty()
+                && c.directCoverage < (profile.directTerms.size() <= 2 ? 0.5 : 0.34)) {
+            return false;
+        }
 
         switch (profile.intent) {
             case WHY:
@@ -282,7 +305,8 @@ public final class ResearchSemanticEngine {
             case PROBLEM:
                 return c.relationEvidence >= 0.40;
             case HOW:
-                return c.relationEvidence >= 0.28 || functionAlignment(profile.intent, c.detection) >= 0.70;
+                return c.relationEvidence >= 0.28
+                        || functionAlignment(profile.intent, c.detection) >= 0.70;
             case WHEN:
             case WHERE:
             case WHO:
@@ -295,7 +319,6 @@ public final class ResearchSemanticEngine {
     private static boolean better(Candidate a, Candidate b) {
         if (a.score > b.score + 0.025) return true;
         if (b.score > a.score + 0.025) return false;
-        // When two candidates are almost equivalent, prefer the shorter explicit span.
         return tokenCount(a.text) < tokenCount(b.text);
     }
 
@@ -305,13 +328,16 @@ public final class ResearchSemanticEngine {
         while (matcher.find()) {
             String sentence = cleanSegment(matcher.group());
             if (tokenCount(sentence) >= 3) out.add(sentence);
+
             String[] clauses = sentence.split("(?<=,)|(?<=:)|(?<=—)|(?<=–)");
             for (String clause : clauses) {
                 String clean = cleanSegment(clause);
                 if (tokenCount(clean) >= 3) out.add(clean);
             }
         }
-        if (out.isEmpty() && paragraph != null && !paragraph.trim().isEmpty()) out.add(paragraph.trim());
+        if (out.isEmpty() && paragraph != null && !paragraph.trim().isEmpty()) {
+            out.add(paragraph.trim());
+        }
         return new ArrayList<>(out);
     }
 
@@ -343,8 +369,8 @@ public final class ResearchSemanticEngine {
                         " este ", " sunt ", " reprezinta ", " inseamna ", " se defineste ", " desemneaza ");
             case COMPARISON:
                 return cueScore(text,
-                        " comparativ cu ", " in comparatie cu ", " similar ", " asemanator ", " spre deosebire de ",
-                        " diferit ", " mai mult ", " mai putin ", " decat ");
+                        " comparativ cu ", " in comparatie cu ", " similar ", " asemanator ",
+                        " spre deosebire de ", " diferit ", " mai mult ", " mai putin ", " decat ");
             case PURPOSE:
                 return cueScore(text,
                         " pentru a ", " in vederea ", " cu scopul ", " obiectiv ", " vizeaza ", " urmareste ");
@@ -368,7 +394,7 @@ public final class ResearchSemanticEngine {
                 return cueScore(text,
                         " in romania ", " in europa ", " regiune ", " zona ", " local ", " global ");
             case WHO:
-                return 0.45; // lexical anchoring does the main work without a local NER model.
+                return 0.45;
             case TOPIC:
             default:
                 return 1.0;
@@ -396,24 +422,42 @@ public final class ResearchSemanticEngine {
     private static boolean functionMatch(Intent intent, UniversalDetectionLexicon.Function f) {
         if (f == null) return false;
         switch (intent) {
-            case WHY: return f == UniversalDetectionLexicon.Function.CAUSE_EFFECT || f == UniversalDetectionLexicon.Function.EXPLANATION;
-            case EFFECT: return f == UniversalDetectionLexicon.Function.CAUSE_EFFECT || f == UniversalDetectionLexicon.Function.CONCLUSION;
-            case HOW: return f == UniversalDetectionLexicon.Function.EXPLANATION || f == UniversalDetectionLexicon.Function.SEQUENCE || f == UniversalDetectionLexicon.Function.DESCRIPTION;
-            case CONDITION: return f == UniversalDetectionLexicon.Function.CONDITION;
-            case DEFINITION: return f == UniversalDetectionLexicon.Function.DEFINITION;
-            case COMPARISON: return f == UniversalDetectionLexicon.Function.COMPARISON || f == UniversalDetectionLexicon.Function.CONTRAST;
-            case PURPOSE: return f == UniversalDetectionLexicon.Function.PURPOSE;
-            case EVIDENCE: return f == UniversalDetectionLexicon.Function.EVIDENCE || f == UniversalDetectionLexicon.Function.ARGUMENTATION;
-            case PROBLEM: return f == UniversalDetectionLexicon.Function.PROBLEM;
-            case SOLUTION: return f == UniversalDetectionLexicon.Function.SOLUTION;
-            default: return false;
+            case WHY:
+                return f == UniversalDetectionLexicon.Function.CAUSE_EFFECT
+                        || f == UniversalDetectionLexicon.Function.EXPLANATION;
+            case EFFECT:
+                return f == UniversalDetectionLexicon.Function.CAUSE_EFFECT
+                        || f == UniversalDetectionLexicon.Function.CONCLUSION;
+            case HOW:
+                return f == UniversalDetectionLexicon.Function.EXPLANATION
+                        || f == UniversalDetectionLexicon.Function.SEQUENCE
+                        || f == UniversalDetectionLexicon.Function.DESCRIPTION;
+            case CONDITION:
+                return f == UniversalDetectionLexicon.Function.CONDITION;
+            case DEFINITION:
+                return f == UniversalDetectionLexicon.Function.DEFINITION;
+            case COMPARISON:
+                return f == UniversalDetectionLexicon.Function.COMPARISON
+                        || f == UniversalDetectionLexicon.Function.CONTRAST;
+            case PURPOSE:
+                return f == UniversalDetectionLexicon.Function.PURPOSE;
+            case EVIDENCE:
+                return f == UniversalDetectionLexicon.Function.EVIDENCE
+                        || f == UniversalDetectionLexicon.Function.ARGUMENTATION;
+            case PROBLEM:
+                return f == UniversalDetectionLexicon.Function.PROBLEM;
+            case SOLUTION:
+                return f == UniversalDetectionLexicon.Function.SOLUTION;
+            default:
+                return false;
         }
     }
 
     private static Intent detectIntent(String q) {
         String text = " " + (q == null ? "" : q) + " ";
         if (text.contains(" de ce ") || text.contains(" cauz") || text.contains(" motiv")) return Intent.WHY;
-        if (text.contains(" ce efect") || text.contains(" efectele ") || text.contains(" consecint") || text.contains(" impact")) return Intent.EFFECT;
+        if (text.contains(" ce efect") || text.contains(" efectele ")
+                || text.contains(" consecint") || text.contains(" impact")) return Intent.EFFECT;
         if (text.contains(" cum ") || text.contains(" mecanism") || text.contains(" in ce mod ")) return Intent.HOW;
         if (text.contains(" ce este ") || text.contains(" ce inseamna ") || text.contains(" definit")) return Intent.DEFINITION;
         if (text.contains(" in ce condit") || text.contains(" daca ") || text.contains(" conditii ")) return Intent.CONDITION;
@@ -426,6 +470,54 @@ public final class ResearchSemanticEngine {
         if (text.contains(" problema") || text.contains(" dificultat") || text.contains(" risc")) return Intent.PROBLEM;
         if (text.contains(" soluti") || text.contains(" cum se rezolva ") || text.contains(" remedi")) return Intent.SOLUTION;
         return Intent.TOPIC;
+    }
+
+    /**
+     * Words that encode the requested relation are not target concepts. For example,
+     * in "efectele inflației", EFFECT is already represented by the intent, so only
+     * "inflației" should count toward lexical target coverage.
+     */
+    private static void removeIntentControlTerms(Set<String> terms, Intent intent) {
+        if (terms == null || terms.isEmpty() || intent == null) return;
+        List<String> remove = new ArrayList<>();
+        for (String term : terms) {
+            String t = fold(term);
+            if (isIntentControlTerm(intent, t)) remove.add(term);
+        }
+        terms.removeAll(remove);
+    }
+
+    private static boolean isIntentControlTerm(Intent intent, String term) {
+        switch (intent) {
+            case WHY:
+                return startsAny(term, "cauz", "motiv");
+            case EFFECT:
+                return startsAny(term, "efect", "consec", "impact");
+            case HOW:
+                return startsAny(term, "mecan", "mod", "proces");
+            case DEFINITION:
+                return startsAny(term, "defin", "insemn");
+            case CONDITION:
+                return startsAny(term, "condit");
+            case COMPARISON:
+                return startsAny(term, "compar", "difer", "aseman");
+            case PURPOSE:
+                return startsAny(term, "scop", "obiectiv");
+            case EVIDENCE:
+                return startsAny(term, "dove", "evid", "date");
+            case PROBLEM:
+                return startsAny(term, "problem", "dificult", "risc");
+            case SOLUTION:
+                return startsAny(term, "solut", "remedi");
+            default:
+                return false;
+        }
+    }
+
+    private static boolean startsAny(String value, String... prefixes) {
+        if (value == null) return false;
+        for (String prefix : prefixes) if (value.startsWith(prefix)) return true;
+        return false;
     }
 
     private static boolean eligibleThemeNode(TopicNode node) {
@@ -448,11 +540,16 @@ public final class ResearchSemanticEngine {
 
     private static boolean anyConceptMatch(Set<String> a, Set<String> b) {
         if (a == null || b == null || a.isEmpty() || b.isEmpty()) return false;
-        for (String x : a) for (String y : b) if (conceptMatch(x, y)) return true;
+        for (String x : a) {
+            for (String y : b) {
+                if (conceptMatch(x, y)) return true;
+            }
+        }
         return false;
     }
 
     private static boolean containsConcept(Set<String> haystack, String needle) {
+        if (haystack == null || haystack.isEmpty()) return false;
         for (String value : haystack) if (conceptMatch(value, needle)) return true;
         return false;
     }
@@ -462,6 +559,7 @@ public final class ResearchSemanticEngine {
         String x = fold(a);
         String y = fold(b);
         if (x.equals(y)) return true;
+
         int min = Math.min(x.length(), y.length());
         if (min < 5) return false;
         int prefix = min >= 8 ? 6 : 5;
@@ -471,7 +569,10 @@ public final class ResearchSemanticEngine {
     private static double informativeness(Set<String> tokens, Profile profile) {
         int extra = 0;
         for (String token : tokens) {
-            if (!containsConcept(profile.directTerms, token) && !containsConcept(profile.aliasTerms, token)) extra++;
+            if (!containsConcept(profile.directTerms, token)
+                    && !containsConcept(profile.aliasTerms, token)) {
+                extra++;
+            }
         }
         return Math.min(1.0, extra / 5.0);
     }
