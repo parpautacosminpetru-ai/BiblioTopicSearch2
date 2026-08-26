@@ -112,7 +112,9 @@ public final class ParagraphCartography {
         public boolean isEmpty() { return nodes.isEmpty(); }
 
         public Node nodeForParagraph(int paragraphIndex) {
-            for (Node node : nodes) if (node.paragraphIndex == paragraphIndex) return node;
+            for (Node node : nodes) {
+                if (node.paragraphIndex == paragraphIndex) return node;
+            }
             return null;
         }
     }
@@ -155,9 +157,16 @@ public final class ParagraphCartography {
 
             if (nodes.isEmpty()) {
                 nodes.add(new Node(
-                        paragraphIndex, 0, -1, subject, detection.function(), Link.ROOT,
-                        baseConfidence(detection, 1.0, inherited), 1.0,
-                        propositionCount, inherited
+                        paragraphIndex,
+                        0,
+                        -1,
+                        subject,
+                        detection.function(),
+                        Link.ROOT,
+                        baseConfidence(detection, 1.0, inherited),
+                        1.0,
+                        propositionCount,
+                        inherited
                 ));
                 subjectTerms.add(currentTerms);
                 continue;
@@ -176,26 +185,39 @@ public final class ParagraphCartography {
                 parentIndex = parent.nodeIndex >= 0 ? parent.nodeIndex : nodes.size() - 1;
                 Node parentNode = nodes.get(parentIndex);
                 link = functional;
-                depth = Math.max(parentNode.depth() + supportDepthDelta(functional), parentNode.depth());
-            } else if (inherited || parent.exactOrInherited || similarity >= 0.72) {
+                depth = Math.max(
+                        parentNode.depth() + supportDepthDelta(functional),
+                        parentNode.depth()
+                );
+            } else if (inherited || parent.exactOrInherited) {
+                // Genuine identity/coreference stays at the same level. Do not use a
+                // high fuzzy-similarity threshold here: a strict semantic superset is
+                // an explicit narrowing even when lexical overlap is almost perfect.
                 parentIndex = parent.nodeIndex >= 0 ? parent.nodeIndex : nodes.size() - 1;
                 Node parentNode = nodes.get(parentIndex);
-                if (parentIndex == nodes.size() - 1) {
-                    link = Link.CONTINUES;
-                } else {
-                    link = Link.RETURNS;
-                }
+                link = parentIndex == nodes.size() - 1 ? Link.CONTINUES : Link.RETURNS;
                 depth = parentNode.depth();
-            } else if (parent.nodeIndex >= 0 && parent.currentMoreSpecific && similarity >= 0.34) {
+            } else if (parent.nodeIndex >= 0
+                    && parent.currentMoreSpecific
+                    && similarity >= 0.34) {
                 parentIndex = parent.nodeIndex;
                 Node parentNode = nodes.get(parentIndex);
                 link = Link.NARROWS;
                 depth = parentNode.depth() + 1;
-            } else if (parent.nodeIndex >= 0 && parent.currentBroader && similarity >= 0.34) {
+            } else if (parent.nodeIndex >= 0
+                    && parent.currentBroader
+                    && similarity >= 0.34) {
                 parentIndex = parent.nodeIndex;
                 Node parentNode = nodes.get(parentIndex);
                 link = Link.BROADENS;
                 depth = Math.max(0, parentNode.depth() - 1);
+            } else if (similarity >= 0.72 && parent.nodeIndex >= 0) {
+                // Strong overlap without strict containment means thematic continuity,
+                // not hierarchy. A non-adjacent match is a return to an older branch.
+                parentIndex = parent.nodeIndex;
+                Node parentNode = nodes.get(parentIndex);
+                link = parentIndex == nodes.size() - 1 ? Link.CONTINUES : Link.RETURNS;
+                depth = parentNode.depth();
             } else if (functional == Link.TRANSITIONS) {
                 parentIndex = nodes.size() - 1;
                 link = Link.TRANSITIONS;
@@ -212,8 +234,12 @@ public final class ParagraphCartography {
             }
 
             double confidence = baseConfidence(detection, similarity, inherited);
-            if (link == Link.SHIFTS && similarity < 0.18) confidence = Math.max(confidence, 0.62);
-            if (functional != null && functional != Link.TRANSITIONS) confidence = Math.max(confidence, 0.66);
+            if (link == Link.SHIFTS && similarity < 0.18) {
+                confidence = Math.max(confidence, 0.62);
+            }
+            if (functional != null && functional != Link.TRANSITIONS) {
+                confidence = Math.max(confidence, 0.66);
+            }
 
             nodes.add(new Node(
                     paragraphIndex,
@@ -247,6 +273,9 @@ public final class ParagraphCartography {
             double similarity = semanticOverlap(current, previous);
             boolean currentContains = containsConceptSet(current, previous);
             boolean previousContains = containsConceptSet(previous, current);
+            boolean sameConceptSet = current.size() == previous.size()
+                    && currentContains
+                    && previousContains;
 
             double recency = 1.0 - Math.min(0.18, (nodes.size() - 1 - i) * 0.015);
             double score = similarity * recency;
@@ -257,8 +286,8 @@ public final class ParagraphCartography {
             if (score > best.similarity) {
                 best.nodeIndex = i;
                 best.similarity = Math.min(1.0, score);
-                best.exactOrInherited = inherited && i == nodes.size() - 1
-                        || similarity >= 0.88;
+                best.exactOrInherited = (inherited && i == nodes.size() - 1)
+                        || sameConceptSet;
                 best.currentMoreSpecific = currentContains && current.size() > previous.size();
                 best.currentBroader = previousContains && previous.size() > current.size();
             }
@@ -331,13 +360,13 @@ public final class ParagraphCartography {
         if (nodes.isEmpty()) return "";
         String best = nodes.get(0).subject();
         double bestScore = -1.0;
-        for (int i = 0; i < nodes.size(); i++) {
-            Node candidate = nodes.get(i);
+
+        for (Node candidate : nodes) {
             if (candidate.subject().isEmpty()) continue;
-            Set<String> a = terms(candidate.subject());
+            Set<String> candidateTerms = terms(candidate.subject());
             double coverage = 0.0;
             for (Node other : nodes) {
-                coverage += semanticOverlap(a, terms(other.subject()));
+                coverage += semanticOverlap(candidateTerms, terms(other.subject()));
             }
             double depthPenalty = candidate.depth() * 0.08;
             double score = coverage + candidate.confidence() - depthPenalty;
@@ -353,6 +382,7 @@ public final class ParagraphCartography {
         if (detection == null) return "";
         String value = detection.subject();
         if (value != null && !value.trim().isEmpty()) return value.trim();
+
         SemanticGraph graph = SemanticGraphBuilder.build(detection);
         for (SemanticGraph.Proposition proposition : graph.propositions()) {
             if (!proposition.subject().isEmpty()) return proposition.subject();
@@ -372,20 +402,46 @@ public final class ParagraphCartography {
     }
 
     private static boolean isStop(String token) {
-        return token.equals("acest") || token.equals("aceasta") || token.equals("acesta")
-                || token.equals("proces") || token.equals("procesul")
-                || token.equals("fenomen") || token.equals("fenomenul")
-                || token.equals("este") || token.equals("sunt")
-                || token.equals("care") || token.equals("pentru") || token.equals("prin")
-                || token.equals("dintre") || token.equals("despre") || token.equals("aceasta");
+        return token.equals("acest")
+                || token.equals("aceasta")
+                || token.equals("acesta")
+                || token.equals("aceste")
+                || token.equals("acele")
+                || token.equals("proces")
+                || token.equals("procesul")
+                || token.equals("fenomen")
+                || token.equals("fenomenul")
+                || token.equals("mecanism")
+                || token.equals("mecanismul")
+                || token.equals("este")
+                || token.equals("sunt")
+                || token.equals("care")
+                || token.equals("pentru")
+                || token.equals("prin")
+                || token.equals("dintre")
+                || token.equals("despre")
+                || token.equals("ale")
+                || token.equals("unui")
+                || token.equals("unei")
+                || token.equals("din")
+                || token.equals("in")
+                || token.equals("între")
+                || token.equals("intre")
+                || token.equals("spre")
+                || token.equals("fără")
+                || token.equals("fara");
     }
 
     private static double semanticOverlap(Set<String> a, Set<String> b) {
         if (a == null || b == null || a.isEmpty() || b.isEmpty()) return 0.0;
         int matchedA = 0;
-        for (String x : a) if (containsConcept(b, x)) matchedA++;
+        for (String x : a) {
+            if (containsConcept(b, x)) matchedA++;
+        }
         int matchedB = 0;
-        for (String y : b) if (containsConcept(a, y)) matchedB++;
+        for (String y : b) {
+            if (containsConcept(a, y)) matchedB++;
+        }
         double recallA = matchedA / (double) a.size();
         double recallB = matchedB / (double) b.size();
         return (recallA + recallB) / 2.0;
@@ -393,12 +449,16 @@ public final class ParagraphCartography {
 
     private static boolean containsConceptSet(Set<String> superset, Set<String> subset) {
         if (superset == null || subset == null || subset.isEmpty()) return false;
-        for (String item : subset) if (!containsConcept(superset, item)) return false;
+        for (String item : subset) {
+            if (!containsConcept(superset, item)) return false;
+        }
         return true;
     }
 
     private static boolean containsConcept(Set<String> values, String target) {
-        for (String value : values) if (conceptMatch(value, target)) return true;
+        for (String value : values) {
+            if (conceptMatch(value, target)) return true;
+        }
         return false;
     }
 
