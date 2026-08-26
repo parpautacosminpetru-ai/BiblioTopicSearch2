@@ -14,8 +14,8 @@ public final class AppPrefs {
 
     /** Same single bar, two deterministic purposes. */
     public enum IndexMode {
-        SOURCE,      // learn/cartograph the source itself; persist index only
-        RESEARCH     // external topic/question; persist evidence workspace
+        SOURCE,      // empty bar: learn/cartograph the source itself; persist index only
+        RESEARCH     // non-empty bar: external topic/question; persist evidence workspace
     }
 
     private AppPrefs() {}
@@ -138,12 +138,17 @@ public final class AppPrefs {
     }
 
     public static IndexMode indexMode(Context context) {
-        String value = prefs(context).getString("index_mode", IndexMode.RESEARCH.name());
-        try { return IndexMode.valueOf(value); } catch (Exception ignored) { return IndexMode.RESEARCH; }
+        SharedPreferences p = prefs(context);
+        String explicit = p.getString("index_mode", null);
+        if (explicit != null) {
+            try { return IndexMode.valueOf(explicit); } catch (Exception ignored) { /* fall through */ }
+        }
+        String query = p.getString("research_query", "");
+        return query == null || query.trim().isEmpty() ? IndexMode.SOURCE : IndexMode.RESEARCH;
     }
 
     public static void setIndexMode(Context context, IndexMode mode) {
-        prefs(context).edit().putString("index_mode", (mode == null ? IndexMode.RESEARCH : mode).name()).apply();
+        prefs(context).edit().putString("index_mode", (mode == null ? IndexMode.SOURCE : mode).name()).apply();
     }
 
     /** Optional focus in SOURCE mode. Empty means cartograph everything indexable. */
@@ -196,13 +201,26 @@ public final class AppPrefs {
         prefs(context).edit().putInt("zoom_level", Math.max(0, Math.min(3, value))).apply();
     }
 
+    /** Effective research query. SOURCE mode deliberately returns empty. */
     public static String researchQuery(Context context) {
+        if (indexMode(context) == IndexMode.SOURCE) return "";
         String value = prefs(context).getString("research_query", "");
         return value == null ? "" : value;
     }
 
+    public static String storedResearchQuery(Context context) {
+        String value = prefs(context).getString("research_query", "");
+        return value == null ? "" : value;
+    }
+
+    /** Empty single bar => SOURCE. Any explicit text => RESEARCH. */
     public static void setResearchQuery(Context context, String value) {
-        prefs(context).edit().putString("research_query", value == null ? "" : value.trim()).apply();
+        String clean = value == null ? "" : value.trim();
+        IndexMode mode = clean.isEmpty() ? IndexMode.SOURCE : IndexMode.RESEARCH;
+        prefs(context).edit()
+                .putString("research_query", clean)
+                .putString("index_mode", mode.name())
+                .apply();
     }
 
     public static boolean showLabels(Context context) {
