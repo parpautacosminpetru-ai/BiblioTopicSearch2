@@ -9,7 +9,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/** Maps cartography nodes to the first visible OCR token of each paragraph block. */
+/** Maps cartography nodes to OCR anchors and reuses the same frame for Living Index marks. */
 public final class ParagraphMapMarker {
     private ParagraphMapMarker() {}
 
@@ -17,6 +17,14 @@ public final class ParagraphMapMarker {
         if (text == null || map == null || map.isEmpty()) return Collections.emptyList();
         List<Text.TextBlock> blocks = text.getTextBlocks();
         if (blocks == null || blocks.isEmpty()) return Collections.emptyList();
+
+        // TopicMatcher has already computed these detections for this sidecar. Reuse them;
+        // no second OCR and no page image is created or persisted.
+        List<UniversalParagraphDetector.Detection> detections = TopicMatcher.latestParagraphDetections();
+        if (detections != null && !detections.isEmpty()) {
+            SemanticGraph graph = SemanticGraphBuilder.build(detections);
+            LivingIndexRuntime.observe(text, detections, graph, map);
+        }
 
         List<ParagraphMapMark> out = new ArrayList<>();
         for (ParagraphCartography.Node node : map.nodes()) {
