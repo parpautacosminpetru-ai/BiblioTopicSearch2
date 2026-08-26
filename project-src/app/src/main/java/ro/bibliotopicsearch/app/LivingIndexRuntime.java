@@ -25,26 +25,31 @@ public final class LivingIndexRuntime {
     private static List<LivingIndexEngine.Candidate> latestCandidates = Collections.emptyList();
     private static List<LivingIndexTextMark> latestMarks = Collections.emptyList();
     private static long sourceId;
+    private static long sessionId;
     private static String currentPage = "";
     private static long lastSaveAt;
     private static boolean dirty;
 
-    public static void start(Context context, long sessionId) {
+    public static void start(Context context, long session) {
         if (context == null) return;
         synchronized (LOCK) {
             appContext = context.getApplicationContext();
             state = LivingIndexStore.load(appContext);
-            sourceId = sessionId > 0 ? sessionId : System.currentTimeMillis();
+            sessionId = session > 0 ? session : System.currentTimeMillis();
+            String stableSource = IndexCoreSourceRegistry.activeSourceId(appContext);
+            sourceId = IndexCoreSourceRegistry.legacyNumericId(stableSource);
             currentPage = "";
             dirty = false;
             latestCandidates = Collections.emptyList();
             latestMarks = Collections.emptyList();
+            IndexCoreRuntime.start(appContext, sessionId);
         }
     }
 
     public static void stop() {
         synchronized (LOCK) {
             flushLocked();
+            IndexCoreRuntime.stop();
             latestMarks = Collections.emptyList();
         }
     }
@@ -120,6 +125,9 @@ public final class LivingIndexRuntime {
                     || after.recurrence() != oldRecurrence)) changed = true;
         }
 
+        // v7 authoritative ledger: unlimited occurrences + stable source + outline + facets.
+        IndexCoreRuntime.observeBatch(detections, first, state, currentPage);
+
         if (changed) {
             dirty = true;
             long now = System.currentTimeMillis();
@@ -162,14 +170,24 @@ public final class LivingIndexRuntime {
         synchronized (LOCK) { return currentPage; }
     }
 
+    /** Compatibility numeric ID. Stable across sessions for the active v7 source. */
     public static long sourceId() {
         synchronized (LOCK) { return sourceId; }
+    }
+
+    public static String sourceKey() {
+        synchronized (LOCK) { return IndexCoreRuntime.sourceId(); }
+    }
+
+    public static long sessionId() {
+        synchronized (LOCK) { return sessionId; }
     }
 
     public static boolean validate(String id, LivingIndexStore.Category category) {
         synchronized (LOCK) {
             boolean changed = state.validate(id, category);
             if (changed) {
+                IndexCoreRuntime.syncEntry(state.byId(id));
                 dirty = true;
                 flushLocked();
             }
@@ -182,6 +200,7 @@ public final class LivingIndexRuntime {
         synchronized (LOCK) {
             appContext = context.getApplicationContext();
             state = LivingIndexStore.load(appContext);
+            IndexCoreDatabase.get(appContext).migrateLegacyOnce(state);
         }
     }
 
