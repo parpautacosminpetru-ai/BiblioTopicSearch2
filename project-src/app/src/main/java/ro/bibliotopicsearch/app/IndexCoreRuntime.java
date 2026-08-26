@@ -27,12 +27,12 @@ public final class IndexCoreRuntime {
             appContext = context.getApplicationContext();
             sourceId = IndexCoreSourceRegistry.activeSourceId(appContext);
             sessionId = session > 0 ? session : System.currentTimeMillis();
-            currentOutlineId = 0L;
-            outlineOrder = 0;
-            for (int i = 0; i < lastOutlineByDepth.length; i++) lastOutlineByDepth[i] = 0L;
             IndexCoreDatabase db = IndexCoreDatabase.get(appContext);
             db.ensureSource(sourceId);
             IndexCoreLegacyMigrator.migrate(db, LivingIndexRuntime.state());
+            IndexCoreOutlineState.Restored restored = IndexCoreOutlineState.restore(db, sourceId, lastOutlineByDepth);
+            currentOutlineId = restored.currentId;
+            outlineOrder = restored.nextOrder;
         }
     }
 
@@ -40,10 +40,6 @@ public final class IndexCoreRuntime {
         synchronized (LOCK) { currentOutlineId = 0L; }
     }
 
-    /**
-     * Persist entries/occurrences after the legacy in-memory state has already merged
-     * this batch. No OCR or semantic parsing is repeated here.
-     */
     public static void observeBatch(
             List<UniversalParagraphDetector.Detection> detections,
             List<LivingIndexEngine.Candidate> candidates,
