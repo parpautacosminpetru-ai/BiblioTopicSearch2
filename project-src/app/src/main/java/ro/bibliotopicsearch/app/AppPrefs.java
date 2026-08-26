@@ -56,7 +56,9 @@ public final class AppPrefs {
     }
 
     public static boolean ocrEnabled(Context context) {
-        return prefs(context).getBoolean("ocr_enabled", true);
+        boolean enabled = prefs(context).getBoolean("ocr_enabled", true);
+        if (enabled) OnePassLiveCollector.start();
+        return enabled;
     }
 
     /**
@@ -69,9 +71,11 @@ public final class AppPrefs {
 
         if (value) {
             OnePassSemanticOrganizer.beginSession();
+            OnePassLiveCollector.start();
             return;
         }
 
+        OnePassLiveCollector.stop();
         if (!OnePassSemanticOrganizer.isActive()) return;
 
         // Capture the most recent fully completed semantic sidecar result before
