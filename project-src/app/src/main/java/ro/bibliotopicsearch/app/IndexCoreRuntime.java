@@ -32,7 +32,7 @@ public final class IndexCoreRuntime {
             for (int i = 0; i < lastOutlineByDepth.length; i++) lastOutlineByDepth[i] = 0L;
             IndexCoreDatabase db = IndexCoreDatabase.get(appContext);
             db.ensureSource(sourceId);
-            db.migrateLegacyOnce(LivingIndexRuntime.state());
+            IndexCoreLegacyMigrator.migrate(db, LivingIndexRuntime.state());
         }
     }
 
@@ -61,7 +61,7 @@ public final class IndexCoreRuntime {
             for (LivingIndexEngine.Candidate candidate : candidates) {
                 if (candidate == null || candidate.surface().isEmpty()) continue;
                 LivingIndexStore.Entry entry = state.findCanonical(candidate.surface());
-                if (entry == null) continue; // research mode can deliberately skip unknowns
+                if (entry == null) continue;
                 String coreId = IndexCoreEntryWriter.upsert(db, entry);
                 if (coreId.isEmpty()) continue;
                 long outlineId = outlineForParagraph(candidate.paragraphIndex(), outlineByParagraph, previousOutline);
@@ -132,7 +132,6 @@ public final class IndexCoreRuntime {
         return changedAt;
     }
 
-    /** Nearest heading at/before paragraph, otherwise continue the pre-batch outline. */
     private static long outlineForParagraph(int paragraphIndex, Map<Integer, Long> changedAt, long previousOutline) {
         long value = previousOutline;
         int best = -1;
