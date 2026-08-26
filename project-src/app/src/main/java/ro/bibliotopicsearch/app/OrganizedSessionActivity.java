@@ -1,5 +1,6 @@
 package ro.bibliotopicsearch.app;
 
+import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -45,15 +46,21 @@ public final class OrganizedSessionActivity extends AppCompatActivity {
         TextView title = new TextView(this);
         title.setText("Organizare One-Pass • Multi-Axis");
         title.setTextColor(Color.WHITE);
-        title.setTextSize(19);
+        title.setTextSize(18);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         titleRow.addView(title, new LinearLayout.LayoutParams(0, dp(44), 1f));
 
+        Button workspace = new Button(this);
+        workspace.setText("DOSAR");
+        workspace.setTextSize(10);
+        workspace.setOnClickListener(v -> startActivity(new Intent(this, ResearchWorkspaceActivity.class)));
+        titleRow.addView(workspace, new LinearLayout.LayoutParams(dp(82), dp(42)));
+
         Button close = new Button(this);
         close.setText("ÎNAPOI");
-        close.setTextSize(11);
+        close.setTextSize(10);
         close.setOnClickListener(v -> finish());
-        titleRow.addView(close, new LinearLayout.LayoutParams(dp(96), dp(42)));
+        titleRow.addView(close, new LinearLayout.LayoutParams(dp(82), dp(42)));
         root.addView(titleRow);
 
         if (snapshot == null || snapshot.paragraphs().isEmpty()) {
@@ -71,18 +78,12 @@ public final class OrganizedSessionActivity extends AppCompatActivity {
         root.addView(summary);
 
         List<String> rows = new ArrayList<>();
-        for (OnePassSemanticOrganizer.Paragraph paragraph : snapshot.paragraphs()) {
-            rows.add(rowText(paragraph));
-        }
+        for (OnePassSemanticOrganizer.Paragraph paragraph : snapshot.paragraphs()) rows.add(rowText(paragraph));
 
         ListView list = new ListView(this);
         list.setDividerHeight(dp(1));
         list.setBackgroundColor(Color.rgb(20, 29, 38));
-        ArrayAdapter<String> adapter = new ArrayAdapter<String>(
-                this,
-                android.R.layout.simple_list_item_1,
-                rows
-        ) {
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, rows) {
             @Override
             public android.view.View getView(int position, android.view.View convertView, ViewGroup parent) {
                 TextView view = (TextView) super.getView(position, convertView, parent);
@@ -95,14 +96,9 @@ public final class OrganizedSessionActivity extends AppCompatActivity {
         };
         list.setAdapter(adapter);
         list.setOnItemClickListener((parent, view, position, id) -> {
-            if (position >= 0 && position < snapshot.paragraphs().size()) {
-                showParagraph(snapshot.paragraphs().get(position));
-            }
+            if (position >= 0 && position < snapshot.paragraphs().size()) showParagraph(snapshot.paragraphs().get(position));
         });
-        root.addView(list, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
-        ));
-
+        root.addView(list, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         setContentView(root);
     }
 
@@ -121,17 +117,12 @@ public final class OrganizedSessionActivity extends AppCompatActivity {
                     .append(" paragrafe  •  AXE ACTIVE: ").append(multiAxis.axisMembership().size())
                     .append("  •  TOOL:MODE: ").append(multiAxis.activeToolModes());
         }
-        if (!value.globalSubject().isEmpty()) {
-            out.append("\nSUBIECT GLOBAL: ").append(value.globalSubject());
-        }
-        if (!value.query().isEmpty()) {
-            out.append("\nCERCETARE: ").append(value.query());
-        }
+        if (!value.globalSubject().isEmpty()) out.append("\nSUBIECT GLOBAL: ").append(value.globalSubject());
+        if (!value.query().isEmpty()) out.append("\nCERCETARE: ").append(value.query());
         if (!value.bestAnswerSegment().isEmpty()) {
             out.append("\nR MAX ")
                     .append((int) Math.round(value.bestAnswerScore() * 100.0))
-                    .append("%: ")
-                    .append(value.bestAnswerSegment());
+                    .append("%: ").append(value.bestAnswerSegment());
         }
         return out.toString();
     }
@@ -144,8 +135,7 @@ public final class OrganizedSessionActivity extends AppCompatActivity {
                 .append("\nS: ").append(paragraph.subject().isEmpty() ? "?" : paragraph.subject())
                 .append("  •  F: ").append(functionLabel(paragraph.function()));
 
-        MultiAxisSemanticRuntime.Entry entry = multiAxis == null
-                ? null : multiAxis.entryForParagraph(paragraph.index());
+        MultiAxisSemanticRuntime.Entry entry = multiAxis == null ? null : multiAxis.entryForParagraph(paragraph.index());
         if (entry != null) {
             UniversalSubjectFrame.Frame frame = entry.frame();
             out.append("\nA: ").append(frame.type().name());
@@ -153,9 +143,7 @@ public final class OrganizedSessionActivity extends AppCompatActivity {
             if (!frame.axes().isEmpty()) out.append(" • ").append(shortAxes(frame));
         }
         if (!paragraph.answerSegment().isEmpty()) {
-            out.append("  •  R ")
-                    .append((int) Math.round(paragraph.answerScore() * 100.0))
-                    .append("%");
+            out.append("  •  R ").append((int) Math.round(paragraph.answerScore() * 100.0)).append("%");
         }
         out.append("\n").append(ellipsize(paragraph.text(), 170));
         return out.toString();
@@ -165,21 +153,16 @@ public final class OrganizedSessionActivity extends AppCompatActivity {
         StringBuilder details = new StringBuilder();
         details.append("NIVEL: L").append(paragraph.depth())
                 .append("\nRELAȚIE CARTOGRAFICĂ: ").append(paragraph.link().name())
-                .append("\nPĂRINTE: ")
-                .append(paragraph.parentIndex() < 0 ? "—" : "P" + (paragraph.parentIndex() + 1))
+                .append("\nPĂRINTE: ").append(paragraph.parentIndex() < 0 ? "—" : "P" + (paragraph.parentIndex() + 1))
                 .append("\nSUBIECT: ").append(paragraph.subject())
                 .append("\nFUNCȚIE: ").append(functionLabel(paragraph.function()))
                 .append("\nÎNCREDERE S/F: ")
-                .append((int) Math.round(paragraph.subjectConfidence() * 100.0))
-                .append("% / ")
-                .append((int) Math.round(paragraph.functionConfidence() * 100.0))
-                .append("%")
+                .append((int) Math.round(paragraph.subjectConfidence() * 100.0)).append("% / ")
+                .append((int) Math.round(paragraph.functionConfidence() * 100.0)).append("%")
                 .append("\nSTABILITATE OCR: ").append(paragraph.sightings()).append(" apariții");
 
-        MultiAxisSemanticRuntime.Entry entry = multiAxis == null
-                ? null : multiAxis.entryForParagraph(paragraph.index());
+        MultiAxisSemanticRuntime.Entry entry = multiAxis == null ? null : multiAxis.entryForParagraph(paragraph.index());
         if (entry != null) appendMultiAxisDetails(details, entry);
-
         details.append("\n\nTEXT\n").append(paragraph.text());
 
         if (!paragraph.answerSegment().isEmpty()) {
@@ -194,16 +177,14 @@ public final class OrganizedSessionActivity extends AppCompatActivity {
             int number = 1;
             for (OnePassSemanticOrganizer.Claim claim : paragraph.claims()) {
                 details.append("\n\n").append(number++).append(") ")
-                        .append(claim.relation().name())
-                        .append(" • ")
+                        .append(claim.relation().name()).append(" • ")
                         .append((int) Math.round(claim.confidence() * 100.0)).append("%")
                         .append("\n").append(claim.raw());
                 if (!claim.operators().isEmpty()) details.append("\nOP: ").append(claim.operators());
                 if (!claim.slots().isEmpty()) {
                     details.append("\nSLOTURI:");
                     for (Map.Entry<SemanticGraph.Slot, String> slot : claim.slots().entrySet()) {
-                        details.append(" ").append(slot.getKey().name())
-                                .append("=").append(slot.getValue()).append(";");
+                        details.append(" ").append(slot.getKey().name()).append("=").append(slot.getValue()).append(";");
                     }
                 }
             }
@@ -237,18 +218,14 @@ public final class OrganizedSessionActivity extends AppCompatActivity {
 
         details.append("\n\nMATRICE DE INTEROGARE:");
         for (SemanticQueryMatrix.QuerySlot slot : entry.matrix().orderedSlots()) {
-            details.append(" ").append(slot.name())
-                    .append("[").append(entry.matrix().priority(slot)).append("];");
+            details.append(" ").append(slot.name()).append("[").append(entry.matrix().priority(slot)).append("];");
         }
 
         if (!entry.routes().isEmpty()) {
             details.append("\n\nSCULE + MOD:");
             int shown = 0;
             for (SemanticToolRouter.Route route : entry.routes()) {
-                if (shown++ >= 14) {
-                    details.append(" …");
-                    break;
-                }
+                if (shown++ >= 14) { details.append(" …"); break; }
                 details.append("\n • ").append(route.tool().name())
                         .append(" → ").append(route.mode().name())
                         .append(" [").append(route.priority()).append("]");
@@ -260,10 +237,7 @@ public final class OrganizedSessionActivity extends AppCompatActivity {
         StringBuilder out = new StringBuilder();
         int count = 0;
         for (UniversalSubjectFrame.Axis axis : frame.axes().keySet()) {
-            if (count++ >= 5) {
-                out.append("+…");
-                break;
-            }
+            if (count++ >= 5) { out.append("+…"); break; }
             if (out.length() > 0) out.append("+");
             out.append(axis.name());
         }
@@ -279,15 +253,13 @@ public final class OrganizedSessionActivity extends AppCompatActivity {
     }
 
     private String functionLabel(UniversalDetectionLexicon.Function function) {
-        if (function == null) return "NEDETERMINATĂ";
-        return function.name().replace('_', ' ');
+        return function == null ? "NEDETERMINATĂ" : function.name().replace('_', ' ');
     }
 
     private String ellipsize(String value, int max) {
         if (value == null) return "";
         String clean = value.replaceAll("\\s+", " ").trim();
-        if (clean.length() <= max) return clean;
-        return clean.substring(0, Math.max(1, max - 1)).trim() + "…";
+        return clean.length() <= max ? clean : clean.substring(0, Math.max(1, max - 1)).trim() + "…";
     }
 
     private int dp(int value) {
