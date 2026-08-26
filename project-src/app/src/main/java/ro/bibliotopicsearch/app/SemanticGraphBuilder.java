@@ -10,7 +10,6 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -29,20 +28,20 @@ public final class SemanticGraphBuilder {
     private static final Pattern SENTENCE_SPLIT = Pattern.compile("(?<=[.!?;])\\s+|\\n+");
     private static final Pattern YEAR = Pattern.compile("\\b(?:18|19|20)\\d{2}\\b");
 
+    /** All values are folded because matching also uses folded OCR text. */
     private static final Set<String> COREFERENCE_START = new HashSet<>(Arrays.asList(
-            "acesta", "aceasta", "aceștia", "acestia", "acestea", "el", "ea", "ei", "ele",
-            "aceasta", "acest", "această", "aceasta", "acel", "acea", "acei", "acele",
-            "fenomenul", "procesul", "mecanismul", "metoda", "situația", "situatia", "rezultatul"
+            "acesta", "aceasta", "acestia", "acestea", "el", "ea", "ei", "ele",
+            "acest", "acel", "acea", "acei", "acele",
+            "fenomenul", "procesul", "mecanismul", "metoda", "situatia", "rezultatul"
     ));
 
     private static final Set<String> PREDICATE_WORDS = new HashSet<>(Arrays.asList(
-            "este", "sunt", "era", "erau", "reprezintă", "reprezinta", "înseamnă", "inseamna",
-            "constituie", "devine", "rămâne", "ramane", "are", "au", "poate", "pot", "trebuie",
-            "crește", "creste", "scade", "reduce", "mărește", "mareste", "produce", "produc",
-            "determină", "determina", "provoacă", "provoaca", "generează", "genereaza", "conduce",
-            "duce", "permite", "transformă", "transforma", "explică", "explica", "arată", "arata",
-            "indică", "indica", "sugerează", "sugereaza", "funcționează", "functioneaza", "constă", "consta",
-            "apare", "apar", "include", "cuprinde", "conține", "contine", "depinde", "favorizează", "favorizeaza"
+            "este", "sunt", "era", "erau", "reprezinta", "inseamna",
+            "constituie", "devine", "ramane", "are", "au", "poate", "pot", "trebuie",
+            "creste", "scade", "reduce", "mareste", "produce", "produc",
+            "determina", "provoaca", "genereaza", "conduce", "duce", "permite", "transforma",
+            "explica", "arata", "indica", "sugereaza", "functioneaza", "consta",
+            "apare", "apar", "include", "cuprinde", "contine", "depinde", "favorizeaza"
     ));
 
     private static final String[] STRONG_SPLIT_CUES = {
@@ -82,8 +81,19 @@ public final class SemanticGraphBuilder {
             String priorSubject
     ) {
         List<SemanticGraph.Proposition> out = new ArrayList<>();
-        String currentSubject = clean(detection.subject());
-        if (currentSubject.isEmpty()) currentSubject = clean(priorSubject);
+
+        String detectedSubject = clean(detection.subject());
+        boolean detectedSubjectIsAnaphoric = isCoreferenceStart(
+                fold(detectedSubject), firstToken(detectedSubject)
+        );
+        String currentSubject;
+        if (detectedSubjectIsAnaphoric && !clean(priorSubject).isEmpty()) {
+            currentSubject = clean(priorSubject);
+        } else if (!detectedSubject.isEmpty()) {
+            currentSubject = detectedSubject;
+        } else {
+            currentSubject = clean(priorSubject);
+        }
 
         String[] sentences = SENTENCE_SPLIT.split(detection.paragraph().trim());
         int sentenceIndex = 0;
@@ -122,27 +132,32 @@ public final class SemanticGraphBuilder {
             int clauseIndex
     ) {
         String folded = fold(clause);
-        List<String> tokens = tokens(clause);
-        String first = tokens.isEmpty() ? "" : fold(tokens.get(0));
+        List<String> clauseTokens = tokens(clause);
+        String first = clauseTokens.isEmpty() ? "" : fold(clauseTokens.get(0));
         boolean inherited = isCoreferenceStart(folded, first);
 
         PredicateFrame predicate = extractPredicateFrame(clause, detection.subject());
         String subject = clean(predicate.subject);
+        String detectionSubject = clean(detection.subject());
+        boolean detectionSubjectIsAnaphoric = isCoreferenceStart(
+                fold(detectionSubject), firstToken(detectionSubject)
+        );
 
-        if (inherited && !currentSubject.isEmpty()) {
-            subject = currentSubject;
-        } else if (subject.isEmpty() && !clean(detection.subject()).isEmpty()) {
-            subject = clean(detection.subject());
+        if (inherited && !clean(currentSubject).isEmpty()) {
+            subject = clean(currentSubject);
+        } else if (subject.isEmpty() && !detectionSubject.isEmpty() && !detectionSubjectIsAnaphoric) {
+            subject = detectionSubject;
         } else if (subject.isEmpty()) {
             subject = clean(currentSubject);
             inherited = !subject.isEmpty();
         }
 
-        SemanticGraph.Relation relation = detectRelation(folded, detection);
+        SemanticGraph.Relation relation = detectRelation(folded);
         EnumSet<SemanticGraph.Operator> operators = detectOperators(folded);
         EnumMap<SemanticGraph.Slot, String> slots = detectSlots(
                 clause, folded, relation, predicate, operators
         );
+        if (!subject.isEmpty()) slots.put(SemanticGraph.Slot.WHO, subject);
 
         double confidence = 0.46;
         if (!subject.isEmpty()) confidence += 0.13;
@@ -175,9 +190,7 @@ public final class SemanticGraphBuilder {
 
         for (String cue : STRONG_SPLIT_CUES) {
             List<String> next = new ArrayList<>();
-            for (String part : stage) {
-                next.addAll(splitBeforeCue(part, cue));
-            }
+            for (String part : stage) next.addAll(splitBeforeCue(part, cue));
             stage = next;
         }
 
@@ -194,13 +207,10 @@ public final class SemanticGraphBuilder {
     }
 
     private static List<String> splitBeforeCue(String value, String cue) {
-        String folded = fold(value);
-        String foldedCue = fold(cue);
-        int index = wordIndex(folded, foldedCue);
-        if (index <= 0) return Collections.singletonList(value);
-
-        int originalIndex = approximateOriginalIndex(value, foldedCue);
-        if (originalIndex <= 0 || originalIndex >= value.length()) return Collections.singletonList(value);
+        int originalIndex = findCueStart(value, cue);
+        if (originalIndex <= 0 || originalIndex >= value.length()) {
+            return Collections.singletonList(value);
+        }
 
         List<String> out = new ArrayList<>();
         String left = cleanClause(value.substring(0, originalIndex));
@@ -210,14 +220,23 @@ public final class SemanticGraphBuilder {
         return out.isEmpty() ? Collections.singletonList(value) : out;
     }
 
-    private static int approximateOriginalIndex(String value, String foldedCue) {
-        String normalizedValue = fold(value);
-        int normalizedIndex = wordIndex(normalizedValue, foldedCue);
-        if (normalizedIndex < 0) return -1;
+    /** Finds a folded cue through token spans so diacritics never shift source indices. */
+    private static int findCueStart(String value, String cue) {
+        List<TokenSpan> source = tokenSpans(value);
+        List<String> wanted = tokens(cue);
+        if (source.isEmpty() || wanted.isEmpty() || wanted.size() > source.size()) return -1;
 
-        // Diacritic folding preserves character count for ordinary Romanian letters,
-        // so this is accurate for OCR text and degrades safely for unusual combining marks.
-        return Math.min(value.length(), normalizedIndex);
+        for (int start = 0; start + wanted.size() <= source.size(); start++) {
+            boolean same = true;
+            for (int offset = 0; offset < wanted.size(); offset++) {
+                if (!fold(source.get(start + offset).token).equals(fold(wanted.get(offset)))) {
+                    same = false;
+                    break;
+                }
+            }
+            if (same) return source.get(start).start;
+        }
+        return -1;
     }
 
     private static PredicateFrame extractPredicateFrame(String clause, String paragraphSubject) {
@@ -261,17 +280,16 @@ public final class SemanticGraphBuilder {
 
     private static boolean looksLikeRomanianVerb(String token, int position) {
         if (token == null || token.length() < 5 || position == 0) return false;
-        return token.endsWith("ează") || token.endsWith("eaza")
-                || token.endsWith("izează") || token.endsWith("izeaza")
-                || token.endsWith("ifică") || token.endsWith("ifica")
-                || token.endsWith("esc") || token.endsWith("ește") || token.endsWith("este")
-                || token.endsWith("ind") || token.endsWith("ând") || token.endsWith("and");
+        return token.endsWith("eaza")
+                || token.endsWith("izeaza")
+                || token.endsWith("ifica")
+                || token.endsWith("esc")
+                || token.endsWith("ind")
+                || token.endsWith("and");
     }
 
-    private static SemanticGraph.Relation detectRelation(
-            String folded,
-            UniversalParagraphDetector.Detection detection
-    ) {
+    /** Relation is local to the clause; paragraph function is not promoted here. */
+    private static SemanticGraph.Relation detectRelation(String folded) {
         String text = " " + folded + " ";
         if (containsAny(text, " deoarece ", " fiindca ", " intrucat ", " din cauza ", " datorita ")) {
             return SemanticGraph.Relation.CAUSE;
@@ -305,24 +323,6 @@ public final class SemanticGraphBuilder {
         }
         if (containsAny(text, " este ", " sunt ", " reprezinta ", " inseamna ", " se defineste ", " desemneaza ")) {
             return SemanticGraph.Relation.DEFINITION;
-        }
-
-        if (detection != null) {
-            switch (detection.function()) {
-                case CAUSE_EFFECT: return SemanticGraph.Relation.EFFECT;
-                case DEFINITION: return SemanticGraph.Relation.DEFINITION;
-                case EXPLANATION: return SemanticGraph.Relation.MECHANISM;
-                case CONDITION: return SemanticGraph.Relation.CONDITION;
-                case PURPOSE: return SemanticGraph.Relation.PURPOSE;
-                case COMPARISON:
-                case CONTRAST: return SemanticGraph.Relation.COMPARISON;
-                case EVIDENCE: return SemanticGraph.Relation.EVIDENCE;
-                case PROBLEM: return SemanticGraph.Relation.PROBLEM;
-                case SOLUTION: return SemanticGraph.Relation.SOLUTION;
-                case SEQUENCE: return SemanticGraph.Relation.SEQUENCE;
-                case DESCRIPTION: return SemanticGraph.Relation.ATTRIBUTE;
-                default: break;
-            }
         }
         return SemanticGraph.Relation.GENERIC;
     }
@@ -406,29 +406,37 @@ public final class SemanticGraphBuilder {
     }
 
     private static String extractLocation(String raw) {
-        String folded = fold(raw);
-        Matcher matcher = Pattern.compile("\\b(?:în|in|la|din)\\s+([\\p{L}][\\p{L}\\-]*(?:\\s+[\\p{L}][\\p{L}\\-]*){0,3})").matcher(raw);
+        Matcher matcher = Pattern.compile(
+                "\\b(?:în|in|la|din)\\s+([\\p{L}][\\p{L}\\-]*(?:\\s+[\\p{L}][\\p{L}\\-]*){0,3})",
+                Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
+        ).matcher(raw);
         while (matcher.find()) {
             String candidate = clean(matcher.group());
             String normalized = fold(candidate);
-            if (normalized.contains(" in cazul") || normalized.contains(" in vederea")
-                    || normalized.contains(" in consecinta") || normalized.contains(" in timp")) continue;
+            if (containsAny(" " + normalized + " ",
+                    " in cazul ", " in vederea ", " in consecinta ", " in timp ",
+                    " in anul ", " in anii ", " in perioada ", " in secolul ",
+                    " in ultimii ", " in ultimele ", " in prezent ", " in trecut ", " in viitor ")) {
+                continue;
+            }
             if (tokenCount(candidate) <= 5) return candidate;
         }
         return "";
     }
 
     private static String extractQuantity(String raw) {
-        Matcher matcher = Pattern.compile("\\b(?:toate|toți|toti|majoritatea|unele|unii|multe|puține|putine|\\d+(?:[.,]\\d+)?%?)\\b",
-                Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE).matcher(raw);
+        Matcher matcher = Pattern.compile(
+                "\\b(?:toate|toți|toti|majoritatea|unele|unii|multe|puține|putine|\\d+(?:[.,]\\d+)?%?)\\b",
+                Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
+        ).matcher(raw);
         return matcher.find() ? matcher.group() : "";
     }
 
     private static boolean isCoreferenceStart(String foldedClause, String firstToken) {
         if (COREFERENCE_START.contains(firstToken)) return true;
         return startsAny(foldedClause,
-                "acest proces", "acest fenomen", "aceasta situatie", "această situație",
-                "acest mecanism", "aceasta metoda", "această metodă", "acest rezultat", "acest efect");
+                "acest proces", "acest fenomen", "aceasta situatie",
+                "acest mecanism", "aceasta metoda", "acest rezultat", "acest efect");
     }
 
     private static String trimLeadingConnectors(String value) {
@@ -454,13 +462,6 @@ public final class SemanticGraphBuilder {
     private static boolean containsFolded(String raw, String value) {
         if (raw == null || value == null || value.trim().isEmpty()) return false;
         return (" " + fold(raw) + " ").contains(" " + fold(value) + " ");
-    }
-
-    private static int wordIndex(String foldedText, String foldedCue) {
-        String text = " " + foldedText + " ";
-        String cue = " " + foldedCue + " ";
-        int index = text.indexOf(cue);
-        return index < 0 ? -1 : Math.max(0, index - 1);
     }
 
     private static String firstToken(String value) {
