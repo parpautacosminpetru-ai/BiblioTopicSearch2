@@ -25,14 +25,14 @@ public final class RomanianMorphology {
             "at","it","ut"
     };
 
+    private static final String[] ADJECTIVE_PLURAL_ENDINGS = {
+            "ale","ice","ive","ante","ente","oase","are","iste","ene","ine"
+    };
+
     public static String familyKey(String value) {
         String w = first(RomanianLanguagePack.fold(value));
         if (w.isEmpty() || RomanianLanguagePack.isFunctionWord(w) || w.matches("\\d+")) return w;
-
-        // Productive finite/non-finite verb endings stay distinct at identity level.
-        // Irregular lexical normalization remains available only through broadKey.
         if (looksProductiveVerb(w)) return w;
-
         String narrow = nominalAdjectivalInflection(w);
         return narrow.length() >= 3 ? narrow : w;
     }
@@ -40,13 +40,10 @@ public final class RomanianMorphology {
     public static String broadKey(String value) {
         String w = first(RomanianLanguagePack.fold(value));
         if (w.isEmpty() || RomanianLanguagePack.isFunctionWord(w) || w.matches("\\d+")) return w;
-
         String verb = verbStem(w);
         if (!verb.equals(w) && verb.length() >= 4) return verb;
-
         String irregularOrSnowball = RomanianLanguagePack.derivationalStem(value);
         if (irregularOrSnowball.length() >= 4 && irregularOrSnowball.length() <= w.length()) return irregularOrSnowball;
-
         String narrow = familyKey(w);
         return narrow.length() >= 3 ? narrow : w;
     }
@@ -89,22 +86,30 @@ public final class RomanianMorphology {
 
     private static String nominalAdjectivalInflection(String w) {
         String s = w;
-
-        // Long Romanian definite/genitive/dative endings first.
         s = remove(s, 4, "iilor", "urilor", "elor", "ilor", "ului");
         s = remove(s, 4, "iile", "urile");
         if (!s.equals(w)) return s;
 
         if (s.endsWith("ei") && s.length() >= 6) return s.substring(0, s.length() - 2);
         if (s.endsWith("ii") && s.length() >= 6) return s.substring(0, s.length() - 2);
+
+        // Agreement plural must win before generic definite -le. E.g. medicale -> medical,
+        // politice -> politic, sociale -> social; otherwise medicale would become medica.
+        if (s.length() >= 6 && hasEnding(s, ADJECTIVE_PLURAL_ENDINGS)) {
+            return s.substring(0, s.length() - 1);
+        }
+
         if (s.endsWith("le") && s.length() >= 7) return s.substring(0, s.length() - 2);
 
-        // Productive gender/number agreement. Length guard protects short lexemes
-        // such as mare/carte/țară from aggressive chopping.
         if (s.length() >= 6 && (s.endsWith("a") || s.endsWith("e") || s.endsWith("i"))) {
             return s.substring(0, s.length() - 1);
         }
         return s;
+    }
+
+    private static boolean hasEnding(String value, String[] endings) {
+        for (String ending : endings) if (value.endsWith(ending)) return true;
+        return false;
     }
 
     private static boolean looksProductiveVerb(String w) {
@@ -115,15 +120,12 @@ public final class RomanianMorphology {
     }
 
     private static String verbStem(String w) {
-        // High-information suffixes first. This intentionally produces a retrieval
-        // root rather than a dictionary lemma: analizează/analizând/analizat -> analiz.
         String[] suffixes = {
                 "eaza","easca","este","esti","esc","aste","asti","asc",
                 "indu","andu","ind","and",
                 "asera","isera","usera","sesera","ase","ise","use","sese",
                 "aseram","iseram","useram","seseram",
-                "aram","uram","iram",
-                "at","it","ut"
+                "aram","uram","iram","at","it","ut"
         };
         for (String suffix : suffixes) {
             if (w.endsWith(suffix) && w.length() - suffix.length() >= 4) {
