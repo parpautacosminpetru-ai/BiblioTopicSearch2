@@ -7,28 +7,48 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Conservative morphology utilities layered over RomanianLanguagePack. */
+/**
+ * Conservative Romanian morphology.
+ * Narrow familyKey groups ordinary inflection/agreement; broadKey additionally
+ * normalizes productive verb/derivational forms and is never an identity key.
+ */
 public final class RomanianMorphology {
     private RomanianMorphology() {}
 
     private static final Pattern TOKEN = Pattern.compile("[\\p{L}\\p{N}][\\p{L}\\p{N}'’\\-]*");
 
+    private static final String[] VERB_BROAD_SUFFIXES = {
+            "eaza","easca","este","esti","esc","aste","asti","asc",
+            "indu","andu","ind","and",
+            "asera","isera","usera","sesera","ase","ise","use","sese",
+            "aram","urăm","uram","iram","ati","eti","iti",
+            "at","it","ut"
+    };
+
     public static String familyKey(String value) {
         String w = first(RomanianLanguagePack.fold(value));
         if (w.isEmpty() || RomanianLanguagePack.isFunctionWord(w) || w.matches("\\d+")) return w;
 
-        String base = RomanianLanguagePack.familyKey(w);
-        String ro = romanianInflection(w);
-        if (ro.length() >= 3 && ro.length() < base.length()) return ro;
-        return base;
+        // Productive finite/non-finite verb endings stay distinct at identity level.
+        // Irregular lexical normalization remains available only through broadKey.
+        if (looksProductiveVerb(w)) return w;
+
+        String narrow = nominalAdjectivalInflection(w);
+        return narrow.length() >= 3 ? narrow : w;
     }
 
     public static String broadKey(String value) {
-        String family = familyKey(value);
-        if (family.length() < 4 || RomanianLanguagePack.isFunctionWord(family)) return family;
-        String stem = RomanianLanguagePack.derivationalStem(value);
-        if (stem.length() >= 4 && stem.length() <= family.length()) return stem;
-        return family;
+        String w = first(RomanianLanguagePack.fold(value));
+        if (w.isEmpty() || RomanianLanguagePack.isFunctionWord(w) || w.matches("\\d+")) return w;
+
+        String verb = verbStem(w);
+        if (!verb.equals(w) && verb.length() >= 4) return verb;
+
+        String irregularOrSnowball = RomanianLanguagePack.derivationalStem(value);
+        if (irregularOrSnowball.length() >= 4 && irregularOrSnowball.length() <= w.length()) return irregularOrSnowball;
+
+        String narrow = familyKey(w);
+        return narrow.length() >= 3 ? narrow : w;
     }
 
     public static boolean sameFamily(String a, String b) {
@@ -67,37 +87,50 @@ public final class RomanianMorphology {
         return false;
     }
 
-    private static String romanianInflection(String w) {
+    private static String nominalAdjectivalInflection(String w) {
         String s = w;
-        // Genitive/dative and definite plural endings.
+
+        // Long Romanian definite/genitive/dative endings first.
         s = remove(s, 4, "iilor", "urilor", "elor", "ilor", "ului");
         s = remove(s, 4, "iile", "urile");
-        s = remove(s, 4, "elor", "ilor");
+        if (!s.equals(w)) return s;
 
-        if (s.endsWith("ei") && s.length() >= 6) s = s.substring(0, s.length() - 2);
-        else if (s.endsWith("ii") && s.length() >= 6) s = s.substring(0, s.length() - 2);
-        else if (s.endsWith("le") && s.length() >= 6) s = s.substring(0, s.length() - 2);
+        if (s.endsWith("ei") && s.length() >= 6) return s.substring(0, s.length() - 2);
+        if (s.endsWith("ii") && s.length() >= 6) return s.substring(0, s.length() - 2);
+        if (s.endsWith("le") && s.length() >= 7) return s.substring(0, s.length() - 2);
 
-        // Productive adjective/noun agreement endings. Keep at least four letters.
-        if (s.length() >= 6) {
-            if (s.endsWith("e") || s.endsWith("i") || s.endsWith("a")) s = s.substring(0, s.length() - 1);
+        // Productive gender/number agreement. Length guard protects short lexemes
+        // such as mare/carte/țară from aggressive chopping.
+        if (s.length() >= 6 && (s.endsWith("a") || s.endsWith("e") || s.endsWith("i"))) {
+            return s.substring(0, s.length() - 1);
         }
+        return s;
+    }
 
-        // Verb endings that are distinctive enough to be safely normalized.
-        String[] verb = {
-                "ează","eaza","ească","easca","ește","este","ești","esti","esc",
-                "ăște","aste","ăști","asti","ăsc","asc","ind","ând","and","indu","andu",
-                "aseră","asera","iseră","isera","useră","usera","seseră","sesera",
-                "are","ere","ire","âre"
+    private static boolean looksProductiveVerb(String w) {
+        for (String suffix : VERB_BROAD_SUFFIXES) {
+            if (w.endsWith(suffix) && w.length() - suffix.length() >= 4) return true;
+        }
+        return false;
+    }
+
+    private static String verbStem(String w) {
+        // High-information suffixes first. This intentionally produces a retrieval
+        // root rather than a dictionary lemma: analizează/analizând/analizat -> analiz.
+        String[] suffixes = {
+                "eaza","easca","este","esti","esc","aste","asti","asc",
+                "indu","andu","ind","and",
+                "asera","isera","usera","sesera","ase","ise","use","sese",
+                "aseram","iseram","useram","seseram",
+                "aram","uram","iram",
+                "at","it","ut"
         };
-        for (String suffix : verb) {
-            String f = RomanianLanguagePack.fold(suffix);
-            if (s.endsWith(f) && s.length() - f.length() >= 4) {
-                s = s.substring(0, s.length() - f.length());
-                break;
+        for (String suffix : suffixes) {
+            if (w.endsWith(suffix) && w.length() - suffix.length() >= 4) {
+                return w.substring(0, w.length() - suffix.length());
             }
         }
-        return s.length() >= 3 ? s : w;
+        return w;
     }
 
     private static String remove(String value, int min, String... suffixes) {
