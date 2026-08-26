@@ -2,10 +2,11 @@ package ro.bibliotopicsearch.app;
 
 import android.content.Context;
 
-import java.util.ArrayList;
-import java.util.Collections;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /** Live, low-cost bridge from existing OCR/index detections into the v7 SQLite core. */
@@ -36,9 +37,7 @@ public final class IndexCoreRuntime {
     }
 
     public static void stop() {
-        synchronized (LOCK) {
-            currentOutlineId = 0L;
-        }
+        synchronized (LOCK) { currentOutlineId = 0L; }
     }
 
     /**
@@ -55,15 +54,19 @@ public final class IndexCoreRuntime {
         synchronized (LOCK) {
             if (appContext == null || sourceId.isEmpty()) return;
             IndexCoreDatabase db = IndexCoreDatabase.get(appContext);
+            long previousOutline = currentOutlineId;
             Map<Integer, Long> outlineByParagraph = updateOutlines(db, detections, page);
+            String batchToken = (page == null || page.trim().isEmpty()) ? batchFingerprint(candidates) : "";
 
             for (LivingIndexEngine.Candidate candidate : candidates) {
                 if (candidate == null || candidate.surface().isEmpty()) continue;
                 LivingIndexStore.Entry entry = state.findCanonical(candidate.surface());
                 if (entry == null) continue; // research mode can deliberately skip unknowns
-                String coreId = db.upsertEntry(entry);
+                String coreId = IndexCoreEntryWriter.upsert(db, entry);
                 if (coreId.isEmpty()) continue;
-                long outlineId = outlineForParagraph(candidate.paragraphIndex(), outlineByParagraph);
+                long outlineId = outlineForParagraph(candidate.paragraphIndex(), outlineByParagraph, previousOutline);
+                String dbContext = candidate.contextCode();
+                if (!batchToken.isEmpty()) dbContext += "|B:" + batchToken;
                 db.addOccurrence(
                         coreId,
                         sourceId,
@@ -71,7 +74,7 @@ public final class IndexCoreRuntime {
                         page,
                         candidate.paragraphIndex(),
                         outlineId,
-                        candidate.contextCode(),
+                        dbContext,
                         System.currentTimeMillis(),
                         candidate.axes()
                 );
@@ -81,7 +84,7 @@ public final class IndexCoreRuntime {
 
     public static void syncEntry(LivingIndexStore.Entry entry) {
         synchronized (LOCK) {
-            if (appContext != null && entry != null) IndexCoreDatabase.get(appContext).upsertEntry(entry);
+            if (appContext != null && entry != null) IndexCoreEntryWriter.upsert(IndexCoreDatabase.get(appContext), entry);
         }
     }
 
@@ -129,14 +132,33 @@ public final class IndexCoreRuntime {
         return changedAt;
     }
 
-    /** Nearest heading at/before paragraph, otherwise continue the last known outline. */
-    private static long outlineForParagraph(int paragraphIndex, Map<Integer, Long> changedAt) {
-        long value = currentOutlineId;
+    /** Nearest heading at/before paragraph, otherwise continue the pre-batch outline. */
+    private static long outlineForParagraph(int paragraphIndex, Map<Integer, Long> changedAt, long previousOutline) {
+        long value = previousOutline;
         int best = -1;
         for (Map.Entry<Integer, Long> entry : changedAt.entrySet()) {
             int p = entry.getKey();
             if (p <= paragraphIndex && p >= best) { best = p; value = entry.getValue(); }
         }
         return value;
+    }
+
+    /** Only a hash is persisted for unknown-page disambiguation; no body text is stored. */
+    private static String batchFingerprint(List<LivingIndexEngine.Candidate> candidates) {
+        StringBuilder raw = new StringBuilder();
+        for (LivingIndexEngine.Candidate candidate : candidates) {
+            if (candidate == null) continue;
+            raw.append(candidate.paragraphIndex()).append(':')
+                    .append(candidate.surface().toLowerCase(Locale.ROOT).trim()).append('|');
+        }
+        try {
+            byte[] bytes = MessageDigest.getInstance("SHA-256")
+                    .digest(raw.toString().getBytes(StandardCharsets.UTF_8));
+            StringBuilder out = new StringBuilder();
+            for (int i = 0; i < Math.min(8, bytes.length); i++) out.append(String.format(Locale.ROOT, "%02x", bytes[i] & 0xff));
+            return out.toString();
+        } catch (Exception ignored) {
+            return Integer.toHexString(raw.toString().hashCode());
+        }
     }
 }
