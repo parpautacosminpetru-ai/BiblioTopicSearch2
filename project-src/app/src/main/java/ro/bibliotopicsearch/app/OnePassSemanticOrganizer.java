@@ -3,6 +3,7 @@ package ro.bibliotopicsearch.app;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -278,8 +279,8 @@ public final class OnePassSemanticOrganizer {
     }
 
     /**
-     * Ingest one semantic OCR result. This method is called on the semantic sidecar
-     * worker; it never performs the expensive full-session final cartography.
+     * Ingest one semantic OCR result. The first frame may auto-start a clean process
+     * session; after finalization, retained records prevent late frames from doing so.
      */
     public static void ingest(
             List<UniversalParagraphDetector.Detection> detections,
@@ -287,7 +288,15 @@ public final class OnePassSemanticOrganizer {
     ) {
         if (detections == null || detections.isEmpty()) return;
         synchronized (LOCK) {
-            if (!active) return;
+            if (!active) {
+                if (!records.isEmpty()) return;
+                active = true;
+                startedAt = System.currentTimeMillis();
+                framesObserved = 0;
+                duplicatesMerged = 0;
+                lastProfile = null;
+                exactFingerprints.clear();
+            }
             framesObserved++;
             if (profile != null) lastProfile = profile;
 
@@ -535,6 +544,9 @@ public final class OnePassSemanticOrganizer {
             UniversalParagraphDetector.Detection source,
             int index
     ) {
+        Set<UniversalDetectionLexicon.Operator> safeOperators = source.operators().isEmpty()
+                ? EnumSet.noneOf(UniversalDetectionLexicon.Operator.class)
+                : EnumSet.copyOf(source.operators());
         return new UniversalParagraphDetector.Detection(
                 index,
                 source.paragraph(),
@@ -544,7 +556,7 @@ public final class OnePassSemanticOrganizer {
                 source.subjectConfidence(),
                 source.functionConfidence(),
                 source.querySlots(),
-                source.operators(),
+                safeOperators,
                 source.matchedMarkers()
         );
     }
