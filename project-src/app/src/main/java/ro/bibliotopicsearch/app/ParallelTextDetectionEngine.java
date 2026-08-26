@@ -69,8 +69,11 @@ public final class ParallelTextDetectionEngine implements AutoCloseable {
             return new CombinedResult(Collections.emptyList(), Collections.emptyList());
         }
 
+        // Use the lexical-only branch here. TopicMatcher.find(...) already schedules
+        // its own semantic sidecar for the existing MainActivity live path; calling
+        // it from this explicit combined engine would duplicate paragraph detection.
         Future<List<MatchHit>> lexicalFuture = pool.submit(() ->
-                plan == null ? Collections.emptyList() : TopicMatcher.find(text, plan)
+                plan == null ? Collections.emptyList() : TopicMatcher.findLexicalOnly(text, plan)
         );
 
         List<String> blocks = new ArrayList<>();
@@ -92,7 +95,7 @@ public final class ParallelTextDetectionEngine implements AutoCloseable {
 
         List<MatchHit> lexicalHits = getOrFallback(
                 lexicalFuture,
-                () -> plan == null ? Collections.emptyList() : TopicMatcher.find(text, plan),
+                () -> plan == null ? Collections.emptyList() : TopicMatcher.findLexicalOnly(text, plan),
                 Collections.emptyList()
         );
 
