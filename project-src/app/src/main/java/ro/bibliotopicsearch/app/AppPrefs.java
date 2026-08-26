@@ -12,6 +12,12 @@ public final class AppPrefs {
         EXACT, PREFIX, CONTAINS, FLEXIBLE
     }
 
+    /** Same single bar, two deterministic purposes. */
+    public enum IndexMode {
+        SOURCE,      // empty bar: learn/cartograph the source itself; persist index only
+        RESEARCH     // non-empty bar: external topic/question; persist evidence workspace
+    }
+
     private AppPrefs() {}
 
     private static SharedPreferences prefs(Context context) {
@@ -57,14 +63,16 @@ public final class AppPrefs {
 
     public static boolean ocrEnabled(Context context) {
         boolean enabled = prefs(context).getBoolean("ocr_enabled", true);
-        if (enabled) OnePassLiveCollector.start();
+        if (enabled) {
+            OnePassLiveCollector.start();
+            LivingIndexRuntime.start(context, System.currentTimeMillis());
+        }
         return enabled;
     }
 
     /**
-     * Existing OCR toggle is also the one-pass session boundary.
-     * LIVE starts a clean accumulator; PAUSE freezes, globally organizes, persists
-     * and opens the final result without requiring a second scan.
+     * OCR LIVE is the one-pass session boundary. SOURCE mode finishes into the
+     * Living Index only; RESEARCH mode persists the evidence session/workspace.
      */
     public static void setOcrEnabled(Context context, boolean value) {
         prefs(context).edit().putBoolean("ocr_enabled", value).apply();
@@ -72,14 +80,14 @@ public final class AppPrefs {
         if (value) {
             OnePassSemanticOrganizer.beginSession();
             OnePassLiveCollector.start();
+            LivingIndexRuntime.start(context, System.currentTimeMillis());
             return;
         }
 
         OnePassLiveCollector.stop();
+        LivingIndexRuntime.stop();
         if (!OnePassSemanticOrganizer.isActive()) return;
 
-        // Capture the most recent fully completed semantic sidecar result before
-        // the camera analyzer is detached. Late in-flight frames are ignored after freeze.
         OnePassSemanticOrganizer.ingest(
                 TopicMatcher.latestParagraphDetections(),
                 TopicMatcher.researchProfile()
@@ -87,8 +95,25 @@ public final class AppPrefs {
 
         final Context appContext = context.getApplicationContext();
         final Activity activity = context instanceof Activity ? (Activity) context : null;
+        final IndexMode mode = indexMode(context);
         Thread worker = new Thread(() -> {
             OnePassSemanticOrganizer.Snapshot snapshot = OnePassSemanticOrganizer.finishSession();
+
+            if (mode == IndexMode.SOURCE) {
+                // Ethical/source-learning mode: do not write paragraph text or page images to disk.
+                Runnable openIndex = () -> {
+                    Intent intent = new Intent(
+                            activity == null ? appContext : activity,
+                            LivingIndexActivity.class
+                    );
+                    if (activity == null) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    (activity == null ? appContext : activity).startActivity(intent);
+                };
+                if (activity != null && !activity.isFinishing()) activity.runOnUiThread(openIndex);
+                else openIndex.run();
+                return;
+            }
+
             if (snapshot == null || snapshot.paragraphs().isEmpty()) return;
             try {
                 OrganizedSessionStore.save(appContext, snapshot);
@@ -112,6 +137,30 @@ public final class AppPrefs {
         worker.start();
     }
 
+    public static IndexMode indexMode(Context context) {
+        SharedPreferences p = prefs(context);
+        String explicit = p.getString("index_mode", null);
+        if (explicit != null) {
+            try { return IndexMode.valueOf(explicit); } catch (Exception ignored) { /* fall through */ }
+        }
+        String query = p.getString("research_query", "");
+        return query == null || query.trim().isEmpty() ? IndexMode.SOURCE : IndexMode.RESEARCH;
+    }
+
+    public static void setIndexMode(Context context, IndexMode mode) {
+        prefs(context).edit().putString("index_mode", (mode == null ? IndexMode.SOURCE : mode).name()).apply();
+    }
+
+    /** Optional focus in SOURCE mode. Empty means cartograph everything indexable. */
+    public static String sourceIndexFocus(Context context) {
+        String value = prefs(context).getString("source_index_focus", "");
+        return value == null ? "" : value;
+    }
+
+    public static void setSourceIndexFocus(Context context, String value) {
+        prefs(context).edit().putString("source_index_focus", value == null ? "" : value.trim()).apply();
+    }
+
     public static boolean floatingLabels(Context context) {
         return prefs(context).getBoolean("floating_labels", false);
     }
@@ -120,7 +169,6 @@ public final class AppPrefs {
         prefs(context).edit().putBoolean("floating_labels", value).apply();
     }
 
-    /** User-created theme/target layer. On by default for backwards compatibility. */
     public static boolean themeLayer(Context context) {
         return prefs(context).getBoolean("layer_theme", true);
     }
@@ -129,7 +177,6 @@ public final class AppPrefs {
         prefs(context).edit().putBoolean("layer_theme", value).apply();
     }
 
-    /** Built-in textual/discourse/syntactic helpers. Available without any user theme. */
     public static boolean textualLayer(Context context) {
         return prefs(context).getBoolean("layer_textual", false);
     }
@@ -138,7 +185,6 @@ public final class AppPrefs {
         prefs(context).edit().putBoolean("layer_textual", value).apply();
     }
 
-    /** Built-in semantic-function vocabulary. Available without any user theme. */
     public static boolean semanticLayer(Context context) {
         return prefs(context).getBoolean("layer_semantic", false);
     }
@@ -147,7 +193,6 @@ public final class AppPrefs {
         prefs(context).edit().putBoolean("layer_semantic", value).apply();
     }
 
-    /** 0..3 preset used by the live magnifier/zoom button. */
     public static int zoomLevel(Context context) {
         return Math.max(0, Math.min(3, prefs(context).getInt("zoom_level", 0)));
     }
@@ -156,17 +201,28 @@ public final class AppPrefs {
         prefs(context).edit().putInt("zoom_level", Math.max(0, Math.min(3, value))).apply();
     }
 
-    /** One persisted input for either a research topic or a natural-language question. */
+    /** Effective research query. SOURCE mode deliberately returns empty. */
     public static String researchQuery(Context context) {
+        if (indexMode(context) == IndexMode.SOURCE) return "";
         String value = prefs(context).getString("research_query", "");
         return value == null ? "" : value;
     }
 
-    public static void setResearchQuery(Context context, String value) {
-        prefs(context).edit().putString("research_query", value == null ? "" : value.trim()).apply();
+    public static String storedResearchQuery(Context context) {
+        String value = prefs(context).getString("research_query", "");
+        return value == null ? "" : value;
     }
 
-    /** Compatibilitate cu versiunile anterioare. */
+    /** Empty single bar => SOURCE. Any explicit text => RESEARCH. */
+    public static void setResearchQuery(Context context, String value) {
+        String clean = value == null ? "" : value.trim();
+        IndexMode mode = clean.isEmpty() ? IndexMode.SOURCE : IndexMode.RESEARCH;
+        prefs(context).edit()
+                .putString("research_query", clean)
+                .putString("index_mode", mode.name())
+                .apply();
+    }
+
     public static boolean showLabels(Context context) {
         return floatingLabels(context);
     }

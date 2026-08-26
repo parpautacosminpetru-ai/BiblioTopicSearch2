@@ -6,7 +6,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Lightweight bridge from the already-computed TopicMatcher semantic sidecar into
- * the one-pass organizer. It never runs OCR or semantic detection itself.
+ * one-pass organization and the Living Index. It never runs OCR itself.
  */
 public final class OnePassLiveCollector {
     private OnePassLiveCollector() {}
@@ -29,6 +29,7 @@ public final class OnePassLiveCollector {
                                 detections,
                                 TopicMatcher.researchProfile()
                         );
+                        LivingIndexRuntime.observeDetections(detections);
                     }
                     try {
                         Thread.sleep(110L);
