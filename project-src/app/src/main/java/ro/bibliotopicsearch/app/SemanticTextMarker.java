@@ -48,47 +48,29 @@ public final class SemanticTextMarker {
             if (tokens.isEmpty()) continue;
 
             addMatches(
-                    out,
-                    dedupe,
-                    tokens,
-                    detection.subject(),
-                    SemanticTextMark.Kind.SUBJECT,
-                    "SUBIECT",
-                    detection.subjectConfidence(),
-                    blockIndex,
-                    4
+                    out, dedupe, tokens, detection.subject(),
+                    SemanticTextMark.Kind.SUBJECT, "SUBIECT",
+                    detection.subjectConfidence(), blockIndex, 4
             );
 
             LinkedHashSet<String> evidence = functionEvidence(detection);
             int before = out.size();
             for (String phrase : evidence) {
                 addMatches(
-                        out,
-                        dedupe,
-                        tokens,
-                        phrase,
+                        out, dedupe, tokens, phrase,
                         SemanticTextMark.Kind.FUNCTION,
                         "FUNCȚIE · " + functionLabel(detection.function()),
-                        detection.functionConfidence(),
-                        blockIndex,
-                        8
+                        detection.functionConfidence(), blockIndex, 8
                 );
             }
 
-            // Structural fallback only when the detector has a classified function but
-            // no explicit lexical marker was mapped back to OCR text.
             if (out.size() == before) {
                 for (String cue : fallbackCues(detection.function())) {
                     addMatches(
-                            out,
-                            dedupe,
-                            tokens,
-                            cue,
+                            out, dedupe, tokens, cue,
                             SemanticTextMark.Kind.FUNCTION,
                             "FUNCȚIE · " + functionLabel(detection.function()),
-                            detection.functionConfidence(),
-                            blockIndex,
-                            4
+                            detection.functionConfidence(), blockIndex, 4
                     );
                 }
             }
@@ -136,8 +118,8 @@ public final class SemanticTextMarker {
         String[] wanted = normalized.split("\\s+");
         if (wanted.length == 0 || wanted.length > tokens.size()) return;
 
-        int added = 0;
-        for (int start = 0; start + wanted.length <= tokens.size() && added < maxMatches; start++) {
+        int matchedPhrases = 0;
+        for (int start = 0; start + wanted.length <= tokens.size() && matchedPhrases < maxMatches; start++) {
             boolean match = true;
             for (int offset = 0; offset < wanted.length; offset++) {
                 if (!wanted[offset].equals(tokens.get(start + offset).normalized)) {
@@ -147,31 +129,25 @@ public final class SemanticTextMarker {
             }
             if (!match) continue;
 
-            RectF union = null;
-            StringBuilder raw = new StringBuilder();
             for (int offset = 0; offset < wanted.length; offset++) {
                 Token token = tokens.get(start + offset);
-                if (union == null) union = new RectF(token.box);
-                else union.union(token.box);
-                if (raw.length() > 0) raw.append(' ');
-                raw.append(token.raw);
+                RectF box = new RectF(token.box);
+                String key = kind.name() + '|' + paragraphIndex + '|'
+                        + Math.round(box.left / 3f) + '|' + Math.round(box.top / 3f) + '|'
+                        + Math.round(box.right / 3f) + '|' + Math.round(box.bottom / 3f);
+                if (dedupe.add(key)) {
+                    out.add(new SemanticTextMark(
+                            kind,
+                            box,
+                            token.raw,
+                            label,
+                            confidence,
+                            paragraphIndex
+                    ));
+                }
             }
-            if (union == null) continue;
-
-            String key = kind.name() + '|' + paragraphIndex + '|'
-                    + Math.round(union.left / 3f) + '|' + Math.round(union.top / 3f) + '|'
-                    + Math.round(union.right / 3f) + '|' + Math.round(union.bottom / 3f);
-            if (dedupe.add(key)) {
-                out.add(new SemanticTextMark(
-                        kind,
-                        union,
-                        raw.toString(),
-                        label,
-                        confidence,
-                        paragraphIndex
-                ));
-                added++;
-            }
+            matchedPhrases++;
+            start += wanted.length - 1;
         }
     }
 
@@ -198,51 +174,29 @@ public final class SemanticTextMarker {
     private static List<String> fallbackCues(UniversalDetectionLexicon.Function function) {
         if (function == null) return Collections.emptyList();
         switch (function) {
-            case DEFINITION:
-                return list("este", "sunt", "reprezintă", "înseamnă", "constituie");
-            case DESCRIPTION:
-                return list("are", "au", "prezintă", "include", "cuprinde");
-            case EXPLANATION:
-                return list("se explică", "mecanismul", "prin");
-            case CAUSE_EFFECT:
-                return list("deoarece", "fiindcă", "din cauza", "duce la", "conduce la", "determină");
-            case PURPOSE:
-                return list("pentru a", "în vederea", "cu scopul");
-            case CONDITION:
-                return list("dacă", "cu condiția", "în cazul în care");
-            case EXAMPLE:
-                return list("de exemplu", "spre exemplu", "cum ar fi");
-            case ENUMERATION:
-                return list("în primul rând", "apoi", "următoarele");
-            case CLASSIFICATION:
-                return list("se clasifică", "se împart", "tipuri", "categorii");
-            case COMPARISON:
-                return list("în comparație cu", "similar", "asemănător");
-            case CONTRAST:
-                return list("dar", "însă", "totuși", "în schimb", "spre deosebire de");
-            case ARGUMENTATION:
-                return list("argument", "arată că", "demonstrează că", "teza");
-            case EVIDENCE:
-                return list("datele arată", "studiul arată", "rezultatele indică", "dovadă");
-            case PROBLEM:
-                return list("problema", "dificultatea", "limitare", "risc");
-            case SOLUTION:
-                return list("soluția", "se poate rezolva", "este necesar", "măsuri");
-            case SEQUENCE:
-                return list("mai întâi", "apoi", "ulterior", "în cele din urmă");
-            case TRANSITION:
-                return list("în ceea ce privește", "cât despre", "referitor la", "un alt aspect");
-            case SUMMARY:
-                return list("pe scurt", "în rezumat", "în sinteză", "în ansamblu");
-            case CONCLUSION:
-                return list("în concluzie", "așadar", "în final", "se poate concluziona");
-            case INTRODUCTION:
-                return list("vom analiza", "vom examina", "tema este", "subiectul este");
-            case DEVELOPMENT:
-                return list("de asemenea", "în plus", "totodată");
+            case DEFINITION: return list("este", "sunt", "reprezintă", "înseamnă", "constituie");
+            case DESCRIPTION: return list("are", "au", "prezintă", "include", "cuprinde");
+            case EXPLANATION: return list("se explică", "mecanismul", "prin");
+            case CAUSE_EFFECT: return list("deoarece", "fiindcă", "din cauza", "duce la", "conduce la", "determină");
+            case PURPOSE: return list("pentru a", "în vederea", "cu scopul");
+            case CONDITION: return list("dacă", "cu condiția", "în cazul în care");
+            case EXAMPLE: return list("de exemplu", "spre exemplu", "cum ar fi");
+            case ENUMERATION: return list("în primul rând", "apoi", "următoarele");
+            case CLASSIFICATION: return list("se clasifică", "se împart", "tipuri", "categorii");
+            case COMPARISON: return list("în comparație cu", "similar", "asemănător");
+            case CONTRAST: return list("dar", "însă", "totuși", "în schimb", "spre deosebire de");
+            case ARGUMENTATION: return list("argument", "arată că", "demonstrează că", "teza");
+            case EVIDENCE: return list("datele arată", "studiul arată", "rezultatele indică", "dovadă");
+            case PROBLEM: return list("problema", "dificultatea", "limitare", "risc");
+            case SOLUTION: return list("soluția", "se poate rezolva", "este necesar", "măsuri");
+            case SEQUENCE: return list("mai întâi", "apoi", "ulterior", "în cele din urmă");
+            case TRANSITION: return list("în ceea ce privește", "cât despre", "referitor la", "un alt aspect");
+            case SUMMARY: return list("pe scurt", "în rezumat", "în sinteză", "în ansamblu");
+            case CONCLUSION: return list("în concluzie", "așadar", "în final", "se poate concluziona");
+            case INTRODUCTION: return list("vom analiza", "vom examina", "tema este", "subiectul este");
+            case DEVELOPMENT: return list("de asemenea", "în plus", "totodată");
             case UNKNOWN:
-            default:
-                return Collections.emptyList();
+            default: return Collections.emptyList();
         }
     }
 
