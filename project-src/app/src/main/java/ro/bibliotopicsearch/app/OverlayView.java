@@ -27,6 +27,11 @@ public final class OverlayView extends View {
     private final Paint labelSubPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint labelBackgroundPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint labelConnectorPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint autoPanelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint autoAccentPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint autoHeaderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint autoSubjectPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint autoFunctionPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     private List<MatchHit> hits = new ArrayList<>();
     private Set<String> previousOccurrenceKeys = new HashSet<>();
@@ -59,6 +64,22 @@ public final class OverlayView extends View {
 
         labelConnectorPaint.setStyle(Paint.Style.STROKE);
         labelConnectorPaint.setStrokeWidth(dp(2f));
+
+        autoPanelPaint.setStyle(Paint.Style.FILL);
+        autoPanelPaint.setColor(Color.argb(226, 20, 28, 36));
+        autoAccentPaint.setStyle(Paint.Style.FILL);
+
+        autoHeaderPaint.setColor(Color.rgb(190, 211, 224));
+        autoHeaderPaint.setTextSize(sp(9.5f));
+        autoHeaderPaint.setFakeBoldText(true);
+
+        autoSubjectPaint.setColor(Color.WHITE);
+        autoSubjectPaint.setTextSize(sp(14f));
+        autoSubjectPaint.setFakeBoldText(true);
+
+        autoFunctionPaint.setColor(Color.rgb(230, 236, 241));
+        autoFunctionPaint.setTextSize(sp(11f));
+        autoFunctionPaint.setFakeBoldText(true);
     }
 
     public void setOnHitTapListener(OnHitTapListener listener) {
@@ -211,7 +232,108 @@ public final class OverlayView extends View {
             }
         }
 
+        // AUTO S/F este independent de TEXT / SEM / ȚINTĂ și apare direct pe cameră.
+        drawAutoSemanticPanel(canvas);
+
         if (flashActive) postInvalidateDelayed(70L);
+    }
+
+    private void drawAutoSemanticPanel(Canvas canvas) {
+        UniversalParagraphDetector.Detection best = TopicMatcher.strongestLatestParagraph();
+        List<UniversalParagraphDetector.Detection> all = TopicMatcher.latestParagraphDetections();
+
+        float margin = dp(10);
+        float height = dp(best == null ? 38 : 78);
+        float bottom = getHeight() - dp(14);
+        float top = bottom - height;
+        RectF panel = new RectF(margin, top, getWidth() - margin, bottom);
+
+        canvas.drawRoundRect(panel, dp(10), dp(10), autoPanelPaint);
+
+        double combined = best == null
+                ? 0.0
+                : best.subjectConfidence() * 0.55 + best.functionConfidence() * 0.45;
+        int accent;
+        if (best == null) accent = Color.rgb(91, 110, 124);
+        else if (combined >= 0.66) accent = Color.rgb(52, 170, 112);
+        else if (combined >= 0.42) accent = Color.rgb(226, 160, 67);
+        else accent = Color.rgb(181, 94, 94);
+        autoAccentPaint.setColor(accent);
+        canvas.drawRoundRect(
+                new RectF(panel.left, panel.top, panel.left + dp(5), panel.bottom),
+                dp(10), dp(10), autoAccentPaint
+        );
+
+        float x = panel.left + dp(12);
+        if (best == null) {
+            canvas.drawText("AUTO SUBIECT + FUNCȚIE • ACTIV", x, panel.top + dp(24), autoHeaderPaint);
+            return;
+        }
+
+        int paragraphIndex = 0;
+        for (int i = 0; i < all.size(); i++) {
+            if (all.get(i) == best) {
+                paragraphIndex = i;
+                break;
+            }
+        }
+
+        int subjectConfidence = (int) Math.round(best.subjectConfidence() * 100.0);
+        int functionConfidence = (int) Math.round(best.functionConfidence() * 100.0);
+        String header = "AUTO S/F • P" + (paragraphIndex + 1) + "/" + Math.max(1, all.size())
+                + " • S " + subjectConfidence + "% • F " + functionConfidence + "%";
+        canvas.drawText(header, x, panel.top + dp(17), autoHeaderPaint);
+
+        String subject = best.subject();
+        if (subject == null || subject.trim().isEmpty()) subject = "subiect nedeterminat";
+        subject = ellipsizeToWidth("SUBIECT: " + subject.trim(), autoSubjectPaint, panel.width() - dp(25));
+        canvas.drawText(subject, x, panel.top + dp(41), autoSubjectPaint);
+
+        String function = "FUNCȚIE: " + functionLabel(best.function());
+        if (best.secondaryFunction() != UniversalDetectionLexicon.Function.UNKNOWN) {
+            function += "  ·  secundar: " + functionLabel(best.secondaryFunction());
+        }
+        function = ellipsizeToWidth(function, autoFunctionPaint, panel.width() - dp(25));
+        canvas.drawText(function, x, panel.top + dp(64), autoFunctionPaint);
+    }
+
+    private String functionLabel(UniversalDetectionLexicon.Function function) {
+        if (function == null) return "NEDETERMINATĂ";
+        switch (function) {
+            case INTRODUCTION: return "INTRODUCERE";
+            case DEFINITION: return "DEFINIRE";
+            case DESCRIPTION: return "DESCRIERE";
+            case EXPLANATION: return "EXPLICARE";
+            case CAUSE_EFFECT: return "CAUZĂ–EFECT";
+            case PURPOSE: return "SCOP";
+            case CONDITION: return "CONDIȚIE";
+            case EXAMPLE: return "EXEMPLIFICARE";
+            case ENUMERATION: return "ENUMERARE";
+            case CLASSIFICATION: return "CLASIFICARE";
+            case COMPARISON: return "COMPARARE";
+            case CONTRAST: return "CONTRASTARE";
+            case ARGUMENTATION: return "ARGUMENTARE";
+            case EVIDENCE: return "DOVADĂ / SUPORT";
+            case PROBLEM: return "PROBLEMĂ";
+            case SOLUTION: return "SOLUȚIE";
+            case SEQUENCE: return "SECVENȚĂ / PROCES";
+            case TRANSITION: return "TRANZIȚIE";
+            case SUMMARY: return "SINTETIZARE";
+            case CONCLUSION: return "CONCLUZIE";
+            case DEVELOPMENT: return "DEZVOLTARE";
+            case UNKNOWN:
+            default: return "NEDETERMINATĂ";
+        }
+    }
+
+    private String ellipsizeToWidth(String value, Paint paint, float maxWidth) {
+        if (value == null) return "";
+        if (paint.measureText(value) <= maxWidth) return value;
+        String ellipsis = "…";
+        float ellipsisWidth = paint.measureText(ellipsis);
+        int end = value.length();
+        while (end > 1 && paint.measureText(value, 0, end) + ellipsisWidth > maxWidth) end--;
+        return value.substring(0, Math.max(1, end)).trim() + ellipsis;
     }
 
     private RectF paddedBox(RectF source) {
