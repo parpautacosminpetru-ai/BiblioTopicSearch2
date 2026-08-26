@@ -360,8 +360,6 @@ public final class ResearchSemanticEngine {
                     + 0.05 * compactness;
         }
 
-        // A proposition that only inherits a discourse subject is useful but slightly
-        // weaker than a locally anchored proposition.
         if (proposition.inheritedSubject()) out.score -= 0.025;
         out.score = clamp01(out.score);
         return out;
@@ -466,9 +464,6 @@ public final class ResearchSemanticEngine {
         out.addAll(contentTerms(proposition.object()));
         if (detection != null) out.addAll(contentTerms(detection.subject()));
 
-        // Relation-bearing subordinate clauses can omit the event they explain.
-        // Pull lexical anchors from the immediately preceding clause in the same
-        // sentence, without merging its operators into the current proposition.
         if (proposition.relation() == SemanticGraph.Relation.CAUSE
                 || proposition.relation() == SemanticGraph.Relation.CONDITION
                 || proposition.relation() == SemanticGraph.Relation.PURPOSE) {
@@ -555,8 +550,6 @@ public final class ResearchSemanticEngine {
             default:
                 break;
         }
-
-        // Paragraph classification is a weaker fallback than the local proposition.
         return detectionFunctionCompatibility(intent, detection) * 0.55;
     }
 
@@ -723,7 +716,8 @@ public final class ResearchSemanticEngine {
         Matcher matcher = TOKEN.matcher(fold(value));
         while (matcher.find()) {
             String token = matcher.group();
-            if (token.length() < 3 || STOP_WORDS.contains(token)) continue;
+            if (token.length() < 3 || STOP_WORDS.contains(token)
+                    || RomanianLanguagePack.isFunctionWord(token)) continue;
             out.add(token);
         }
         return out;
@@ -750,6 +744,15 @@ public final class ResearchSemanticEngine {
         String left = fold(a);
         String right = fold(b);
         if (left.equals(right)) return true;
+
+        String leftFamily = RomanianMorphology.familyKey(left);
+        String rightFamily = RomanianMorphology.familyKey(right);
+        if (leftFamily.length() >= 3 && leftFamily.equals(rightFamily)) return true;
+
+        String leftBroad = RomanianMorphology.broadKey(left);
+        String rightBroad = RomanianMorphology.broadKey(right);
+        if (leftBroad.length() >= 5 && leftBroad.equals(rightBroad)) return true;
+
         int min = Math.min(left.length(), right.length());
         if (min < 5) return false;
         int prefix = min >= 8 ? 6 : 5;
