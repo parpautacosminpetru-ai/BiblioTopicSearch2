@@ -11,8 +11,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Live bridge for the deterministic index. Runs on the existing semantic worker,
- * keeps only text labels/coordinates transiently, and never stores camera frames.
+ * Live bridge for the deterministic index. It reuses already-computed semantic
+ * detections, keeps OCR coordinates only transiently, and never stores camera frames.
  */
 public final class LivingIndexRuntime {
     private LivingIndexRuntime() {}
@@ -49,6 +49,7 @@ public final class LivingIndexRuntime {
         }
     }
 
+    /** Full path when an ML Kit Text object is available: includes exact transient boxes. */
     public static void observe(
             Text text,
             List<UniversalParagraphDetector.Detection> detections,
@@ -60,51 +61,74 @@ public final class LivingIndexRuntime {
             if (appContext == null) return;
             String page = detectPage(text);
             if (!page.isEmpty()) currentPage = page;
+            process(text, detections, graph, cartography);
+        }
+    }
 
-            List<LivingIndexEngine.Candidate> first = LivingIndexEngine.detect(detections, graph, cartography, state);
-            boolean sourceMode = AppPrefs.indexMode(appContext) == AppPrefs.IndexMode.SOURCE;
-            boolean changed = false;
+    /**
+     * Fast collector path used by OnePassLiveCollector. It never reruns OCR; it
+     * rebuilds only the small deterministic graph from already available detections.
+     */
+    public static void observeDetections(List<UniversalParagraphDetector.Detection> detections) {
+        if (detections == null || detections.isEmpty()) return;
+        synchronized (LOCK) {
+            if (appContext == null) return;
+            String page = detectPageFromDetections(detections);
+            if (!page.isEmpty()) currentPage = page;
+            SemanticGraph graph = SemanticGraphBuilder.build(detections);
+            ParagraphCartography.Map cartography = ParagraphCartography.build(detections, graph);
+            process(null, detections, graph, cartography);
+        }
+    }
 
-            for (LivingIndexEngine.Candidate candidate : first) {
-                if (candidate == null || candidate.surface().isEmpty()) continue;
-                // In research mode the personal index still recognizes known terms,
-                // but it does not fill the unknown inbox unless the user chose SOURCE mode.
-                if (!sourceMode && candidate.knownId().isEmpty()) continue;
+    private static void process(
+            Text text,
+            List<UniversalParagraphDetector.Detection> detections,
+            SemanticGraph graph,
+            ParagraphCartography.Map cartography
+    ) {
+        List<LivingIndexEngine.Candidate> first = LivingIndexEngine.detect(detections, graph, cartography, state);
+        boolean sourceMode = AppPrefs.indexMode(appContext) == AppPrefs.IndexMode.SOURCE;
+        boolean changed = false;
 
-                boolean autoValidate = candidate.validated()
-                        && candidate.category() != LivingIndexStore.Category.INBOX;
-                LivingIndexStore.Ref ref = new LivingIndexStore.Ref(
-                        sourceId,
-                        candidate.paragraphIndex(),
-                        currentPage,
-                        candidate.contextCode(),
-                        candidate.axes(),
-                        System.currentTimeMillis()
-                );
-                LivingIndexStore.Entry before = state.findCanonical(candidate.surface());
-                int oldRefs = before == null ? -1 : before.refs().size();
-                int oldRecurrence = before == null ? -1 : before.recurrence();
-                LivingIndexStore.Entry after = state.merge(
-                        candidate.surface(),
-                        candidate.category(),
-                        autoValidate,
-                        ref
-                );
-                if (after != null && (before == null
-                        || after.refs().size() != oldRefs
-                        || after.recurrence() != oldRecurrence)) changed = true;
-            }
+        for (LivingIndexEngine.Candidate candidate : first) {
+            if (candidate == null || candidate.surface().isEmpty()) continue;
+            if (!sourceMode && candidate.knownId().isEmpty()) continue;
 
-            if (changed) {
-                dirty = true;
-                long now = System.currentTimeMillis();
-                if (now - lastSaveAt >= 750L) flushLocked();
-            }
+            boolean autoValidate = candidate.validated()
+                    && candidate.category() != LivingIndexStore.Category.INBOX;
+            LivingIndexStore.Ref ref = new LivingIndexStore.Ref(
+                    sourceId,
+                    candidate.paragraphIndex(),
+                    currentPage,
+                    candidate.contextCode(),
+                    candidate.axes(),
+                    System.currentTimeMillis()
+            );
+            LivingIndexStore.Entry before = state.findCanonical(candidate.surface());
+            int oldRefs = before == null ? -1 : before.refs().size();
+            int oldRecurrence = before == null ? -1 : before.recurrence();
+            LivingIndexStore.Entry after = state.merge(
+                    candidate.surface(),
+                    candidate.category(),
+                    autoValidate,
+                    ref
+            );
+            if (after != null && (before == null
+                    || after.refs().size() != oldRefs
+                    || after.recurrence() != oldRecurrence)) changed = true;
+        }
 
-            // Re-detect from the updated index so newly collected entries get their stable code immediately.
-            latestCandidates = Collections.unmodifiableList(new ArrayList<>(
-                    LivingIndexEngine.detect(detections, graph, cartography, state)
-            ));
+        if (changed) {
+            dirty = true;
+            long now = System.currentTimeMillis();
+            if (now - lastSaveAt >= 750L) flushLocked();
+        }
+
+        latestCandidates = Collections.unmodifiableList(new ArrayList<>(
+                LivingIndexEngine.detect(detections, graph, cartography, state)
+        ));
+        if (text != null) {
             latestMarks = Collections.unmodifiableList(new ArrayList<>(
                     LivingIndexTextMarker.build(text, latestCandidates, state)
             ));
@@ -168,8 +192,6 @@ public final class LivingIndexRuntime {
 
         List<Text.TextBlock> blocks = text.getTextBlocks();
         if (blocks == null || blocks.isEmpty()) return "";
-        // Page numbers are commonly isolated at the top/bottom. Restrict the heuristic
-        // to the first/last two OCR blocks to avoid treating years in body text as pages.
         for (int pass = 0; pass < 4; pass++) {
             int index;
             if (pass == 0) index = 0;
@@ -178,6 +200,21 @@ public final class LivingIndexRuntime {
             else index = Math.max(0, blocks.size() - 2);
             String value = blocks.get(index).getText() == null ? "" : blocks.get(index).getText().trim();
             if (value.matches("\\d{1,4}")) return value;
+        }
+        return "";
+    }
+
+    private static String detectPageFromDetections(List<UniversalParagraphDetector.Detection> detections) {
+        for (UniversalParagraphDetector.Detection detection : detections) {
+            if (detection == null) continue;
+            Matcher cue = PAGE_CUE.matcher(detection.paragraph());
+            if (cue.find()) return cue.group(1);
+        }
+        if (!detections.isEmpty()) {
+            String first = detections.get(0).paragraph().trim();
+            String last = detections.get(detections.size() - 1).paragraph().trim();
+            if (first.matches("\\d{1,4}")) return first;
+            if (last.matches("\\d{1,4}")) return last;
         }
         return "";
     }
