@@ -25,7 +25,7 @@ public final class FacetIntersectionQuery {
      * Syntax examples:
      * DOMAIN=HISTORY + DOMAIN=RELIGION + PRIMARY=PERSON - RELATION=EFFECT
      * PAGE=120..190 + RELATION=CAUSE
-     * Bare CATEGORY:value also works, e.g. DOMAIN:HISTORY.
+     * DOMAIN:HISTORY also works.
      */
     public static Parsed parse(String raw) {
         String value = raw == null ? "" : raw.trim();
@@ -34,17 +34,15 @@ public final class FacetIntersectionQuery {
         List<IndexCoreDatabase.FacetFilter> filters = new ArrayList<>();
         String pageFrom = "", pageTo = "";
         String normalized = value.replace('−', '-').replace('–', '-').replace('—', '-');
-        String[] pieces = normalized.split("(?=\\s[+-]\\s)|\\s+\\+\\s+");
-
-        // Fallback tokenization for compact expressions with explicit + separators.
-        if (pieces.length == 1 && normalized.contains("+")) pieces = normalized.split("\\+");
+        // Treat spaced '-' as an exclusion separator, then use '+' as the universal separator.
+        normalized = normalized.replaceAll("\\s+-\\s+", " + -");
+        String[] pieces = normalized.split("\\s*\\+\\s*");
 
         for (String piece : pieces) {
             String token = piece == null ? "" : piece.trim();
             if (token.isEmpty()) continue;
             boolean exclude = false;
             if (token.startsWith("-")) { exclude = true; token = token.substring(1).trim(); }
-            if (token.startsWith("+")) token = token.substring(1).trim();
             int split = token.indexOf('=');
             if (split < 0) split = token.indexOf(':');
             if (split <= 0 || split >= token.length() - 1) continue;
