@@ -37,6 +37,8 @@ public final class TopicMatcher {
     private static final AtomicBoolean PARAGRAPH_DETECTOR_BUSY = new AtomicBoolean(false);
     private static volatile List<UniversalParagraphDetector.Detection> latestParagraphDetections =
             Collections.emptyList();
+    private static volatile List<SemanticTextMark> latestSemanticTextMarks =
+            Collections.emptyList();
 
     private static final class CompiledTerm {
         final String raw;
@@ -124,8 +126,6 @@ public final class TopicMatcher {
         List<TopicNode> punctuationStyleNodes = new ArrayList<>();
 
         if (map != null) {
-            // Built-in maps assign their visual defaults on every load. Reapply the
-            // user's persisted TEXTUAL / SEMANTIC colors after those defaults exist.
             BuiltInColorStore.apply(context, map);
 
             for (TopicNode node : map.nodes) {
@@ -203,18 +203,14 @@ public final class TopicMatcher {
     /**
      * Existing public live-search entry point. Subject/function detection is now
      * automatically scheduled in parallel, so MainActivity does not need to be
-     * rewritten to activate the new detector.
+     * rewritten to activate the detector.
      */
     public static List<MatchHit> find(Text text, SearchPlan plan) {
         scheduleParagraphDetection(text);
         return findLexicalOnly(text, plan);
     }
 
-    /**
-     * Lexical/punctuation branch without scheduling the semantic sidecar. Package
-     * visible so ParallelTextDetectionEngine can combine both branches without
-     * executing subject/function detection twice.
-     */
+    /** Lexical/punctuation branch without scheduling the semantic sidecar. */
     static List<MatchHit> findLexicalOnly(Text text, SearchPlan plan) {
         List<MatchHit> hits = new ArrayList<>();
         if (text == null || plan == null || plan.termCount <= 0) return hits;
@@ -240,8 +236,6 @@ public final class TopicMatcher {
                     boxes[i] = box == null ? null : new RectF(box);
                 }
 
-                // Structural punctuation scan on raw OCR tokens, including custom maps
-                // and multi-character punctuation sequences.
                 if (!plan.punctuationNodes.isEmpty()) {
                     for (int i = 0; i < size; i++) {
                         if (boxes[i] == null || originalElements[i] == null) continue;
@@ -332,6 +326,11 @@ public final class TopicMatcher {
         return latestParagraphDetections;
     }
 
+    /** Latest concrete text spans for subject/function evidence. */
+    public static List<SemanticTextMark> latestSemanticTextMarks() {
+        return latestSemanticTextMarks;
+    }
+
     /** Convenience accessor for overlays/debug panels that only need one candidate. */
     public static UniversalParagraphDetector.Detection strongestLatestParagraph() {
         UniversalParagraphDetector.Detection best = null;
@@ -350,6 +349,7 @@ public final class TopicMatcher {
     private static void scheduleParagraphDetection(Text text) {
         if (text == null || text.getTextBlocks() == null || text.getTextBlocks().isEmpty()) {
             latestParagraphDetections = Collections.emptyList();
+            latestSemanticTextMarks = Collections.emptyList();
             return;
         }
         if (!PARAGRAPH_DETECTOR_BUSY.compareAndSet(false, true)) {
@@ -366,6 +366,7 @@ public final class TopicMatcher {
         if (blocks.isEmpty()) {
             PARAGRAPH_DETECTOR_BUSY.set(false);
             latestParagraphDetections = Collections.emptyList();
+            latestSemanticTextMarks = Collections.emptyList();
             return;
         }
 
@@ -375,10 +376,15 @@ public final class TopicMatcher {
                 for (int i = 0; i < blocks.size(); i++) {
                     detections.add(UniversalParagraphDetector.detect(blocks.get(i), i));
                 }
-                latestParagraphDetections = Collections.unmodifiableList(detections);
+                List<UniversalParagraphDetector.Detection> immutableDetections =
+                        Collections.unmodifiableList(detections);
+                latestParagraphDetections = immutableDetections;
+                latestSemanticTextMarks = Collections.unmodifiableList(
+                        new ArrayList<>(SemanticTextMarker.build(text, immutableDetections))
+                );
             } catch (RuntimeException ignored) {
                 // Live OCR must never fail because the semantic sidecar encountered
-                // an unexpected input. Preserve the last valid detections instead.
+                // an unexpected input. Preserve the last valid detections/marks.
             } finally {
                 PARAGRAPH_DETECTOR_BUSY.set(false);
             }
@@ -398,8 +404,6 @@ public final class TopicMatcher {
 
         boolean[] occupied = new boolean[rawToken.length()];
 
-        // Longest marks are scanned first, so "..." masks its dots and a custom
-        // sequence like "?!" can win over its component characters when defined.
         for (String mark : punctuationMarks) {
             if (mark == null || mark.isEmpty()) continue;
             TopicNode node = punctuationNodes.get(mark);
