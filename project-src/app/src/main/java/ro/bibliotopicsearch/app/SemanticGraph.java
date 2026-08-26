@@ -134,10 +134,51 @@ public final class SemanticGraph {
     private final String lastSubject;
 
     SemanticGraph(List<Proposition> propositions, String lastSubject) {
-        this.propositions = Collections.unmodifiableList(new ArrayList<>(
-                propositions == null ? Collections.emptyList() : propositions
-        ));
-        this.lastSubject = safe(lastSubject);
+        List<Proposition> source = propositions == null
+                ? Collections.emptyList()
+                : propositions;
+        List<Proposition> canonicalized = new ArrayList<>(source.size());
+        String canonicalSubject = "";
+
+        for (Proposition proposition : source) {
+            if (proposition == null) continue;
+            Proposition value = proposition;
+
+            // inheritedSubject means the surface form is an anaphoric continuation
+            // ("ea", "acest proces", etc.). Keep the literal raw span, but replace
+            // the semantic subject with the most recent canonical discourse subject.
+            if (proposition.inheritedSubject && !canonicalSubject.isEmpty()) {
+                EnumMap<Slot, String> slots = new EnumMap<>(Slot.class);
+                slots.putAll(proposition.slots);
+                slots.put(Slot.WHO, canonicalSubject);
+                value = new Proposition(
+                        proposition.paragraphIndex,
+                        proposition.sentenceIndex,
+                        proposition.clauseIndex,
+                        proposition.raw,
+                        canonicalSubject,
+                        proposition.predicate,
+                        proposition.object,
+                        proposition.relation,
+                        proposition.operators,
+                        slots,
+                        proposition.confidence,
+                        true
+                );
+            }
+
+            canonicalized.add(value);
+            if (!value.subject.isEmpty() && !value.inheritedSubject) {
+                canonicalSubject = value.subject;
+            } else if (canonicalSubject.isEmpty() && !value.subject.isEmpty()) {
+                canonicalSubject = value.subject;
+            }
+        }
+
+        this.propositions = Collections.unmodifiableList(canonicalized);
+        this.lastSubject = !canonicalSubject.isEmpty()
+                ? canonicalSubject
+                : safe(lastSubject);
     }
 
     public List<Proposition> propositions() { return propositions; }
