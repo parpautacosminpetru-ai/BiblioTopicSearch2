@@ -7,6 +7,7 @@ on:
       - feature/implicit-text-semantic-tools
       - feature/punctuation-colors
       - feature/universal-parallel-detection
+      - feature/lupa-progressive-v9
   pull_request:
     branches:
       - main
@@ -58,4 +59,14 @@ jobs:
         with:
           name: BiblioTopicSearch-implicit-tools-APK
           path: output/BiblioTopicSearch-implicit-tools.apk
+          if-no-files-found: error
+
+      - name: Prepare source snapshot
+        run: zip -qr output/BiblioTopicSearch-v9-source.zip project-src
+
+      - name: Upload source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: BiblioTopicSearch-v9-source
+          path: output/BiblioTopicSearch-v9-source.zip
           if-no-files-found: error
