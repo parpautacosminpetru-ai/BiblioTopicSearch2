@@ -1,6 +1,8 @@
 package ro.bibliotopicsearch.app;
 
+import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 
 public final class AppPrefs {
@@ -54,11 +56,60 @@ public final class AppPrefs {
     }
 
     public static boolean ocrEnabled(Context context) {
-        return prefs(context).getBoolean("ocr_enabled", true);
+        boolean enabled = prefs(context).getBoolean("ocr_enabled", true);
+        if (enabled) OnePassLiveCollector.start();
+        return enabled;
     }
 
+    /**
+     * Existing OCR toggle is also the one-pass session boundary.
+     * LIVE starts a clean accumulator; PAUSE freezes, globally organizes, persists
+     * and opens the final result without requiring a second scan.
+     */
     public static void setOcrEnabled(Context context, boolean value) {
         prefs(context).edit().putBoolean("ocr_enabled", value).apply();
+
+        if (value) {
+            OnePassSemanticOrganizer.beginSession();
+            OnePassLiveCollector.start();
+            return;
+        }
+
+        OnePassLiveCollector.stop();
+        if (!OnePassSemanticOrganizer.isActive()) return;
+
+        // Capture the most recent fully completed semantic sidecar result before
+        // the camera analyzer is detached. Late in-flight frames are ignored after freeze.
+        OnePassSemanticOrganizer.ingest(
+                TopicMatcher.latestParagraphDetections(),
+                TopicMatcher.researchProfile()
+        );
+
+        final Context appContext = context.getApplicationContext();
+        final Activity activity = context instanceof Activity ? (Activity) context : null;
+        Thread worker = new Thread(() -> {
+            OnePassSemanticOrganizer.Snapshot snapshot = OnePassSemanticOrganizer.finishSession();
+            if (snapshot == null || snapshot.paragraphs().isEmpty()) return;
+            try {
+                OrganizedSessionStore.save(appContext, snapshot);
+            } catch (Exception ignored) {
+                return;
+            }
+
+            Runnable open = () -> {
+                Intent intent = new Intent(
+                        activity == null ? appContext : activity,
+                        OrganizedSessionActivity.class
+                );
+                if (activity == null) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                (activity == null ? appContext : activity).startActivity(intent);
+            };
+
+            if (activity != null && !activity.isFinishing()) activity.runOnUiThread(open);
+            else open.run();
+        }, "one-pass-finalize");
+        worker.setDaemon(true);
+        worker.start();
     }
 
     public static boolean floatingLabels(Context context) {
