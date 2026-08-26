@@ -1,12 +1,12 @@
 package ro.bibliotopicsearch.app;
 
+import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
@@ -56,7 +56,7 @@ public final class LivingIndexActivity extends AppCompatActivity {
         top.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView title = new TextView(this);
-        title.setText("INDEX VIU • AUTO ORGANIZAT");
+        title.setText("INDEX VIU");
         title.setTextColor(Color.WHITE);
         title.setTextSize(17.5f);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
@@ -64,32 +64,33 @@ public final class LivingIndexActivity extends AppCompatActivity {
 
         Button groups = button("GRUPURI");
         groups.setOnClickListener(v -> showDimensions());
-        top.addView(groups, new LinearLayout.LayoutParams(dp(88), dp(42)));
+        top.addView(groups, new LinearLayout.LayoutParams(dp(76), dp(42)));
+
+        Button core = button("CORE v7");
+        core.setOnClickListener(v -> startActivity(new Intent(this, IndexCoreActivity.class)));
+        top.addView(core, new LinearLayout.LayoutParams(dp(76), dp(42)));
 
         Button mode = button(AppPrefs.indexMode(this) == AppPrefs.IndexMode.SOURCE ? "SURSA" : "CERCETARE");
         mode.setOnClickListener(v -> chooseMode());
-        top.addView(mode, new LinearLayout.LayoutParams(dp(90), dp(42)));
-
-        Button source = button("META");
-        source.setOnClickListener(v -> editSource());
-        top.addView(source, new LinearLayout.LayoutParams(dp(68), dp(42)));
+        top.addView(mode, new LinearLayout.LayoutParams(dp(82), dp(42)));
 
         Button close = button("ÎNAPOI");
         close.setOnClickListener(v -> finish());
-        top.addView(close, new LinearLayout.LayoutParams(dp(78), dp(42)));
+        top.addView(close, new LinearLayout.LayoutParams(dp(72), dp(42)));
         root.addView(top);
 
+        IndexCoreDatabase.Stats v7 = IndexCoreDatabase.get(this).stats();
         TextView summary = text();
         summary.setText(
                 "MOD: " + (AppPrefs.indexMode(this) == AppPrefs.IndexMode.SOURCE
                         ? "SURSA/EXAMEN • colectare automată din OCR"
                         : "CERCETARE • tema/întrebarea filtrează indexul")
                         + "\nINBOX: " + state.inbox().size()
-                        + "  •  VALIDATE: " + state.validated().size()
-                        + "  •  CRITERII ACTIVE: " + organizer.activeDimensions()
-                        + "  •  MULTI-CRITERIU: " + organizer.multiCriteriaEntries()
+                        + " • VALIDATE: " + state.validated().size()
+                        + " • CRITERII ACTIVE: " + organizer.activeDimensions()
+                        + " • MULTI-CRITERIU: " + organizer.multiCriteriaEntries()
+                        + "\nCORE v7: " + v7.sources + " surse • " + v7.occurrences + " apariții SQLite • " + v7.outlines + " noduri outline"
                         + "\nPAGINA LIVE: " + valueOr(LivingIndexRuntime.currentPage(), "—")
-                        + "  •  aceeași intrare poate fi simultan tip+domeniu+rol+timp+loc+relație+nivel."
         );
         summary.setPadding(0, dp(4), 0, dp(8));
         root.addView(summary);
@@ -107,9 +108,7 @@ public final class LivingIndexActivity extends AppCompatActivity {
                 view.setTextColor(Color.WHITE);
                 view.setTextSize(12.7f);
                 view.setPadding(dp(12), dp(9), dp(12), dp(9));
-                view.setBackgroundColor(entry.validated()
-                        ? Color.rgb(24, 39, 48)
-                        : Color.rgb(55, 45, 27));
+                view.setBackgroundColor(entry.validated() ? Color.rgb(24, 39, 48) : Color.rgb(55, 45, 27));
                 return view;
             }
         };
@@ -146,10 +145,7 @@ public final class LivingIndexActivity extends AppCompatActivity {
         List<String> names = new ArrayList<>(groups.keySet());
         names.sort((a, b) -> Integer.compare(groups.get(b).size(), groups.get(a).size()));
         String[] labels = new String[names.size()];
-        for (int i = 0; i < names.size(); i++) {
-            String name = names.get(i);
-            labels[i] = name + "  •  " + groups.get(name).size();
-        }
+        for (int i = 0; i < names.size(); i++) labels[i] = names.get(i) + " • " + groups.get(names.get(i)).size();
         new AlertDialog.Builder(this)
                 .setTitle(dimension.name())
                 .setItems(labels, (dialog, which) -> showGroupEntries(dimension, names.get(which), groups.get(names.get(which))))
@@ -157,11 +153,7 @@ public final class LivingIndexActivity extends AppCompatActivity {
                 .show();
     }
 
-    private void showGroupEntries(
-            LivingIndexOrganizer.Dimension dimension,
-            String group,
-            List<LivingIndexStore.Entry> entries
-    ) {
+    private void showGroupEntries(LivingIndexOrganizer.Dimension dimension, String group, List<LivingIndexStore.Entry> entries) {
         StringBuilder out = new StringBuilder();
         int shown = 0;
         for (LivingIndexStore.Entry entry : entries) {
@@ -199,18 +191,21 @@ public final class LivingIndexActivity extends AppCompatActivity {
     private String rowText(LivingIndexStore.Entry entry) {
         String status = entry.validated() ? entry.category().name() : "INBOX";
         List<String> criteria = LivingIndexOrganizer.criteriaForEntry(entry);
-        return entry.code() + "  •  " + status + "  •  x" + entry.recurrence()
+        return entry.code() + " • " + status + " • x" + entry.recurrence()
                 + "\n" + entry.canonical()
-                + "\nref: " + entry.refs().size() + "  •  criterii: " + criteria.size()
-                + "  •  " + compactCriteria(criteria, 3);
+                + "\ncache ref: " + entry.refs().size() + " • criterii: " + criteria.size()
+                + " • " + compactCriteria(criteria, 3);
     }
 
     private void showEntry(LivingIndexStore.Entry entry) {
+        String coreId = IndexCoreDatabase.coreEntryId(entry.canonical());
+        long v7Occurrences = IndexCoreDatabase.get(this).countOccurrences(coreId);
         StringBuilder details = new StringBuilder();
         details.append("COD: ").append(entry.code())
+                .append("\nID CORE v7: ").append(coreId)
                 .append("\nCATEGORIE PRIMARĂ: ").append(entry.category())
                 .append("\nVALIDAT: ").append(entry.validated() ? "DA" : "NU")
-                .append("\nRECURENȚĂ: ").append(entry.recurrence())
+                .append("\nAPARIȚII CORE v7: ").append(v7Occurrences)
                 .append("\nALIASE: ").append(entry.aliases());
 
         List<String> criteria = LivingIndexOrganizer.criteriaForEntry(entry);
@@ -220,18 +215,6 @@ public final class LivingIndexActivity extends AppCompatActivity {
             for (String criterion : criteria) {
                 if (shown++ >= 28) { details.append("\n…"); break; }
                 details.append("\n• ").append(criterion);
-            }
-        }
-
-        if (!entry.refs().isEmpty()) {
-            details.append("\n\nREFERINȚE (fără imagine):");
-            int start = Math.max(0, entry.refs().size() - 16);
-            for (int i = start; i < entry.refs().size(); i++) {
-                LivingIndexStore.Ref ref = entry.refs().get(i);
-                details.append("\n• sursă ").append(ref.sourceId())
-                        .append(" • P").append(ref.paragraphIndex() + 1);
-                if (!ref.page().isEmpty()) details.append(" • pag. ").append(ref.page());
-                if (!ref.contextCode().isEmpty()) details.append(" • ").append(ref.contextCode());
             }
         }
 
@@ -250,50 +233,12 @@ public final class LivingIndexActivity extends AppCompatActivity {
         }
         String[] labels = new String[categories.size()];
         for (int i = 0; i < categories.size(); i++) labels[i] = categories.get(i).name();
-
         new AlertDialog.Builder(this)
                 .setTitle("Categoria pentru „" + entry.canonical() + "”")
                 .setItems(labels, (dialog, which) -> {
                     LivingIndexRuntime.validate(entry.id(), categories.get(which));
                     rebuild();
                 })
-                .setNegativeButton("ANULEAZĂ", null)
-                .show();
-    }
-
-    private void editSource() {
-        long id = LivingIndexRuntime.sourceId();
-        if (id <= 0) id = System.currentTimeMillis();
-        final long sourceId = id;
-        ResearchWorkspaceStore.SourceMeta old = ResearchWorkspaceStore.load(this).source(sourceId);
-
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(18), dp(8), dp(18), 0);
-        EditText title = new EditText(this);
-        title.setHint("Titlul sursei/cărții");
-        title.setText(old.title());
-        box.addView(title);
-        EditText author = new EditText(this);
-        author.setHint("Autor");
-        author.setText(old.author());
-        box.addView(author);
-        EditText locator = new EditText(this);
-        locator.setHint("Ediție / volum / interval pagini / bibliotecă");
-        locator.setText(old.locator());
-        box.addView(locator);
-
-        new AlertDialog.Builder(this)
-                .setTitle("Sursa indexului")
-                .setMessage("Metadatele sunt separate de text; nu se salvează fotografia paginii.")
-                .setView(box)
-                .setPositiveButton("SALVEAZĂ", (d, w) -> ResearchWorkspaceStore.setSource(
-                        this,
-                        sourceId,
-                        title.getText().toString(),
-                        author.getText().toString(),
-                        locator.getText().toString()
-                ))
                 .setNegativeButton("ANULEAZĂ", null)
                 .show();
     }
@@ -322,7 +267,7 @@ public final class LivingIndexActivity extends AppCompatActivity {
     private Button button(String label) {
         Button button = new Button(this);
         button.setText(label);
-        button.setTextSize(10.2f);
+        button.setTextSize(9.8f);
         return button;
     }
 

@@ -25,31 +25,35 @@ public final class LivingIndexRuntime {
     private static List<LivingIndexEngine.Candidate> latestCandidates = Collections.emptyList();
     private static List<LivingIndexTextMark> latestMarks = Collections.emptyList();
     private static long sourceId;
+    private static long sessionId;
     private static String currentPage = "";
     private static long lastSaveAt;
     private static boolean dirty;
 
-    public static void start(Context context, long sessionId) {
+    public static void start(Context context, long session) {
         if (context == null) return;
         synchronized (LOCK) {
             appContext = context.getApplicationContext();
             state = LivingIndexStore.load(appContext);
-            sourceId = sessionId > 0 ? sessionId : System.currentTimeMillis();
+            sessionId = session > 0 ? session : System.currentTimeMillis();
+            String stableSource = IndexCoreSourceRegistry.activeSourceId(appContext);
+            sourceId = IndexCoreSourceRegistry.legacyNumericId(stableSource);
             currentPage = "";
             dirty = false;
             latestCandidates = Collections.emptyList();
             latestMarks = Collections.emptyList();
+            IndexCoreRuntime.start(appContext, sessionId);
         }
     }
 
     public static void stop() {
         synchronized (LOCK) {
             flushLocked();
+            IndexCoreRuntime.stop();
             latestMarks = Collections.emptyList();
         }
     }
 
-    /** Full path when an ML Kit Text object is available: includes exact transient boxes. */
     public static void observe(
             Text text,
             List<UniversalParagraphDetector.Detection> detections,
@@ -65,7 +69,6 @@ public final class LivingIndexRuntime {
         }
     }
 
-    /** Fast collector path: no second OCR, only already available paragraph detections. */
     public static void observeDetections(List<UniversalParagraphDetector.Detection> detections) {
         if (detections == null || detections.isEmpty()) return;
         synchronized (LOCK) {
@@ -120,6 +123,8 @@ public final class LivingIndexRuntime {
                     || after.recurrence() != oldRecurrence)) changed = true;
         }
 
+        IndexCoreRuntime.observeBatch(detections, first, state, currentPage);
+
         if (changed) {
             dirty = true;
             long now = System.currentTimeMillis();
@@ -166,10 +171,19 @@ public final class LivingIndexRuntime {
         synchronized (LOCK) { return sourceId; }
     }
 
+    public static String sourceKey() {
+        synchronized (LOCK) { return IndexCoreRuntime.sourceId(); }
+    }
+
+    public static long sessionId() {
+        synchronized (LOCK) { return sessionId; }
+    }
+
     public static boolean validate(String id, LivingIndexStore.Category category) {
         synchronized (LOCK) {
             boolean changed = state.validate(id, category);
             if (changed) {
+                IndexCoreRuntime.syncEntry(state.byId(id));
                 dirty = true;
                 flushLocked();
             }
@@ -182,6 +196,7 @@ public final class LivingIndexRuntime {
         synchronized (LOCK) {
             appContext = context.getApplicationContext();
             state = LivingIndexStore.load(appContext);
+            IndexCoreLegacyMigrator.migrate(IndexCoreDatabase.get(appContext), state);
         }
     }
 
