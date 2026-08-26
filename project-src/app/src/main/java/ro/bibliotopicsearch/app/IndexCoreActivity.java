@@ -190,17 +190,36 @@ public final class IndexCoreActivity extends AppCompatActivity {
     }
 
     private void showResult(IndexCoreDatabase.SearchResult row) {
+        List<IndexCoreOccurrenceReader.Location> locations = IndexCoreOccurrenceReader.list(db, row.entryId, sourceId, 100);
+        StringBuilder msg = new StringBuilder();
+        msg.append("ID v7: ").append(row.entryId)
+                .append("\nCategorie: ").append(row.category)
+                .append("\nValidat: ").append(row.validated ? "DA" : "NU")
+                .append("\nApariții care satisfac filtrul: ").append(row.occurrences)
+                .append("\n\nLOCAȚII ÎN SURSA ACTIVĂ:");
+        int shown = 0;
+        for (IndexCoreOccurrenceReader.Location location : locations) {
+            if (shown++ >= 80) { msg.append("\n…"); break; }
+            msg.append("\n• ");
+            if (!location.page.isEmpty()) msg.append("pag. ").append(location.page).append(" • ");
+            msg.append("P").append(location.paragraphIndex + 1);
+            if (!location.outlineTitle.isEmpty()) msg.append(" • ").append(location.outlineTitle);
+            if (!location.contextCode.isEmpty()) msg.append(" • ").append(trim(location.contextCode, 100));
+        }
+        msg.append("\n\nNu se salvează fotografia paginii.");
         new AlertDialog.Builder(this)
                 .setTitle(row.canonical)
-                .setMessage("ID v7: " + row.entryId + "\nCategorie: " + row.category
-                        + "\nValidat: " + (row.validated ? "DA" : "NU")
-                        + "\nApariții care satisfac filtrul: " + row.occurrences
-                        + "\n\nSursa și pagina rămân în registrul SQLite; nu se salvează fotografia paginii.")
+                .setMessage(msg.toString())
                 .setPositiveButton("ÎNCHIDE", null).show();
     }
 
     private EditText field(String hint, String value) {
         EditText input = new EditText(this); input.setSingleLine(true); input.setHint(hint); input.setText(value == null ? "" : value); return input;
+    }
+
+    private String trim(String value, int max) {
+        if (value == null || value.length() <= max) return value == null ? "" : value;
+        return value.substring(0, Math.max(1, max - 1)) + "…";
     }
 
     private TextView text(float size, int color) {
