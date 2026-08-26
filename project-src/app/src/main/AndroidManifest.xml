@@ -16,6 +16,11 @@
         android:theme="@style/Theme.BiblioTopicSearch">
 
         <activity
+            android:name=".LivingIndexActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
             android:name=".ResearchWorkspaceActivity"
             android:screenOrientation="portrait"
             android:exported="false" />
