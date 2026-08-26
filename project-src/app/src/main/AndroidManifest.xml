@@ -41,6 +41,11 @@
             android:exported="false" />
 
         <activity
+            android:name=".LensColorActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
             android:name=".SettingsActivity"
             android:screenOrientation="portrait"
             android:exported="false" />
@@ -57,6 +62,11 @@
 
         <activity
             android:name=".MainActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
+            android:name=".LensActivity"
             android:screenOrientation="portrait"
             android:exported="true">
             <intent-filter>
