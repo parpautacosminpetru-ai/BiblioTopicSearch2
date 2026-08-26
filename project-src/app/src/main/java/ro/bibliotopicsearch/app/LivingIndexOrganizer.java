@@ -188,19 +188,72 @@ public final class LivingIndexOrganizer {
 
     private static void addDomains(Set<String> out, String paragraph) {
         String f = " " + fold(paragraph) + " ";
-        domain(out, f, "HISTORY", " istorie ", " istoric ", " istorica ", " secol ", " domnie ", " dinastie ", " reforma ", " revolutie ");
-        domain(out, f, "RELIGION", " religie ", " religios ", " religioasa ", " biserica ", " teologie ", " protestant ", " catolic ", " calvin ", " luther ", " ortodox ");
-        domain(out, f, "POLITICS", " politic ", " politica ", " guvern ", " partid ", " alegeri ", " parlament ", " stat ", " putere ");
-        domain(out, f, "ECONOMICS", " economic ", " economica ", " economie ", " financiar ", " piata ", " inflatie ", " pret ", " fiscal ", " monetar ");
-        domain(out, f, "LAW", " juridic ", " juridica ", " lege ", " constitutie ", " decret ", " tribunal ", " drept ", " regulament ");
-        domain(out, f, "MEDICINE", " medical ", " medicina ", " pacient ", " boala ", " diagnostic ", " tratament ", " clinic ", " simptom ", " terapie ");
-        domain(out, f, "MILITARY", " militar ", " armata ", " razboi ", " batalie ", " ofensiva ", " defensiva ", " regiment ", " general ");
-        domain(out, f, "SCIENCE", " stiinta ", " stiintific ", " experiment ", " cercetare ", " ipoteza ", " teorie ", " biologic ", " fizic ", " chimic ");
-        domain(out, f, "TECHNOLOGY", " tehnologic ", " tehnologie ", " software ", " algoritm ", " calculator ", " digital ", " retea ");
-        domain(out, f, "EDUCATION", " educatie ", " educational ", " scoala ", " universitate ", " elev ", " student ", " examen ");
-        domain(out, f, "SOCIETY", " social ", " societate ", " populatie ", " comunitate ", " demografic ", " familie ");
-        domain(out, f, "CULTURE", " cultura ", " cultural ", " literatura ", " arta ", " filosofie ", " muzica ", " limba ");
-        domain(out, f, "GEOGRAPHY", " geografie ", " geografic ", " regiune ", " teritoriu ", " oras ", " tara ", " continent ");
+        domain(out, f, "HISTORY",
+                " istorie ", " istoria ", " istoriei ", " istoric ", " istorica ", " istorice ",
+                " secol ", " secolul ", " secole ", " domnie ", " domnia ", " domniei ",
+                " dinastie ", " dinastia ", " dinastiei ",
+                " reforma ", " reformei ", " reforme ", " reformele ", " reformelor ",
+                " revolutie ", " revolutia ", " revolutiei ", " revolutii ", " revolutiile ");
+        domain(out, f, "RELIGION",
+                " religie ", " religia ", " religiei ",
+                " religios ", " religioasa ", " religioase ", " religiosi ", " religioaselor ",
+                " biserica ", " bisericii ", " biserici ", " teologie ", " teologic ", " teologica ",
+                " protestant ", " protestanta ", " protestante ", " protestanti ", " protestantism ",
+                " catolic ", " catolica ", " catolice ", " catolici ", " catolicism ",
+                " calvin ", " calvinist ", " calvinista ", " calviniste ", " calvinism ",
+                " luther ", " luteran ", " luterana ", " luterane ", " luteranism ",
+                " ortodox ", " ortodoxa ", " ortodoxe ", " ortodocsi ");
+        domain(out, f, "POLITICS",
+                " politic ", " politica ", " politice ", " politici ",
+                " guvern ", " guvernul ", " guvernului ", " partid ", " partidul ", " partidului ",
+                " alegeri ", " alegerile ", " parlament ", " parlamentul ", " parlamentului ",
+                " stat ", " statul ", " statului ", " putere ", " puterea ", " puterii ");
+        domain(out, f, "ECONOMICS",
+                " economic ", " economica ", " economice ", " economici ", " economie ", " economia ", " economiei ",
+                " financiar ", " financiara ", " financiare ", " piata ", " pietei ",
+                " inflatie ", " inflatia ", " inflatiei ", " pret ", " preturi ", " preturilor ",
+                " fiscal ", " fiscala ", " fiscale ", " monetar ", " monetara ", " monetare ");
+        domain(out, f, "LAW",
+                " juridic ", " juridica ", " juridice ", " lege ", " legea ", " legii ", " legi ",
+                " constitutie ", " constitutia ", " constitutiei ", " decret ", " decretul ", " decretului ",
+                " tribunal ", " tribunalul ", " drept ", " dreptul ", " dreptului ",
+                " regulament ", " regulamentul ", " regulamentului ");
+        domain(out, f, "MEDICINE",
+                " medical ", " medicala ", " medicale ", " medicina ", " medicinei ",
+                " pacient ", " pacientul ", " pacienti ", " pacientilor ",
+                " boala ", " bolii ", " boli ", " diagnostic ", " diagnosticul ",
+                " tratament ", " tratamentul ", " tratamente ", " clinic ", " clinica ", " clinice ",
+                " simptom ", " simptome ", " terapie ", " terapia ", " terapiei ");
+        domain(out, f, "MILITARY",
+                " militar ", " militara ", " militare ", " militari ", " armata ", " armatei ",
+                " razboi ", " razboiul ", " razboiului ", " batalie ", " batalia ", " bataliei ",
+                " ofensiva ", " ofensivei ", " defensiva ", " defensivei ",
+                " regiment ", " regimentul ", " general ", " generalul ");
+        domain(out, f, "SCIENCE",
+                " stiinta ", " stiintei ", " stiintific ", " stiintifica ", " stiintifice ",
+                " experiment ", " experimentul ", " cercetare ", " cercetarea ", " cercetarii ",
+                " ipoteza ", " ipotezei ", " teorie ", " teoria ", " teoriei ",
+                " biologic ", " biologica ", " fizic ", " fizica ", " chimic ", " chimica ");
+        domain(out, f, "TECHNOLOGY",
+                " tehnologic ", " tehnologica ", " tehnologice ", " tehnologie ", " tehnologia ", " tehnologiei ",
+                " software ", " algoritm ", " algoritmul ", " algoritmi ",
+                " calculator ", " calculatoare ", " digital ", " digitala ", " digitale ", " retea ", " retele ");
+        domain(out, f, "EDUCATION",
+                " educatie ", " educatia ", " educatiei ", " educational ", " educationala ", " educationale ",
+                " scoala ", " scolii ", " scoli ", " universitate ", " universitatea ", " universitatii ",
+                " elev ", " elevi ", " student ", " studenti ", " examen ", " examenul ", " examene ");
+        domain(out, f, "SOCIETY",
+                " social ", " sociala ", " sociale ", " societate ", " societatea ", " societatii ",
+                " populatie ", " populatia ", " populatiei ", " comunitate ", " comunitatea ", " comunitatii ",
+                " demografic ", " demografica ", " familie ", " familia ", " familiei ");
+        domain(out, f, "CULTURE",
+                " cultura ", " culturii ", " cultural ", " culturala ", " culturale ",
+                " literatura ", " literaturii ", " arta ", " artei ", " filosofie ", " filosofiei ",
+                " muzica ", " muzicii ", " limba ", " limbii ");
+        domain(out, f, "GEOGRAPHY",
+                " geografie ", " geografia ", " geografiei ", " geografic ", " geografica ", " geografice ",
+                " regiune ", " regiunea ", " regiunii ", " teritoriu ", " teritoriul ", " teritoriului ",
+                " oras ", " orasul ", " orasului ", " tara ", " tarii ", " continent ", " continentul ");
     }
 
     private static void domain(Set<String> out, String folded, String value, String... cues) {
