@@ -68,4 +68,53 @@ public final class SemanticGraphBuilderTest {
         assertFalse(answer.negated());
         assertTrue(answer.slots().containsKey(SemanticGraph.Slot.EFFECT));
     }
+
+    @Test
+    public void anaphoricNextParagraphKeepsPreviousDiscourseSubject() {
+        List<UniversalParagraphDetector.Detection> detections = Arrays.asList(
+                UniversalParagraphDetector.detect(
+                        "Fotosinteza transformă energia luminoasă în energie chimică.", 0
+                ),
+                UniversalParagraphDetector.detect(
+                        "Acest proces produce compuși organici.", 1
+                )
+        );
+
+        SemanticGraph graph = SemanticGraphBuilder.build(detections);
+        SemanticGraph.Proposition secondParagraph = null;
+        for (SemanticGraph.Proposition proposition : graph.propositions()) {
+            if (proposition.paragraphIndex() == 1) {
+                secondParagraph = proposition;
+                break;
+            }
+        }
+
+        assertNotNull(secondParagraph);
+        assertTrue(secondParagraph.inheritedSubject());
+        assertTrue(secondParagraph.subject().toLowerCase().contains("fotosinteza"));
+    }
+
+    @Test
+    public void paragraphFunctionDoesNotOverwriteLocalRelation() {
+        UniversalParagraphDetector.Detection detection = UniversalParagraphDetector.detect(
+                "Inflația este un fenomen economic. Prețurile cresc rapid.", 0
+        );
+        SemanticGraph graph = SemanticGraphBuilder.build(detection);
+
+        assertTrue(graph.size() >= 2);
+        assertEquals(SemanticGraph.Relation.DEFINITION, graph.propositions().get(0).relation());
+        assertEquals(SemanticGraph.Relation.GENERIC, graph.propositions().get(1).relation());
+    }
+
+    @Test
+    public void compoundQuestionKeepsBothRequestedRelations() {
+        ResearchSemanticEngine.Profile profile = ResearchSemanticEngine.compile(
+                "Care sunt cauzele și efectele inflației?", null
+        );
+
+        assertEquals(ResearchSemanticEngine.Intent.WHY, profile.intent());
+        assertTrue(profile.intents().contains(ResearchSemanticEngine.Intent.WHY));
+        assertTrue(profile.intents().contains(ResearchSemanticEngine.Intent.EFFECT));
+        assertEquals(1, profile.directTerms().size());
+    }
 }
