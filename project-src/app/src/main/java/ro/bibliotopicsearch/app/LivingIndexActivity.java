@@ -55,25 +55,32 @@ public final class LivingIndexActivity extends AppCompatActivity {
         TextView title = new TextView(this);
         title.setText("INDEX VIU • DETERMINIST");
         title.setTextColor(Color.WHITE);
-        title.setTextSize(19);
+        title.setTextSize(18);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         top.addView(title, new LinearLayout.LayoutParams(0, dp(44), 1f));
 
-        Button source = button("SURSĂ");
+        Button mode = button(AppPrefs.indexMode(this) == AppPrefs.IndexMode.SOURCE ? "SURSA" : "CERCETARE");
+        mode.setOnClickListener(v -> chooseMode());
+        top.addView(mode, new LinearLayout.LayoutParams(dp(92), dp(42)));
+
+        Button source = button("META");
         source.setOnClickListener(v -> editSource());
-        top.addView(source, new LinearLayout.LayoutParams(dp(82), dp(42)));
+        top.addView(source, new LinearLayout.LayoutParams(dp(72), dp(42)));
 
         Button close = button("ÎNAPOI");
         close.setOnClickListener(v -> finish());
-        top.addView(close, new LinearLayout.LayoutParams(dp(88), dp(42)));
+        top.addView(close, new LinearLayout.LayoutParams(dp(82), dp(42)));
         root.addView(top);
 
         TextView summary = text();
         summary.setText(
-                "INBOX: " + state.inbox().size()
+                "MOD: " + (AppPrefs.indexMode(this) == AppPrefs.IndexMode.SOURCE
+                        ? "SURSA/EXAMEN • bara goală • persistă indexul, nu textul paginii"
+                        : "CERCETARE • bara conține tema/întrebarea")
+                        + "\nINBOX: " + state.inbox().size()
                         + "  •  VALIDATE: " + state.validated().size()
                         + "  •  PAGINA LIVE: " + valueOr(LivingIndexRuntime.currentPage(), "—")
-                        + "\nNecunoscutele intră în INBOX. După ce le validezi o dată, codul/categoria devin detector permanent."
+                        + "\nNecunoscutele intră în INBOX. După validare, codul și categoria devin detector permanent."
         );
         summary.setPadding(0, dp(4), 0, dp(8));
         root.addView(summary);
@@ -102,6 +109,27 @@ public final class LivingIndexActivity extends AppCompatActivity {
         root.addView(list, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         setContentView(root);
+    }
+
+    private void chooseMode() {
+        String[] choices = {
+                "SURSA / EXAMEN — indexează intern; fără persistența textului paginii",
+                "CERCETARE — tema/întrebarea externă + dosar de dovezi"
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("Modul aceleiași bare")
+                .setItems(choices, (dialog, which) -> {
+                    if (which == 0) {
+                        AppPrefs.setIndexMode(this, AppPrefs.IndexMode.SOURCE);
+                        TopicMatcher.setResearchQuery("");
+                    } else {
+                        AppPrefs.setIndexMode(this, AppPrefs.IndexMode.RESEARCH);
+                        TopicMatcher.setResearchQuery(AppPrefs.storedResearchQuery(this));
+                    }
+                    rebuild();
+                })
+                .setNegativeButton("ANULEAZĂ", null)
+                .show();
     }
 
     private String rowText(LivingIndexStore.Entry entry) {
