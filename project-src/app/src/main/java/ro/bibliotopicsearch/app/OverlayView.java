@@ -149,13 +149,10 @@ public final class OverlayView extends View {
             adjusted.add(fresh);
         }
 
-        // Evită pâlpâirea când OCR-ul pierde termenul pentru un singur cadru.
         for (int i = 0; i < old.size(); i++) {
             if (usedOld.contains(i)) continue;
             MatchHit previous = old.get(i);
-            if (now - previous.detectedAt <= holdMs) {
-                adjusted.add(previous);
-            }
+            if (now - previous.detectedAt <= holdMs) adjusted.add(previous);
         }
 
         Set<String> nowKeys = occurrenceKeys(adjusted);
@@ -169,9 +166,7 @@ public final class OverlayView extends View {
         hits = adjusted;
         invalidate();
 
-        if (flashUntil > now) {
-            postInvalidateDelayed(70L);
-        }
+        if (flashUntil > now) postInvalidateDelayed(70L);
     }
 
     private RectF blend(RectF oldBox, RectF newBox, float currentWeight) {
@@ -186,9 +181,7 @@ public final class OverlayView extends View {
 
     private Set<String> occurrenceKeys(List<MatchHit> values) {
         Set<String> keys = new HashSet<>();
-        for (MatchHit hit : values) {
-            keys.add(occurrenceKey(hit));
-        }
+        for (MatchHit hit : values) keys.add(occurrenceKey(hit));
         return keys;
     }
 
@@ -204,14 +197,13 @@ public final class OverlayView extends View {
         long now = System.currentTimeMillis();
         boolean flashActive = now < flashUntil;
 
-        // Întâi desenăm toate potrivirile. Nicio potrivire nu este eliminată doar
-        // pentru că ecranul este aglomerat.
         for (MatchHit hit : hits) {
             int color = hit.node.color;
             boolean flashing = flashActive && flashingOccurrenceKeys.contains(occurrenceKey(hit));
 
             fillPaint.setStyle(Paint.Style.FILL);
             fillPaint.setColor(withAlpha(color, flashing ? 100 : 58));
+            strokePaint.setStyle(Paint.Style.STROKE);
             strokePaint.setColor(withAlpha(color, 245));
             strokePaint.setStrokeWidth(dp(flashing ? 4f : 2.5f));
 
@@ -219,6 +211,10 @@ public final class OverlayView extends View {
             canvas.drawRoundRect(box, dp(4), dp(4), fillPaint);
             canvas.drawRoundRect(box, dp(4), dp(4), strokePaint);
         }
+
+        // AUTO universal: marchează direct cuvintele care formează subiectul și
+        // dovezile lexicale/structurale care justifică funcția paragrafului.
+        drawSemanticTextMarks(canvas);
 
         if (showLabels) {
             List<RectF> occupied = new ArrayList<>();
@@ -232,10 +228,58 @@ public final class OverlayView extends View {
             }
         }
 
-        // AUTO S/F este independent de TEXT / SEM / ȚINTĂ și apare direct pe cameră.
         drawAutoSemanticPanel(canvas);
-
         if (flashActive) postInvalidateDelayed(70L);
+    }
+
+    private void drawSemanticTextMarks(Canvas canvas) {
+        List<SemanticTextMark> marks = TopicMatcher.latestSemanticTextMarks();
+        if (marks == null || marks.isEmpty()) return;
+
+        Set<String> badgeShown = new HashSet<>();
+        for (SemanticTextMark mark : marks) {
+            if (mark == null || mark.box == null || mark.box.isEmpty()) continue;
+
+            boolean subject = mark.kind == SemanticTextMark.Kind.SUBJECT;
+            int color = subject ? Color.rgb(38, 174, 208) : Color.rgb(231, 145, 50);
+            int fillAlpha = 48 + (int) Math.round(mark.confidence * 52.0);
+            int strokeAlpha = 175 + (int) Math.round(mark.confidence * 75.0);
+
+            RectF box = new RectF(mark.box);
+            box.inset(-dp(1.5f), -dp(1f));
+
+            fillPaint.setStyle(Paint.Style.FILL);
+            fillPaint.setColor(withAlpha(color, fillAlpha));
+            strokePaint.setStyle(Paint.Style.STROKE);
+            strokePaint.setStrokeWidth(dp(mark.confidence >= 0.66 ? 3.2f : 2.2f));
+            strokePaint.setColor(withAlpha(color, strokeAlpha));
+            canvas.drawRoundRect(box, dp(3), dp(3), fillPaint);
+            canvas.drawRoundRect(box, dp(3), dp(3), strokePaint);
+
+            // Un singur badge S/F per tip și paragraf; cuvintele rămân toate marcate.
+            String badgeKey = mark.kind.name() + "|" + mark.paragraphIndex;
+            if (badgeShown.add(badgeKey)) {
+                String badge = subject ? "S" : "F";
+                float size = dp(17);
+                float left = clamp(box.left - dp(2), dp(2), getWidth() - size - dp(2));
+                float top = clamp(box.top - size - dp(2), dp(2), getHeight() - size - dp(2));
+                RectF badgeBox = new RectF(left, top, left + size, top + size);
+                labelBackgroundPaint.setStyle(Paint.Style.FILL);
+                labelBackgroundPaint.setColor(withAlpha(color, 245));
+                canvas.drawRoundRect(badgeBox, dp(5), dp(5), labelBackgroundPaint);
+
+                float oldSize = autoHeaderPaint.getTextSize();
+                int oldColor = autoHeaderPaint.getColor();
+                autoHeaderPaint.setTextSize(sp(9f));
+                autoHeaderPaint.setColor(Color.WHITE);
+                float baseline = badgeBox.centerY()
+                        - (autoHeaderPaint.ascent() + autoHeaderPaint.descent()) / 2f;
+                float x = badgeBox.centerX() - autoHeaderPaint.measureText(badge) / 2f;
+                canvas.drawText(badge, x, baseline, autoHeaderPaint);
+                autoHeaderPaint.setTextSize(oldSize);
+                autoHeaderPaint.setColor(oldColor);
+            }
+        }
     }
 
     private void drawAutoSemanticPanel(Canvas canvas) {
@@ -342,11 +386,6 @@ public final class OverlayView extends View {
         return box;
     }
 
-    /**
-     * Etichetele complete sunt plasate în jurul cuvântului fără să se suprapună.
-     * Dacă nu mai există loc sau sunt multe rezultate, desenăm un badge compact,
-     * însă highlight-ul OCR rămâne vizibil pentru toate potrivirile.
-     */
     private boolean drawSmartLabel(
             Canvas canvas,
             MatchHit hit,
