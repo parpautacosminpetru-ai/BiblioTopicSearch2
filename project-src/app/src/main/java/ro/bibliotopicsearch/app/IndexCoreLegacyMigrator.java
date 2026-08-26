@@ -4,6 +4,9 @@ import android.content.ContentValues;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /** Imports v5/v6 JSON refs once without using destructive parent-row REPLACE semantics. */
 public final class IndexCoreLegacyMigrator {
     private static final String KEY = "legacy_migrated_safe_v7";
@@ -18,8 +21,11 @@ public final class IndexCoreLegacyMigrator {
             for (LivingIndexStore.Ref ref : entry.refs()) {
                 String source = "legacy-" + ref.sourceId();
                 db.ensureSource(source);
+                List<String> facets = new ArrayList<>(ref.axes());
+                String primary = "PRIMARY=" + entry.category().name();
+                if (!facets.contains(primary)) facets.add(primary);
                 db.addOccurrence(coreId, source, ref.sourceId(), ref.page(), ref.paragraphIndex(), 0L,
-                        ref.contextCode(), ref.seenAt(), ref.axes());
+                        ref.contextCode(), ref.seenAt(), facets);
             }
         }
         ContentValues v = new ContentValues(); v.put("k", KEY); v.put("v", "1");
