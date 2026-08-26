@@ -18,7 +18,6 @@ import java.util.regex.Pattern;
 
 /**
  * Fast, dependency-free paragraph detector with Romanian Language Pack support.
- *
  * Detection remains explicit-only: morphology groups textual forms but does not add
  * facts or discourse relations that have no lexical/structural evidence.
  */
@@ -41,18 +40,13 @@ public final class UniversalParagraphDetector {
         private final Set<UniversalDetectionLexicon.Operator> operators;
         private final List<String> matchedMarkers;
 
-        Detection(
-                int paragraphIndex,
-                String paragraph,
-                String subject,
-                UniversalDetectionLexicon.Function function,
-                UniversalDetectionLexicon.Function secondaryFunction,
-                double subjectConfidence,
-                double functionConfidence,
-                List<UniversalDetectionLexicon.Slot> querySlots,
-                Set<UniversalDetectionLexicon.Operator> operators,
-                List<String> matchedMarkers
-        ) {
+        Detection(int paragraphIndex, String paragraph, String subject,
+                  UniversalDetectionLexicon.Function function,
+                  UniversalDetectionLexicon.Function secondaryFunction,
+                  double subjectConfidence, double functionConfidence,
+                  List<UniversalDetectionLexicon.Slot> querySlots,
+                  Set<UniversalDetectionLexicon.Operator> operators,
+                  List<String> matchedMarkers) {
             this.paragraphIndex = paragraphIndex;
             this.paragraph = paragraph;
             this.subject = subject;
@@ -75,7 +69,6 @@ public final class UniversalParagraphDetector {
         public List<UniversalDetectionLexicon.Slot> querySlots() { return querySlots; }
         public Set<UniversalDetectionLexicon.Operator> operators() { return operators; }
         public List<String> matchedMarkers() { return matchedMarkers; }
-
         public String compactLabel() {
             String safeSubject = subject == null || subject.isEmpty() ? "?" : subject;
             return safeSubject + " • " + function.name();
@@ -87,30 +80,21 @@ public final class UniversalParagraphDetector {
         final UniversalDetectionLexicon.Function secondary;
         final double confidence;
         final List<String> markers;
-
-        FunctionResult(
-                UniversalDetectionLexicon.Function primary,
-                UniversalDetectionLexicon.Function secondary,
-                double confidence,
-                List<String> markers
-        ) {
-            this.primary = primary;
-            this.secondary = secondary;
-            this.confidence = confidence;
-            this.markers = markers;
+        FunctionResult(UniversalDetectionLexicon.Function primary,
+                       UniversalDetectionLexicon.Function secondary,
+                       double confidence, List<String> markers) {
+            this.primary = primary; this.secondary = secondary;
+            this.confidence = confidence; this.markers = markers;
         }
     }
 
     private static final class SubjectResult {
-        final String value;
-        final double confidence;
+        final String value; final double confidence;
         SubjectResult(String value, double confidence) { this.value = value; this.confidence = confidence; }
     }
 
     private static final class Candidate {
-        String surface;
-        double score;
-        int firstSentence = Integer.MAX_VALUE;
+        String surface; double score; int firstSentence = Integer.MAX_VALUE;
         final Set<Integer> sentenceIds = new HashSet<>();
         Candidate(String surface) { this.surface = surface; }
     }
@@ -120,40 +104,45 @@ public final class UniversalParagraphDetector {
     public static Detection detect(String paragraph, int paragraphIndex) {
         String raw = paragraph == null ? "" : RomanianLanguagePack.normalizeOrthography(paragraph).trim();
         if (raw.isEmpty()) {
-            return new Detection(
-                    paragraphIndex, "", "",
+            return new Detection(paragraphIndex, "", "",
                     UniversalDetectionLexicon.Function.UNKNOWN,
                     UniversalDetectionLexicon.Function.UNKNOWN,
                     0.0, 0.0,
                     UniversalDetectionLexicon.slotsFor(UniversalDetectionLexicon.Function.UNKNOWN),
                     EnumSet.noneOf(UniversalDetectionLexicon.Operator.class),
-                    Collections.emptyList()
-            );
+                    Collections.emptyList());
         }
 
         List<String> sentences = splitSentences(raw);
         FunctionResult function = detectFunction(raw, sentences);
         SubjectResult subject = detectSubject(raw, sentences);
         Set<UniversalDetectionLexicon.Operator> operators = detectOperators(raw);
-
-        return new Detection(
-                paragraphIndex, raw, subject.value, function.primary, function.secondary,
+        return new Detection(paragraphIndex, raw, subject.value, function.primary, function.secondary,
                 subject.confidence, function.confidence,
-                UniversalDetectionLexicon.slotsFor(function.primary), operators, function.markers
-        );
+                UniversalDetectionLexicon.slotsFor(function.primary), operators, function.markers);
     }
 
     public static List<String> splitParagraphs(String text) {
         if (text == null || text.trim().isEmpty()) return Collections.emptyList();
-        String normalized = RomanianLanguagePack.normalizeOrthography(text)
+
+        // Keep blank-line structure intact. normalizeOrthography intentionally
+        // collapses generic whitespace for token processing, so it must run per block.
+        String lineSafe = text.replace('ş', 'ș').replace('Ş', 'Ș')
+                .replace('ţ', 'ț').replace('Ţ', 'Ț')
+                .replace('’', '\'').replace('`', '\'').replace('´', '\'')
+                .replace('\u00A0', ' ')
                 .replace("\r\n", "\n").replace('\r', '\n');
-        String[] blocks = normalized.split("\\n\\s*\\n+");
+        String[] blocks = lineSafe.split("\\n\\s*\\n+");
         List<String> out = new ArrayList<>();
         for (String block : blocks) {
-            String value = block.replaceAll("[ \\t]+", " ").trim();
+            String value = RomanianLanguagePack.normalizeOrthography(
+                    block.replaceAll("[ \\t]+", " ").trim()
+            );
             if (!value.isEmpty()) out.add(value);
         }
-        if (out.isEmpty() && !normalized.trim().isEmpty()) out.add(normalized.trim());
+        if (out.isEmpty() && !lineSafe.trim().isEmpty()) {
+            out.add(RomanianLanguagePack.normalizeOrthography(lineSafe.trim()));
+        }
         return out;
     }
 
@@ -169,9 +158,8 @@ public final class UniversalParagraphDetector {
                 int count = countPhrase(folded, marker.normalized);
                 boolean familyOnly = false;
                 if (count <= 0 && marker.normalized.length() >= 4
-                        && RomanianLanguagePack.containsFamilyPhrase(raw, marker.raw)) {
-                    count = 1;
-                    familyOnly = true;
+                        && !RomanianFamilyMatcher.findSurface(raw, marker.raw).isEmpty()) {
+                    count = 1; familyOnly = true;
                 }
                 if (count <= 0) continue;
                 double local = marker.weight * count * (familyOnly ? 0.72 : 1.0);
@@ -200,7 +188,6 @@ public final class UniversalParagraphDetector {
 
         List<Map.Entry<UniversalDetectionLexicon.Function, Double>> ranked = new ArrayList<>(scores.entrySet());
         ranked.sort(Map.Entry.<UniversalDetectionLexicon.Function, Double>comparingByValue().reversed());
-
         double topScore = ranked.isEmpty() ? 0.0 : ranked.get(0).getValue();
         double secondScore = ranked.size() < 2 ? 0.0 : ranked.get(1).getValue();
         UniversalDetectionLexicon.Function primary;
@@ -213,7 +200,6 @@ public final class UniversalParagraphDetector {
             secondary = secondScore >= Math.max(1.0, topScore * 0.55)
                     ? ranked.get(1).getKey() : UniversalDetectionLexicon.Function.UNKNOWN;
         }
-
         double confidence = clamp01(topScore / (topScore + secondScore + 1.25));
         if (primary == UniversalDetectionLexicon.Function.DEVELOPMENT && topScore < 0.8) confidence = 0.35;
         if (primary == UniversalDetectionLexicon.Function.UNKNOWN) confidence = Math.min(confidence, 0.25);
@@ -229,7 +215,6 @@ public final class UniversalParagraphDetector {
         for (int sentenceIndex = 0; sentenceIndex < sentences.size(); sentenceIndex++) {
             String sentence = stripInitialFrame(sentences.get(sentenceIndex));
             if (sentence.isEmpty()) continue;
-
             String firstWord = firstWord(sentence);
             if (RomanianLanguagePack.isCoreference(firstWord)
                     || UniversalDetectionLexicon.COREFERENCE_WORDS.contains(UniversalDetectionLexicon.fold(firstWord))) {
@@ -256,7 +241,6 @@ public final class UniversalParagraphDetector {
 
         addTokenFallbackCandidates(sentences, candidates);
         if (candidates.isEmpty()) return new SubjectResult("", 0.0);
-
         for (Candidate candidate : candidates.values()) {
             candidate.score += Math.max(0, candidate.sentenceIds.size() - 1) * 2.2;
             if (candidate.firstSentence == 0) candidate.score += 1.0;
@@ -264,13 +248,11 @@ public final class UniversalParagraphDetector {
             if (words >= 2 && words <= 6) candidate.score += 0.45;
             if (words > MAX_SUBJECT_WORDS) candidate.score -= (words - MAX_SUBJECT_WORDS) * 0.5;
         }
-
         List<Candidate> ranked = new ArrayList<>(candidates.values());
         ranked.sort(Comparator.comparingDouble((Candidate c) -> c.score).reversed());
         Candidate top = ranked.get(0);
         double second = ranked.size() > 1 ? ranked.get(1).score : 0.0;
-        double confidence = clamp01(top.score / (top.score + second + 1.5));
-        return new SubjectResult(cleanSubjectCandidate(top.surface), confidence);
+        return new SubjectResult(cleanSubjectCandidate(top.surface), clamp01(top.score / (top.score + second + 1.5)));
     }
 
     private static Set<UniversalDetectionLexicon.Operator> detectOperators(String raw) {
@@ -279,9 +261,8 @@ public final class UniversalParagraphDetector {
         for (UniversalDetectionLexicon.Operator operator : UniversalDetectionLexicon.Operator.values()) {
             for (UniversalDetectionLexicon.Marker marker : UniversalDetectionLexicon.markers(operator)) {
                 if (containsPhrase(folded, marker.normalized)
-                        || (marker.normalized.length() >= 4 && RomanianLanguagePack.containsFamilyPhrase(raw, marker.raw))) {
-                    result.add(operator);
-                    break;
+                        || (marker.normalized.length() >= 4 && !RomanianFamilyMatcher.findSurface(raw, marker.raw).isEmpty())) {
+                    result.add(operator); break;
                 }
             }
         }
@@ -290,14 +271,12 @@ public final class UniversalParagraphDetector {
 
     private static String extractExplicitTopic(String raw) {
         String loose = foldPreserveSpacing(raw);
-        int bestStart = Integer.MAX_VALUE;
-        String bestPrefix = null;
+        int bestStart = Integer.MAX_VALUE; String bestPrefix = null;
         for (String prefix : UniversalDetectionLexicon.TOPIC_PREFIXES) {
             int index = loose.indexOf(prefix);
             if (index >= 0 && index < bestStart) { bestStart = index; bestPrefix = prefix; }
         }
         if (bestPrefix == null) return "";
-
         int start = Math.min(raw.length(), bestStart + bestPrefix.length());
         while (start < raw.length() && Character.isWhitespace(raw.charAt(start))) start++;
         int end = raw.length();
@@ -334,18 +313,15 @@ public final class UniversalParagraphDetector {
         String folded = " " + foldPreserveSpacing(value) + " ";
         int best = Integer.MAX_VALUE;
         for (String cue : UniversalDetectionLexicon.PREDICATE_CUES) {
-            String needle = " " + cue.trim() + " ";
-            int index = folded.indexOf(needle);
+            int index = folded.indexOf(" " + cue.trim() + " ");
             if (index > 1 && index < best) best = index;
         }
         if (best == Integer.MAX_VALUE) return "";
-
         int cut = Math.max(0, best - 1);
         String candidate = value.substring(0, Math.min(cut, value.length())).trim();
         int comma = candidate.lastIndexOf(',');
         if (comma >= 0) candidate = candidate.substring(comma + 1).trim();
-        candidate = limitWords(candidate, MAX_SUBJECT_WORDS);
-        return cleanSubjectCandidate(candidate);
+        return cleanSubjectCandidate(limitWords(candidate, MAX_SUBJECT_WORDS));
     }
 
     private static void addTokenFallbackCandidates(List<String> sentences, Map<String, Candidate> candidates) {
@@ -358,7 +334,7 @@ public final class UniversalParagraphDetector {
                 String surface = matcher.group();
                 String folded = UniversalDetectionLexicon.fold(surface);
                 if (!isContentToken(folded)) continue;
-                String key = RomanianLanguagePack.familyKey(surface);
+                String key = RomanianMorphology.familyKey(surface);
                 if (key.isEmpty()) key = folded;
                 frequency.put(key, frequency.getOrDefault(key, 0) + 1);
                 spread.computeIfAbsent(key, ignored -> new HashSet<>()).add(sentenceIndex);
@@ -366,25 +342,19 @@ public final class UniversalParagraphDetector {
                 if (previous == null || surface.length() > previous.length()) surfaces.put(key, surface);
             }
         }
-
         for (Map.Entry<String, Integer> entry : frequency.entrySet()) {
-            String key = entry.getKey();
-            int count = entry.getValue();
-            int sentenceCount = spread.get(key).size();
+            String key = entry.getKey(); int count = entry.getValue(); int sentenceCount = spread.get(key).size();
             double score = count * 0.75 + sentenceCount * 1.35;
             if (spread.get(key).contains(0)) score += 0.55;
             Candidate candidate = candidates.computeIfAbsent(key, ignored -> new Candidate(surfaces.get(key)));
-            candidate.score += score;
-            candidate.sentenceIds.addAll(spread.get(key));
+            candidate.score += score; candidate.sentenceIds.addAll(spread.get(key));
             if (spread.get(key).contains(0)) candidate.firstSentence = 0;
         }
     }
 
     private static boolean isContentToken(String key) {
-        if (key == null || key.length() < 3) return false;
-        if (key.matches("\\d+")) return false;
-        if (RomanianLanguagePack.isFunctionWord(key)) return false;
-        if (UniversalDetectionLexicon.STOP_WORDS.contains(key)) return false;
+        if (key == null || key.length() < 3 || key.matches("\\d+")) return false;
+        if (RomanianLanguagePack.isFunctionWord(key) || UniversalDetectionLexicon.STOP_WORDS.contains(key)) return false;
         if (RomanianLanguagePack.isCoreference(key)) return false;
         return !UniversalDetectionLexicon.COREFERENCE_WORDS.contains(key);
     }
@@ -397,8 +367,7 @@ public final class UniversalParagraphDetector {
     }
 
     private static boolean early(String padded, String needle) {
-        int index = padded.indexOf(needle);
-        return index > 0 && index < 90;
+        int index = padded.indexOf(needle); return index > 0 && index < 90;
     }
 
     private static boolean containsListShape(String raw) {
@@ -408,14 +377,11 @@ public final class UniversalParagraphDetector {
 
     private static int countPhrase(String paddedFolded, String phrase) {
         if (phrase == null || phrase.isEmpty()) return 0;
-        String needle = " " + phrase + " ";
-        int count = 0;
-        int from = 0;
+        String needle = " " + phrase + " "; int count = 0; int from = 0;
         while (from <= paddedFolded.length() - needle.length()) {
             int index = paddedFolded.indexOf(needle, from);
             if (index < 0) break;
-            count++;
-            from = index + needle.length();
+            count++; from = index + needle.length();
         }
         return count;
     }
@@ -425,81 +391,60 @@ public final class UniversalParagraphDetector {
     }
 
     private static List<String> splitSentences(String raw) {
-        String[] chunks = SENTENCE_SPLIT.split(raw);
-        List<String> out = new ArrayList<>();
-        for (String chunk : chunks) {
-            String value = chunk.trim();
-            if (!value.isEmpty()) out.add(value);
-        }
-        if (out.isEmpty()) out.add(raw.trim());
-        return out;
+        String[] chunks = SENTENCE_SPLIT.split(raw); List<String> out = new ArrayList<>();
+        for (String chunk : chunks) { String value = chunk.trim(); if (!value.isEmpty()) out.add(value); }
+        if (out.isEmpty()) out.add(raw.trim()); return out;
     }
 
     private static String firstWord(String value) {
-        Matcher matcher = WORD_PATTERN.matcher(value);
-        return matcher.find() ? matcher.group() : "";
+        Matcher matcher = WORD_PATTERN.matcher(value); return matcher.find() ? matcher.group() : "";
     }
 
     private static String subjectKey(String surface) {
-        return RomanianLanguagePack.phraseFamilyKey(surface)
-                .replaceAll("^[^\\p{L}\\p{N}]+|[^\\p{L}\\p{N}]+$", "")
-                .trim();
+        return RomanianMorphology.phraseFamilyKey(surface)
+                .replaceAll("^[^\\p{L}\\p{N}]+|[^\\p{L}\\p{N}]+$", "").trim();
     }
 
     private static String cleanSubjectCandidate(String value) {
         if (value == null) return "";
-        String out = value.trim()
-                .replaceAll("^[,;:–—\\-\\s]+", "")
-                .replaceAll("[,;:–—\\-\\s]+$", "")
-                .replaceAll("\\s+", " ")
-                .trim();
+        String out = value.trim().replaceAll("^[,;:–—\\-\\s]+", "")
+                .replaceAll("[,;:–—\\-\\s]+$", "").replaceAll("\\s+", " ").trim();
         if (out.isEmpty()) return out;
-
         List<String> words = words(out);
         while (!words.isEmpty()) {
             String first = UniversalDetectionLexicon.fold(words.get(0));
             if (!RomanianLanguagePack.isFunctionWord(first) && !UniversalDetectionLexicon.STOP_WORDS.contains(first)) break;
             words.remove(0);
         }
-        if (words.isEmpty()) return "";
-        return String.join(" ", words);
+        return words.isEmpty() ? "" : String.join(" ", words);
     }
 
     private static String limitWords(String value, int maxWords) {
         List<String> words = words(value);
-        if (words.size() <= maxWords) return value.trim();
-        return String.join(" ", words.subList(0, maxWords));
+        return words.size() <= maxWords ? value.trim() : String.join(" ", words.subList(0, maxWords));
     }
 
     private static List<String> words(String value) {
-        List<String> out = new ArrayList<>();
-        Matcher matcher = WORD_PATTERN.matcher(value == null ? "" : value);
-        while (matcher.find()) out.add(matcher.group());
-        return out;
+        List<String> out = new ArrayList<>(); Matcher matcher = WORD_PATTERN.matcher(value == null ? "" : value);
+        while (matcher.find()) out.add(matcher.group()); return out;
     }
 
     private static int wordCount(String value) {
-        int count = 0;
-        Matcher matcher = WORD_PATTERN.matcher(value == null ? "" : value);
-        while (matcher.find()) count++;
-        return count;
+        int count = 0; Matcher matcher = WORD_PATTERN.matcher(value == null ? "" : value);
+        while (matcher.find()) count++; return count;
     }
 
     private static String foldPreserveSpacing(String value) {
         String normalized = RomanianLanguagePack.normalizeOrthography(value);
-        return Normalizer.normalize(normalized, Normalizer.Form.NFD)
-                .replaceAll("\\p{M}+", "")
-                .toLowerCase(Locale.ROOT)
-                .replace('’', '\'');
+        return Normalizer.normalize(normalized, Normalizer.Form.NFD).replaceAll("\\p{M}+", "")
+                .toLowerCase(Locale.ROOT).replace('’', '\'');
     }
 
     private static String pad(String value) { return " " + (value == null ? "" : value.trim()) + " "; }
-
     private static void add(Map<UniversalDetectionLexicon.Function, Double> scores,
                             UniversalDetectionLexicon.Function function, double value) {
         scores.put(function, scores.getOrDefault(function, 0.0) + value);
     }
-
     private static List<String> dedupe(List<String> values) { return new ArrayList<>(new LinkedHashSet<>(values)); }
     private static double clamp01(double value) { return Math.max(0.0, Math.min(1.0, value)); }
 }
