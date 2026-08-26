@@ -3,6 +3,7 @@ package ro.bibliotopicsearch.app;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -41,10 +42,15 @@ public final class LivingIndexAutoOrganizerEngine {
 
         List<LivingIndexEngine.Candidate> out = new ArrayList<>(base.size());
         for (LivingIndexEngine.Candidate candidate : base) {
-            List<String> criteria = criteriaByParagraph.getOrDefault(
-                    candidate.paragraphIndex(), Collections.emptyList()
+            LinkedHashSet<String> criteria = new LinkedHashSet<>(
+                    LivingIndexOrganizer.withPrimary(
+                            criteriaByParagraph.getOrDefault(
+                                    candidate.paragraphIndex(), Collections.emptyList()
+                            ),
+                            candidate.category()
+                    )
             );
-            criteria = LivingIndexOrganizer.withPrimary(criteria, candidate.category());
+            addCandidateCriteria(criteria, candidate);
             out.add(new LivingIndexEngine.Candidate(
                     candidate.surface(),
                     candidate.category(),
@@ -53,9 +59,66 @@ public final class LivingIndexAutoOrganizerEngine {
                     candidate.knownId(),
                     candidate.validated(),
                     candidate.contextCode(),
-                    criteria
+                    new ArrayList<>(criteria)
             ));
         }
         return Collections.unmodifiableList(out);
+    }
+
+    private static void addCandidateCriteria(
+            LinkedHashSet<String> criteria,
+            LivingIndexEngine.Candidate candidate
+    ) {
+        LivingIndexStore.Category category = candidate.category();
+        if (category == null) category = LivingIndexStore.Category.INBOX;
+        switch (category) {
+            case PERSON:
+                criteria.add("ONTOLOGY=PERSON");
+                criteria.add("ROLE=ENTITY");
+                break;
+            case PLACE:
+                criteria.add("ONTOLOGY=PLACE");
+                criteria.add("PLACE=INDEX_ENTRY");
+                break;
+            case ORGANIZATION:
+                criteria.add("ONTOLOGY=ORGANIZATION");
+                break;
+            case EVENT:
+                criteria.add("ONTOLOGY=EVENT");
+                break;
+            case DATE:
+                criteria.add("ONTOLOGY=TIME");
+                criteria.add("TIME=DATE_OR_YEAR");
+                break;
+            case PERIOD:
+                criteria.add("ONTOLOGY=TIME");
+                criteria.add("TIME=PERIOD");
+                break;
+            case WORK:
+                criteria.add("ONTOLOGY=WORK");
+                break;
+            case LAW:
+                criteria.add("ONTOLOGY=RULE_OR_LAW");
+                criteria.add("DOMAIN=LAW");
+                break;
+            case METHOD:
+                criteria.add("ONTOLOGY=METHOD");
+                criteria.add("ROLE=METHOD");
+                break;
+            case DOMAIN:
+                criteria.add("ONTOLOGY=DOMAIN");
+                break;
+            case CONCEPT:
+                criteria.add("ONTOLOGY=CONCEPT");
+                break;
+            case TERM:
+                criteria.add("ONTOLOGY=TERM");
+                break;
+            case INBOX:
+            default:
+                criteria.add("ONTOLOGY=UNRESOLVED");
+                criteria.add("ROLE=NEEDS_VALIDATION");
+                break;
+        }
     }
 }
