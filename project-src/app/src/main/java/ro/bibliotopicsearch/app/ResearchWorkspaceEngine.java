@@ -5,7 +5,6 @@ import android.content.Context;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -16,11 +15,9 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Global, evidence-only workspace index across all One-Pass sessions.
- *
- * It does not synthesize conclusions. It groups literal evidence, reports coverage,
- * convergence and tension candidates, and keeps provenance so the user can perform
- * the actual synthesis inside the app.
+ * Evidence-only global index across all One-Pass sessions.
+ * No conclusions are synthesized here: the engine only organizes literal evidence,
+ * provenance, coverage, convergence and tension candidates for the user's synthesis.
  */
 public final class ResearchWorkspaceEngine {
     private ResearchWorkspaceEngine() {}
@@ -44,25 +41,11 @@ public final class ResearchWorkspaceEngine {
         private final boolean pinned;
         private final String userNote;
 
-        EvidenceItem(
-                String id,
-                long sessionId,
-                int paragraphIndex,
-                int claimIndex,
-                String sourceTitle,
-                String sourceAuthor,
-                String locator,
-                String head,
-                SemanticGraph.Relation relation,
-                String raw,
-                String subject,
-                String predicate,
-                String object,
-                Set<SemanticGraph.Operator> operators,
-                double confidence,
-                boolean pinned,
-                String userNote
-        ) {
+        EvidenceItem(String id, long sessionId, int paragraphIndex, int claimIndex,
+                     String sourceTitle, String sourceAuthor, String locator, String head,
+                     SemanticGraph.Relation relation, String raw, String subject,
+                     String predicate, String object, Set<SemanticGraph.Operator> operators,
+                     double confidence, boolean pinned, String userNote) {
             this.id = safe(id);
             this.sessionId = sessionId;
             this.paragraphIndex = Math.max(0, paragraphIndex);
@@ -77,8 +60,7 @@ public final class ResearchWorkspaceEngine {
             this.predicate = safe(predicate);
             this.object = safe(object);
             this.operators = Collections.unmodifiableSet(new LinkedHashSet<>(
-                    operators == null ? Collections.emptySet() : operators
-            ));
+                    operators == null ? Collections.emptySet() : operators));
             this.confidence = clamp01(confidence);
             this.pinned = pinned;
             this.userNote = userNote == null ? "" : userNote;
@@ -117,26 +99,19 @@ public final class ResearchWorkspaceEngine {
         private final int tensionCandidateCount;
         private final int pinnedCount;
 
-        DossierGroup(
-                String key,
-                String head,
-                Set<UniversalSubjectFrame.Axis> axes,
-                Set<SemanticQueryMatrix.QuerySlot> requiredSlots,
-                Set<SemanticQueryMatrix.QuerySlot> answeredSlots,
-                List<EvidenceItem> evidence,
-                int sourceCount,
-                int convergenceCount,
-                int tensionCandidateCount,
-                int pinnedCount
-        ) {
+        DossierGroup(String key, String head, Set<UniversalSubjectFrame.Axis> axes,
+                     Set<SemanticQueryMatrix.QuerySlot> requiredSlots,
+                     Set<SemanticQueryMatrix.QuerySlot> answeredSlots,
+                     List<EvidenceItem> evidence, int sourceCount, int convergenceCount,
+                     int tensionCandidateCount, int pinnedCount) {
             this.key = safe(key);
             this.head = safe(head);
-            this.axes = Collections.unmodifiableSet(new LinkedHashSet<>(axes));
-            this.requiredSlots = Collections.unmodifiableSet(new LinkedHashSet<>(requiredSlots));
-            this.answeredSlots = Collections.unmodifiableSet(new LinkedHashSet<>(answeredSlots));
-            LinkedHashSet<SemanticQueryMatrix.QuerySlot> gapCopy = new LinkedHashSet<>(requiredSlots);
-            gapCopy.removeAll(answeredSlots);
-            this.gaps = Collections.unmodifiableSet(gapCopy);
+            this.axes = immutableSet(axes);
+            this.requiredSlots = immutableSet(requiredSlots);
+            this.answeredSlots = immutableSet(answeredSlots);
+            LinkedHashSet<SemanticQueryMatrix.QuerySlot> missing = new LinkedHashSet<>(requiredSlots);
+            missing.removeAll(answeredSlots);
+            this.gaps = Collections.unmodifiableSet(missing);
             this.evidence = Collections.unmodifiableList(new ArrayList<>(evidence));
             this.sourceCount = Math.max(0, sourceCount);
             this.convergenceCount = Math.max(0, convergenceCount);
@@ -167,16 +142,10 @@ public final class ResearchWorkspaceEngine {
         private final int tensionCandidates;
         private final int pinnedCount;
 
-        Workspace(
-                ResearchWorkspaceStore.State state,
-                List<OnePassSemanticOrganizer.Snapshot> sessions,
-                List<DossierGroup> groups,
-                int evidenceCount,
-                int sourceCount,
-                int totalGaps,
-                int tensionCandidates,
-                int pinnedCount
-        ) {
+        Workspace(ResearchWorkspaceStore.State state,
+                  List<OnePassSemanticOrganizer.Snapshot> sessions,
+                  List<DossierGroup> groups, int evidenceCount, int sourceCount,
+                  int totalGaps, int tensionCandidates, int pinnedCount) {
             this.state = state;
             this.sessions = Collections.unmodifiableList(new ArrayList<>(sessions));
             this.groups = Collections.unmodifiableList(new ArrayList<>(groups));
@@ -208,20 +177,16 @@ public final class ResearchWorkspaceEngine {
     }
 
     public static Workspace build(Context context) {
-        List<OnePassSemanticOrganizer.Snapshot> sessions = OrganizedSessionStore.loadAll(context);
-        ResearchWorkspaceStore.State state = ResearchWorkspaceStore.load(context);
-        return build(sessions, state);
+        return build(OrganizedSessionStore.loadAll(context), ResearchWorkspaceStore.load(context));
     }
 
-    static Workspace build(
-            List<OnePassSemanticOrganizer.Snapshot> sessions,
-            ResearchWorkspaceStore.State state
-    ) {
+    static Workspace build(List<OnePassSemanticOrganizer.Snapshot> sessions,
+                           ResearchWorkspaceStore.State state) {
         List<OnePassSemanticOrganizer.Snapshot> safeSessions = sessions == null
                 ? Collections.emptyList() : sessions;
         ResearchWorkspaceStore.State safeState = state == null
-                ? new ResearchWorkspaceStore.State("Cercetare", "", Collections.emptyMap(), Collections.emptySet(), Collections.emptyMap())
-                : state;
+                ? new ResearchWorkspaceStore.State("Cercetare", "", Collections.emptyMap(),
+                Collections.emptySet(), Collections.emptyMap()) : state;
 
         Map<String, MutableGroup> groups = new LinkedHashMap<>();
         Set<String> sourceIds = new LinkedHashSet<>();
@@ -244,17 +209,18 @@ public final class ResearchWorkspaceEngine {
                 if (safe(head).isEmpty()) head = snapshot.globalSubject();
                 if (safe(head).isEmpty()) head = "subiect nedeterminat";
                 String key = fold(head);
-                MutableGroup group = groups.computeIfAbsent(key, ignored -> {
-                    MutableGroup created = new MutableGroup();
-                    created.key = key;
-                    created.head = head;
-                    return created;
-                });
+                MutableGroup group = groups.get(key);
+                if (group == null) {
+                    group = new MutableGroup();
+                    group.key = key;
+                    group.head = head;
+                    groups.put(key, group);
+                }
 
                 if (entry != null) {
                     group.axes.addAll(entry.frame().axes().keySet());
                     group.required.addAll(entry.matrix().slots());
-                    markAxesAsAnswered(group.answered, entry.frame());
+                    markAxes(group.answered, entry.frame());
                 }
 
                 int claimIndex = 0;
@@ -262,28 +228,14 @@ public final class ResearchWorkspaceEngine {
                     String id = evidenceId(sessionId, paragraph.index(), claimIndex);
                     boolean pinned = safeState.isPinned(id);
                     if (pinned) pinnedCount++;
-                    EvidenceItem item = new EvidenceItem(
-                            id,
-                            sessionId,
-                            paragraph.index(),
-                            claimIndex,
-                            sourceTitle,
-                            source.author(),
-                            source.locator(),
-                            head,
-                            claim.relation(),
-                            claim.raw(),
-                            claim.subject(),
-                            claim.predicate(),
-                            claim.object(),
-                            claim.operators(),
-                            claim.confidence(),
-                            pinned,
-                            safeState.note(id)
-                    );
-                    group.evidence.add(item);
+                    group.evidence.add(new EvidenceItem(
+                            id, sessionId, paragraph.index(), claimIndex,
+                            sourceTitle, source.author(), source.locator(), head,
+                            claim.relation(), claim.raw(), claim.subject(), claim.predicate(),
+                            claim.object(), claim.operators(), claim.confidence(), pinned,
+                            safeState.note(id)));
                     evidenceCount++;
-                    markClaimAsAnswered(group.answered, claim);
+                    markClaim(group.answered, claim);
                     claimIndex++;
                 }
 
@@ -291,34 +243,24 @@ public final class ResearchWorkspaceEngine {
                     String id = evidenceId(sessionId, paragraph.index(), -1);
                     boolean pinned = safeState.isPinned(id);
                     if (pinned) pinnedCount++;
-                    String raw = paragraph.answerSegment().isEmpty() ? paragraph.text() : paragraph.answerSegment();
-                    EvidenceItem item = new EvidenceItem(
-                            id,
-                            sessionId,
-                            paragraph.index(),
-                            -1,
-                            sourceTitle,
-                            source.author(),
-                            source.locator(),
-                            head,
-                            paragraph.answerRelation(),
-                            raw,
-                            paragraph.subject(),
-                            "",
-                            "",
+                    String raw = paragraph.answerSegment().isEmpty()
+                            ? paragraph.text() : paragraph.answerSegment();
+                    group.evidence.add(new EvidenceItem(
+                            id, sessionId, paragraph.index(), -1,
+                            sourceTitle, source.author(), source.locator(), head,
+                            paragraph.answerRelation(), raw, paragraph.subject(), "", "",
                             Collections.emptySet(),
                             Math.max(paragraph.subjectConfidence(), paragraph.answerScore()),
-                            pinned,
-                            safeState.note(id)
-                    );
-                    group.evidence.add(item);
+                            pinned, safeState.note(id)));
                     evidenceCount++;
-                    if (!paragraph.answerSegment().isEmpty()) group.answered.add(querySlotForRelation(paragraph.answerRelation()));
+                    if (!paragraph.answerSegment().isEmpty()) {
+                        group.answered.add(slotForRelation(paragraph.answerRelation()));
+                    }
                 }
             }
         }
 
-        List<DossierGroup> finalized = new ArrayList<>();
+        List<DossierGroup> dossier = new ArrayList<>();
         int totalGaps = 0;
         int totalTensions = 0;
         for (MutableGroup group : groups.values()) {
@@ -331,46 +273,26 @@ public final class ResearchWorkspaceEngine {
             int convergence = convergenceCount(group.evidence);
             int tensions = tensionCandidateCount(group.evidence);
             DossierGroup value = new DossierGroup(
-                    group.key,
-                    group.head,
-                    group.axes,
-                    group.required,
-                    group.answered,
-                    group.evidence,
-                    sources.size(),
-                    convergence,
-                    tensions,
-                    localPins
-            );
+                    group.key, group.head, group.axes, group.required, group.answered,
+                    group.evidence, sources.size(), convergence, tensions, localPins);
             totalGaps += value.gaps().size();
             totalTensions += tensions;
-            finalized.add(value);
+            dossier.add(value);
         }
 
-        finalized.sort((a, b) -> {
-            int sources = Integer.compare(b.sourceCount(), a.sourceCount());
-            if (sources != 0) return sources;
-            int evidence = Integer.compare(b.evidence().size(), a.evidence().size());
-            if (evidence != 0) return evidence;
-            return a.head().compareToIgnoreCase(b.head());
+        dossier.sort((a, b) -> {
+            int bySources = Integer.compare(b.sourceCount(), a.sourceCount());
+            if (bySources != 0) return bySources;
+            int byEvidence = Integer.compare(b.evidence().size(), a.evidence().size());
+            return byEvidence != 0 ? byEvidence : a.head().compareToIgnoreCase(b.head());
         });
 
-        return new Workspace(
-                safeState,
-                safeSessions,
-                finalized,
-                evidenceCount,
-                sourceIds.size(),
-                totalGaps,
-                totalTensions,
-                pinnedCount
-        );
+        return new Workspace(safeState, safeSessions, dossier, evidenceCount,
+                sourceIds.size(), totalGaps, totalTensions, pinnedCount);
     }
 
-    private static void markAxesAsAnswered(
-            Set<SemanticQueryMatrix.QuerySlot> answered,
-            UniversalSubjectFrame.Frame frame
-    ) {
+    private static void markAxes(Set<SemanticQueryMatrix.QuerySlot> answered,
+                                 UniversalSubjectFrame.Frame frame) {
         if (frame == null) return;
         for (UniversalSubjectFrame.Axis axis : frame.axes().keySet()) {
             switch (axis) {
@@ -395,12 +317,10 @@ public final class ResearchWorkspaceEngine {
         }
     }
 
-    private static void markClaimAsAnswered(
-            Set<SemanticQueryMatrix.QuerySlot> answered,
-            OnePassSemanticOrganizer.Claim claim
-    ) {
+    private static void markClaim(Set<SemanticQueryMatrix.QuerySlot> answered,
+                                  OnePassSemanticOrganizer.Claim claim) {
         if (claim == null) return;
-        answered.add(querySlotForRelation(claim.relation()));
+        answered.add(slotForRelation(claim.relation()));
         for (SemanticGraph.Slot slot : claim.slots().keySet()) {
             switch (slot) {
                 case WHAT: answered.add(SemanticQueryMatrix.QuerySlot.WHAT); break;
@@ -420,10 +340,9 @@ public final class ResearchWorkspaceEngine {
         }
     }
 
-    private static SemanticQueryMatrix.QuerySlot querySlotForRelation(SemanticGraph.Relation relation) {
+    private static SemanticQueryMatrix.QuerySlot slotForRelation(SemanticGraph.Relation relation) {
         if (relation == null) return SemanticQueryMatrix.QuerySlot.WHAT;
         switch (relation) {
-            case DEFINITION: return SemanticQueryMatrix.QuerySlot.WHAT;
             case CAUSE: return SemanticQueryMatrix.QuerySlot.WHY;
             case EFFECT: return SemanticQueryMatrix.QuerySlot.EFFECT;
             case MECHANISM:
@@ -434,6 +353,7 @@ public final class ResearchWorkspaceEngine {
             case EVIDENCE: return SemanticQueryMatrix.QuerySlot.EVIDENCE;
             case PROBLEM: return SemanticQueryMatrix.QuerySlot.PROBLEM;
             case SOLUTION: return SemanticQueryMatrix.QuerySlot.SOLUTION;
+            case DEFINITION:
             case ATTRIBUTE:
             case GENERIC:
             default: return SemanticQueryMatrix.QuerySlot.WHAT;
@@ -441,15 +361,17 @@ public final class ResearchWorkspaceEngine {
     }
 
     private static int convergenceCount(List<EvidenceItem> evidence) {
-        Map<String, Set<Long>> bySignature = new HashMap<>();
+        Map<String, Set<Long>> signatures = new HashMap<>();
         for (EvidenceItem item : evidence) {
             String core = !safe(item.object()).isEmpty() ? item.object() : item.raw();
-            String signature = item.relation().name() + "|" + fold(core);
-            if (fold(core).isEmpty()) continue;
-            bySignature.computeIfAbsent(signature, ignored -> new LinkedHashSet<>()).add(item.sessionId());
+            String folded = fold(core);
+            if (folded.isEmpty()) continue;
+            String signature = item.relation().name() + "|" + folded;
+            signatures.computeIfAbsent(signature, ignored -> new LinkedHashSet<>())
+                    .add(item.sessionId());
         }
         int count = 0;
-        for (Set<Long> sources : bySignature.values()) if (sources.size() >= 2) count++;
+        for (Set<Long> sources : signatures.values()) if (sources.size() >= 2) count++;
         return count;
     }
 
@@ -462,14 +384,12 @@ public final class ResearchWorkspaceEngine {
                 EvidenceItem b = evidence.get(j);
                 if (a.sessionId() == b.sessionId()) continue;
                 if (a.relation() != b.relation() || a.relation() == SemanticGraph.Relation.GENERIC) continue;
-                boolean polarityConflict = a.negated() != b.negated();
-                boolean valueTension = false;
-                if (!safe(a.object()).isEmpty() && !safe(b.object()).isEmpty()) {
-                    valueTension = tokenOverlap(fold(a.object()), fold(b.object())) < 0.22;
-                }
-                if (polarityConflict || valueTension) {
-                    String pair = Math.min(a.sessionId(), b.sessionId()) + "|" + Math.max(a.sessionId(), b.sessionId())
-                            + "|" + a.relation().name();
+                boolean polarity = a.negated() != b.negated();
+                boolean differentValues = !safe(a.object()).isEmpty() && !safe(b.object()).isEmpty()
+                        && tokenOverlap(fold(a.object()), fold(b.object())) < 0.22;
+                if (polarity || differentValues) {
+                    String pair = Math.min(a.sessionId(), b.sessionId()) + "|"
+                            + Math.max(a.sessionId(), b.sessionId()) + "|" + a.relation().name();
                     if (pairs.add(pair)) count++;
                 }
             }
@@ -489,9 +409,7 @@ public final class ResearchWorkspaceEngine {
 
     private static Set<String> tokens(String value) {
         Set<String> out = new LinkedHashSet<>();
-        for (String token : safe(value).split("\\s+")) {
-            if (token.length() >= 3) out.add(token);
-        }
+        for (String token : safe(value).split("\\s+")) if (token.length() >= 3) out.add(token);
         return out;
     }
 
@@ -499,10 +417,10 @@ public final class ResearchWorkspaceEngine {
         return sessionId + ":p" + paragraphIndex + ":c" + claimIndex;
     }
 
-    private static String defaultSourceTitle(OnePassSemanticOrganizer.Snapshot snapshot, long sessionId) {
+    private static String defaultSourceTitle(OnePassSemanticOrganizer.Snapshot snapshot,
+                                             long sessionId) {
         String subject = safe(snapshot.globalSubject());
-        if (!subject.isEmpty()) return subject + " · " + sessionId;
-        return "Sursa " + sessionId;
+        return subject.isEmpty() ? "Sursa " + sessionId : subject + " · " + sessionId;
     }
 
     private static String fold(String value) {
@@ -513,6 +431,10 @@ public final class ResearchWorkspaceEngine {
                 .replaceAll("[^\\p{L}\\p{N}]+", " ")
                 .replaceAll("\\s+", " ")
                 .trim();
+    }
+
+    private static <T> Set<T> immutableSet(Set<T> values) {
+        return Collections.unmodifiableSet(new LinkedHashSet<>(values));
     }
 
     private static String safe(String value) { return value == null ? "" : value.trim(); }
