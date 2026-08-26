@@ -21,7 +21,7 @@ public final class IndexCoreRuntime {
     private static long currentOutlineId;
     private static int outlineOrder;
 
-    public static void start(Context context, long session) {
+    public static void start(Context context, long session, LivingIndexStore.State legacyState) {
         if (context == null) return;
         synchronized (LOCK) {
             appContext = context.getApplicationContext();
@@ -29,7 +29,7 @@ public final class IndexCoreRuntime {
             sessionId = session > 0 ? session : System.currentTimeMillis();
             IndexCoreDatabase db = IndexCoreDatabase.get(appContext);
             db.ensureSource(sourceId);
-            IndexCoreLegacyMigrator.migrate(db, LivingIndexRuntime.state());
+            IndexCoreLegacyMigrator.migrate(db, legacyState);
             IndexCoreOutlineState.Restored restored = IndexCoreOutlineState.restore(db, sourceId, lastOutlineByDepth);
             currentOutlineId = restored.currentId;
             outlineOrder = restored.nextOrder;
