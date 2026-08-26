@@ -229,10 +229,11 @@ public final class OverlayView extends View {
             canvas.drawRoundRect(box, dp(4), dp(4), strokePaint);
         }
 
-        // AUTO universal: S/F evidence and explicit research-answer span are independent
-        // of the ordinary TEXT / SEM / TARGET display layers.
+        // AUTO universal: S/F evidence, paragraph cartography and explicit research-answer
+        // spans are independent of the ordinary TEXT / SEM / TARGET display layers.
         drawSemanticTextMarks(canvas);
         drawResearchAnswerMarks(canvas);
+        drawParagraphMapMarks(canvas);
 
         if (showLabels) {
             List<RectF> occupied = new ArrayList<>();
@@ -311,6 +312,81 @@ public final class OverlayView extends View {
         }
     }
 
+    /** One compact hierarchy badge per OCR paragraph. It never paints over the full paragraph. */
+    private void drawParagraphMapMarks(Canvas canvas) {
+        List<ParagraphMapMark> marks = TopicMatcher.latestParagraphMapMarks();
+        if (marks == null || marks.isEmpty()) return;
+
+        for (ParagraphMapMark mark : marks) {
+            if (mark == null || mark.box == null || mark.box.isEmpty()) continue;
+            String text = "M L" + mark.depth + " " + cartographyShort(mark.link);
+            int color = cartographyColor(mark.link);
+
+            float oldSize = autoHeaderPaint.getTextSize();
+            int oldColor = autoHeaderPaint.getColor();
+            autoHeaderPaint.setTextSize(sp(8.2f));
+            autoHeaderPaint.setColor(Color.WHITE);
+
+            float padding = dp(4.5f);
+            float width = autoHeaderPaint.measureText(text) + padding * 2;
+            float height = dp(17);
+            float left = mark.box.left - width - dp(3);
+            if (left < dp(2)) left = mark.box.right + dp(3);
+            left = clamp(left, dp(2), getWidth() - width - dp(2));
+            float top = clamp(mark.box.top, dp(2), getHeight() - height - dp(2));
+            RectF badge = new RectF(left, top, left + width, top + height);
+
+            labelBackgroundPaint.setStyle(Paint.Style.FILL);
+            labelBackgroundPaint.setColor(withAlpha(color, 238));
+            canvas.drawRoundRect(badge, dp(5), dp(5), labelBackgroundPaint);
+
+            float baseline = badge.centerY()
+                    - (autoHeaderPaint.ascent() + autoHeaderPaint.descent()) / 2f;
+            canvas.drawText(text, badge.left + padding, baseline, autoHeaderPaint);
+
+            autoHeaderPaint.setTextSize(oldSize);
+            autoHeaderPaint.setColor(oldColor);
+        }
+    }
+
+    private int cartographyColor(ParagraphCartography.Link link) {
+        if (link == null) return Color.rgb(100, 122, 138);
+        switch (link) {
+            case ROOT: return Color.rgb(72, 115, 181);
+            case CONTINUES: return Color.rgb(66, 145, 180);
+            case NARROWS: return Color.rgb(125, 91, 196);
+            case BROADENS: return Color.rgb(80, 132, 187);
+            case RETURNS: return Color.rgb(50, 153, 137);
+            case SHIFTS: return Color.rgb(181, 94, 94);
+            case SUPPORTS: return Color.rgb(53, 158, 96);
+            case EXPLAINS: return Color.rgb(55, 139, 158);
+            case EXEMPLIFIES: return Color.rgb(199, 134, 57);
+            case CONTRASTS: return Color.rgb(180, 92, 143);
+            case CONCLUDES: return Color.rgb(91, 124, 73);
+            case TRANSITIONS:
+            default: return Color.rgb(100, 122, 138);
+        }
+    }
+
+    private String cartographyShort(ParagraphCartography.Link link) {
+        if (link == null) return "?";
+        switch (link) {
+            case CONTINUES: return "CONT";
+            case NARROWS: return "NAR";
+            case BROADENS: return "BRD";
+            case RETURNS: return "RET";
+            case SHIFTS: return "SHIFT";
+            case SUPPORTS: return "SUP";
+            case EXPLAINS: return "EXP";
+            case EXEMPLIFIES: return "EXM";
+            case CONTRASTS: return "CTR";
+            case CONCLUDES: return "CONC";
+            case TRANSITIONS: return "TR";
+            case ROOT:
+            default: return "ROOT";
+        }
+    }
+
     private void drawSmallBadge(Canvas canvas, String text, RectF anchor, int color, int salt) {
         float padding = dp(5);
         float width = Math.max(dp(18), autoHeaderPaint.measureText(text) + padding * 2);
@@ -383,6 +459,7 @@ public final class OverlayView extends View {
     private void drawAutoSemanticPanel(Canvas canvas) {
         UniversalParagraphDetector.Detection best = TopicMatcher.strongestLatestParagraph();
         List<UniversalParagraphDetector.Detection> all = TopicMatcher.latestParagraphDetections();
+        ParagraphCartography.Map map = TopicMatcher.latestParagraphCartography();
 
         float margin = dp(10);
         float height = dp(best == null ? 38 : 78);
@@ -408,7 +485,7 @@ public final class OverlayView extends View {
 
         float x = panel.left + dp(12);
         if (best == null) {
-            canvas.drawText("AUTO SUBIECT + FUNCȚIE • ACTIV", x, panel.top + dp(24), autoHeaderPaint);
+            canvas.drawText("AUTO SUBIECT + FUNCȚIE + HARTĂ • ACTIV", x, panel.top + dp(24), autoHeaderPaint);
             return;
         }
 
@@ -420,10 +497,15 @@ public final class OverlayView extends View {
             }
         }
 
+        ParagraphCartography.Node mapNode = map == null ? null : map.nodeForParagraph(best.paragraphIndex());
         int subjectConfidence = (int) Math.round(best.subjectConfidence() * 100.0);
         int functionConfidence = (int) Math.round(best.functionConfidence() * 100.0);
-        String header = "AUTO S/F • P" + (paragraphIndex + 1) + "/" + Math.max(1, all.size())
-                + " • S " + subjectConfidence + "% • F " + functionConfidence + "%";
+        String mapLabel = mapNode == null
+                ? ""
+                : " • M L" + mapNode.depth() + " " + cartographyShort(mapNode.link());
+        String header = "AUTO S/F/M • P" + (paragraphIndex + 1) + "/" + Math.max(1, all.size())
+                + mapLabel + " • S " + subjectConfidence + "% • F " + functionConfidence + "%";
+        header = ellipsizeToWidth(header, autoHeaderPaint, panel.width() - dp(25));
         canvas.drawText(header, x, panel.top + dp(17), autoHeaderPaint);
 
         String subject = best.subject();
@@ -434,6 +516,9 @@ public final class OverlayView extends View {
         String function = "FUNCȚIE: " + functionLabel(best.function());
         if (best.secondaryFunction() != UniversalDetectionLexicon.Function.UNKNOWN) {
             function += "  ·  secundar: " + functionLabel(best.secondaryFunction());
+        }
+        if (map != null && !map.globalSubject().isEmpty()) {
+            function += "  ·  hartă: " + map.globalSubject();
         }
         function = ellipsizeToWidth(function, autoFunctionPaint, panel.width() - dp(25));
         canvas.drawText(function, x, panel.top + dp(64), autoFunctionPaint);
