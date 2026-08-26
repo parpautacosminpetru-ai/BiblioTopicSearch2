@@ -8,6 +8,9 @@ import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
+import android.widget.EditText;
+
+import androidx.appcompat.app.AlertDialog;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -32,7 +35,11 @@ public final class OverlayView extends View {
     private final Paint autoHeaderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint autoSubjectPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint autoFunctionPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint researchBarPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint researchBarStrokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint researchBarTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
+    private final RectF researchBarBounds = new RectF();
     private List<MatchHit> hits = new ArrayList<>();
     private Set<String> previousOccurrenceKeys = new HashSet<>();
     private Set<String> flashingOccurrenceKeys = new HashSet<>();
@@ -80,6 +87,16 @@ public final class OverlayView extends View {
         autoFunctionPaint.setColor(Color.rgb(230, 236, 241));
         autoFunctionPaint.setTextSize(sp(11f));
         autoFunctionPaint.setFakeBoldText(true);
+
+        researchBarPaint.setStyle(Paint.Style.FILL);
+        researchBarPaint.setColor(Color.argb(236, 18, 28, 34));
+        researchBarStrokePaint.setStyle(Paint.Style.STROKE);
+        researchBarStrokePaint.setStrokeWidth(dp(1.8f));
+        researchBarTextPaint.setColor(Color.WHITE);
+        researchBarTextPaint.setTextSize(sp(11.5f));
+        researchBarTextPaint.setFakeBoldText(true);
+
+        TopicMatcher.setResearchQuery(AppPrefs.researchQuery(getContext()));
     }
 
     public void setOnHitTapListener(OnHitTapListener listener) {
@@ -212,9 +229,10 @@ public final class OverlayView extends View {
             canvas.drawRoundRect(box, dp(4), dp(4), strokePaint);
         }
 
-        // AUTO universal: marchează direct cuvintele care formează subiectul și
-        // dovezile lexicale/structurale care justifică funcția paragrafului.
+        // AUTO universal: S/F evidence and explicit research-answer span are independent
+        // of the ordinary TEXT / SEM / TARGET display layers.
         drawSemanticTextMarks(canvas);
+        drawResearchAnswerMarks(canvas);
 
         if (showLabels) {
             List<RectF> occupied = new ArrayList<>();
@@ -228,6 +246,7 @@ public final class OverlayView extends View {
             }
         }
 
+        drawResearchBar(canvas);
         drawAutoSemanticPanel(canvas);
         if (flashActive) postInvalidateDelayed(70L);
     }
@@ -256,30 +275,109 @@ public final class OverlayView extends View {
             canvas.drawRoundRect(box, dp(3), dp(3), fillPaint);
             canvas.drawRoundRect(box, dp(3), dp(3), strokePaint);
 
-            // Un singur badge S/F per tip și paragraf; cuvintele rămân toate marcate.
             String badgeKey = mark.kind.name() + "|" + mark.paragraphIndex;
             if (badgeShown.add(badgeKey)) {
                 String badge = subject ? "S" : "F";
-                float size = dp(17);
-                float left = clamp(box.left - dp(2), dp(2), getWidth() - size - dp(2));
-                float top = clamp(box.top - size - dp(2), dp(2), getHeight() - size - dp(2));
-                RectF badgeBox = new RectF(left, top, left + size, top + size);
-                labelBackgroundPaint.setStyle(Paint.Style.FILL);
-                labelBackgroundPaint.setColor(withAlpha(color, 245));
-                canvas.drawRoundRect(badgeBox, dp(5), dp(5), labelBackgroundPaint);
-
-                float oldSize = autoHeaderPaint.getTextSize();
-                int oldColor = autoHeaderPaint.getColor();
-                autoHeaderPaint.setTextSize(sp(9f));
-                autoHeaderPaint.setColor(Color.WHITE);
-                float baseline = badgeBox.centerY()
-                        - (autoHeaderPaint.ascent() + autoHeaderPaint.descent()) / 2f;
-                float x = badgeBox.centerX() - autoHeaderPaint.measureText(badge) / 2f;
-                canvas.drawText(badge, x, baseline, autoHeaderPaint);
-                autoHeaderPaint.setTextSize(oldSize);
-                autoHeaderPaint.setColor(oldColor);
+                drawSmallBadge(canvas, badge, box, color, badgeKey.hashCode());
             }
         }
+    }
+
+    private void drawResearchAnswerMarks(Canvas canvas) {
+        List<ResearchTextMark> marks = TopicMatcher.latestResearchTextMarks();
+        if (marks == null || marks.isEmpty()) return;
+        ResearchSemanticEngine.Answer answer = TopicMatcher.latestResearchAnswer();
+        int color = Color.rgb(48, 184, 102);
+        boolean badgeDrawn = false;
+
+        for (ResearchTextMark mark : marks) {
+            if (mark == null || mark.box == null || mark.box.isEmpty()) continue;
+            RectF box = new RectF(mark.box);
+            box.inset(-dp(2.0f), -dp(1.5f));
+
+            fillPaint.setStyle(Paint.Style.FILL);
+            fillPaint.setColor(withAlpha(color, 62 + (int) Math.round(mark.relevance * 42.0)));
+            strokePaint.setStyle(Paint.Style.STROKE);
+            strokePaint.setStrokeWidth(dp(mark.relevance >= 0.70 ? 4.0f : 3.0f));
+            strokePaint.setColor(withAlpha(color, 245));
+            canvas.drawRoundRect(box, dp(4), dp(4), fillPaint);
+            canvas.drawRoundRect(box, dp(4), dp(4), strokePaint);
+
+            if (!badgeDrawn) {
+                int pct = (int) Math.round((answer == null ? mark.relevance : answer.score()) * 100.0);
+                drawSmallBadge(canvas, "R " + pct + "%", box, color, 991);
+                badgeDrawn = true;
+            }
+        }
+    }
+
+    private void drawSmallBadge(Canvas canvas, String text, RectF anchor, int color, int salt) {
+        float padding = dp(5);
+        float width = Math.max(dp(18), autoHeaderPaint.measureText(text) + padding * 2);
+        float height = dp(18);
+        float left = clamp(anchor.left + (Math.abs(salt) % 2 == 0 ? 0 : dp(4)), dp(2), getWidth() - width - dp(2));
+        float top = clamp(anchor.top - height - dp(2), dp(2), getHeight() - height - dp(2));
+        RectF badgeBox = new RectF(left, top, left + width, top + height);
+        labelBackgroundPaint.setStyle(Paint.Style.FILL);
+        labelBackgroundPaint.setColor(withAlpha(color, 247));
+        canvas.drawRoundRect(badgeBox, dp(5), dp(5), labelBackgroundPaint);
+
+        float oldSize = autoHeaderPaint.getTextSize();
+        int oldColor = autoHeaderPaint.getColor();
+        autoHeaderPaint.setTextSize(sp(8.5f));
+        autoHeaderPaint.setColor(Color.WHITE);
+        float baseline = badgeBox.centerY() - (autoHeaderPaint.ascent() + autoHeaderPaint.descent()) / 2f;
+        float x = badgeBox.centerX() - autoHeaderPaint.measureText(text) / 2f;
+        canvas.drawText(text, x, baseline, autoHeaderPaint);
+        autoHeaderPaint.setTextSize(oldSize);
+        autoHeaderPaint.setColor(oldColor);
+    }
+
+    private void drawResearchBar(Canvas canvas) {
+        float margin = dp(10);
+        float bottom = getHeight() - dp(102);
+        float top = bottom - dp(42);
+        researchBarBounds.set(margin, top, getWidth() - margin, bottom);
+
+        ResearchSemanticEngine.Profile profile = TopicMatcher.researchProfile();
+        boolean enabled = profile != null && profile.enabled();
+        int border = enabled ? Color.rgb(48, 184, 102) : Color.rgb(93, 112, 124);
+        researchBarStrokePaint.setColor(withAlpha(border, 240));
+        canvas.drawRoundRect(researchBarBounds, dp(10), dp(10), researchBarPaint);
+        canvas.drawRoundRect(researchBarBounds, dp(10), dp(10), researchBarStrokePaint);
+
+        String raw = profile == null ? "" : profile.rawQuery();
+        String text = raw == null || raw.trim().isEmpty()
+                ? "CERCETARE • temă sau întrebare…  (gol = tema activă)"
+                : "CERCETARE • " + raw.trim();
+        text = ellipsizeToWidth(text, researchBarTextPaint, researchBarBounds.width() - dp(22));
+        float baseline = researchBarBounds.centerY()
+                - (researchBarTextPaint.ascent() + researchBarTextPaint.descent()) / 2f;
+        canvas.drawText(text, researchBarBounds.left + dp(11), baseline, researchBarTextPaint);
+    }
+
+    private void showResearchQueryEditor() {
+        final EditText input = new EditText(getContext());
+        input.setSingleLine(true);
+        input.setHint("Temă sau întrebare de cercetare");
+        input.setText(AppPrefs.researchQuery(getContext()));
+        input.setSelection(input.getText().length());
+
+        new AlertDialog.Builder(getContext())
+                .setTitle("Cercetare semantică")
+                .setMessage("Un singur câmp: scrie o temă sau o întrebare. Gol = folosește tema activă.")
+                .setView(input)
+                .setPositiveButton("Aplică", (dialog, which) -> applyResearchQuery(input.getText().toString()))
+                .setNeutralButton("Golește", (dialog, which) -> applyResearchQuery(""))
+                .setNegativeButton("Anulează", null)
+                .show();
+    }
+
+    private void applyResearchQuery(String value) {
+        String clean = value == null ? "" : value.trim();
+        AppPrefs.setResearchQuery(getContext(), clean);
+        TopicMatcher.setResearchQuery(clean);
+        invalidate();
     }
 
     private void drawAutoSemanticPanel(Canvas canvas) {
@@ -508,6 +606,13 @@ public final class OverlayView extends View {
         if (event.getActionMasked() == MotionEvent.ACTION_UP) {
             float x = event.getX();
             float y = event.getY();
+
+            if (researchBarBounds.contains(x, y)) {
+                showResearchQueryEditor();
+                performClick();
+                return true;
+            }
+
             for (int i = hits.size() - 1; i >= 0; i--) {
                 MatchHit hit = hits.get(i);
                 RectF expanded = new RectF(hit.box);
