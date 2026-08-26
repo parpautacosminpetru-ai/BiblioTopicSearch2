@@ -16,6 +16,11 @@
         android:theme="@style/Theme.BiblioTopicSearch">
 
         <activity
+            android:name=".OrganizedSessionActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
             android:name=".CategoryColorActivity"
             android:screenOrientation="portrait"
             android:exported="false" />
