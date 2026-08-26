@@ -19,6 +19,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public final class TopicMatcher {
     private TopicMatcher() {}
@@ -35,10 +36,18 @@ public final class TopicMatcher {
         return thread;
     });
     private static final AtomicBoolean PARAGRAPH_DETECTOR_BUSY = new AtomicBoolean(false);
+    private static final AtomicInteger RESEARCH_GENERATION = new AtomicInteger(0);
+
     private static volatile List<UniversalParagraphDetector.Detection> latestParagraphDetections =
             Collections.emptyList();
     private static volatile List<SemanticTextMark> latestSemanticTextMarks =
             Collections.emptyList();
+    private static volatile ResearchSemanticEngine.Answer latestResearchAnswer;
+    private static volatile List<ResearchTextMark> latestResearchTextMarks =
+            Collections.emptyList();
+    private static volatile TopicMap latestResearchThemeMap;
+    private static volatile ResearchSemanticEngine.Profile researchProfile =
+            ResearchSemanticEngine.compile("", null);
 
     private static final class CompiledTerm {
         final String raw;
@@ -117,6 +126,10 @@ public final class TopicMatcher {
         boolean stripDiacritics = AppPrefs.ignoreDiacritics(context);
         int compareChars = AppPrefs.compareChars(context);
         AppPrefs.MatchMode mode = AppPrefs.getMatchMode(context);
+
+        // The one research bar uses the same active topic map only as offline alias
+        // expansion. TEXTUAL/SEMANTIC built-ins are ignored by ResearchSemanticEngine.
+        updateResearchProfile(AppPrefs.researchQuery(context), map);
 
         Map<Integer, List<CompiledTerm>> byCount = new HashMap<>();
         Map<Integer, Map<Character, List<CompiledTerm>>> byFirstChar = new HashMap<>();
@@ -201,9 +214,8 @@ public final class TopicMatcher {
     }
 
     /**
-     * Existing public live-search entry point. Subject/function detection is now
-     * automatically scheduled in parallel, so MainActivity does not need to be
-     * rewritten to activate the detector.
+     * Existing public live-search entry point. Subject/function and research-answer
+     * detection are automatically scheduled in parallel with lexical matching.
      */
     public static List<MatchHit> find(Text text, SearchPlan plan) {
         scheduleParagraphDetection(text);
@@ -331,6 +343,31 @@ public final class TopicMatcher {
         return latestSemanticTextMarks;
     }
 
+    public static ResearchSemanticEngine.Answer latestResearchAnswer() {
+        return latestResearchAnswer;
+    }
+
+    public static List<ResearchTextMark> latestResearchTextMarks() {
+        return latestResearchTextMarks;
+    }
+
+    public static ResearchSemanticEngine.Profile researchProfile() {
+        return researchProfile;
+    }
+
+    /** Called by the single visible research bar. */
+    public static void setResearchQuery(String query) {
+        updateResearchProfile(query, latestResearchThemeMap);
+    }
+
+    private static void updateResearchProfile(String query, TopicMap map) {
+        latestResearchThemeMap = map;
+        researchProfile = ResearchSemanticEngine.compile(query, map);
+        RESEARCH_GENERATION.incrementAndGet();
+        latestResearchAnswer = null;
+        latestResearchTextMarks = Collections.emptyList();
+    }
+
     /** Convenience accessor for overlays/debug panels that only need one candidate. */
     public static UniversalParagraphDetector.Detection strongestLatestParagraph() {
         UniversalParagraphDetector.Detection best = null;
@@ -350,6 +387,8 @@ public final class TopicMatcher {
         if (text == null || text.getTextBlocks() == null || text.getTextBlocks().isEmpty()) {
             latestParagraphDetections = Collections.emptyList();
             latestSemanticTextMarks = Collections.emptyList();
+            latestResearchAnswer = null;
+            latestResearchTextMarks = Collections.emptyList();
             return;
         }
         if (!PARAGRAPH_DETECTOR_BUSY.compareAndSet(false, true)) {
@@ -367,8 +406,13 @@ public final class TopicMatcher {
             PARAGRAPH_DETECTOR_BUSY.set(false);
             latestParagraphDetections = Collections.emptyList();
             latestSemanticTextMarks = Collections.emptyList();
+            latestResearchAnswer = null;
+            latestResearchTextMarks = Collections.emptyList();
             return;
         }
+
+        final int researchGeneration = RESEARCH_GENERATION.get();
+        final ResearchSemanticEngine.Profile profile = researchProfile;
 
         PARAGRAPH_DETECTOR.execute(() -> {
             try {
@@ -382,9 +426,17 @@ public final class TopicMatcher {
                 latestSemanticTextMarks = Collections.unmodifiableList(
                         new ArrayList<>(SemanticTextMarker.build(text, immutableDetections))
                 );
+
+                ResearchSemanticEngine.Answer answer = ResearchSemanticEngine.findBest(profile, immutableDetections);
+                if (researchGeneration == RESEARCH_GENERATION.get()) {
+                    latestResearchAnswer = answer;
+                    latestResearchTextMarks = Collections.unmodifiableList(
+                            new ArrayList<>(ResearchTextMarker.build(text, answer))
+                    );
+                }
             } catch (RuntimeException ignored) {
-                // Live OCR must never fail because the semantic sidecar encountered
-                // an unexpected input. Preserve the last valid detections/marks.
+                // Live OCR must never fail because a semantic branch encountered an
+                // unexpected input. Preserve the last valid detections instead.
             } finally {
                 PARAGRAPH_DETECTOR_BUSY.set(false);
             }
