@@ -54,7 +54,6 @@ public final class LivingIndexRuntime {
         }
     }
 
-    /** Full path when an ML Kit Text object is available: includes exact transient boxes. */
     public static void observe(
             Text text,
             List<UniversalParagraphDetector.Detection> detections,
@@ -70,7 +69,6 @@ public final class LivingIndexRuntime {
         }
     }
 
-    /** Fast collector path: no second OCR, only already available paragraph detections. */
     public static void observeDetections(List<UniversalParagraphDetector.Detection> detections) {
         if (detections == null || detections.isEmpty()) return;
         synchronized (LOCK) {
@@ -125,7 +123,6 @@ public final class LivingIndexRuntime {
                     || after.recurrence() != oldRecurrence)) changed = true;
         }
 
-        // v7 authoritative ledger: unlimited occurrences + stable source + outline + facets.
         IndexCoreRuntime.observeBatch(detections, first, state, currentPage);
 
         if (changed) {
@@ -170,7 +167,6 @@ public final class LivingIndexRuntime {
         synchronized (LOCK) { return currentPage; }
     }
 
-    /** Compatibility numeric ID. Stable across sessions for the active v7 source. */
     public static long sourceId() {
         synchronized (LOCK) { return sourceId; }
     }
@@ -200,7 +196,7 @@ public final class LivingIndexRuntime {
         synchronized (LOCK) {
             appContext = context.getApplicationContext();
             state = LivingIndexStore.load(appContext);
-            IndexCoreDatabase.get(appContext).migrateLegacyOnce(state);
+            IndexCoreLegacyMigrator.migrate(IndexCoreDatabase.get(appContext), state);
         }
     }
 
