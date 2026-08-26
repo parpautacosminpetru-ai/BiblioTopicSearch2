@@ -97,4 +97,23 @@ public final class ResearchSemanticEngineTest {
         assertTrue(profile.enabled());
         assertNotNull(answer);
     }
+
+    @Test
+    public void romanianInflectionMatchesResearchConceptWithoutRelaxingExplicitGate() {
+        ResearchSemanticEngine.Profile profile = ResearchSemanticEngine.compile(
+                "reforma protestantă", null
+        );
+        UniversalParagraphDetector.Detection detection = UniversalParagraphDetector.detect(
+                "Originile reformei protestante sunt prezentate în această secțiune.", 0
+        );
+
+        ResearchSemanticEngine.Answer answer = ResearchSemanticEngine.findBest(
+                profile, Collections.singletonList(detection)
+        );
+
+        assertNotNull(answer);
+        assertEquals(ResearchSemanticEngine.Intent.TOPIC, answer.intent());
+        assertTrue(answer.directCoverage() >= 0.50);
+        assertTrue(answer.segment().toLowerCase().contains("reformei protestante"));
+    }
 }

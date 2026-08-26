@@ -6,7 +6,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -14,16 +13,13 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Deterministic index detector. It classifies generic indexable forms only; it does
- * not generate claims or infer facts not present in the text. Romanian patterns are
- * intentionally data-like and can be extended as the user's validated index grows.
- */
+/** Deterministic index detector. It indexes explicit forms without generating claims. */
 public final class LivingIndexEngine {
     private LivingIndexEngine() {}
 
     private static final Pattern DATE = Pattern.compile("\\b(?:0?[1-9]|[12]\\d|3[01])[./-](?:0?[1-9]|1[0-2])[./-](?:1[5-9]\\d{2}|20\\d{2}|21\\d{2})\\b|\\b(?:1[5-9]\\d{2}|20\\d{2}|21\\d{2})\\b");
     private static final Pattern PROPER = Pattern.compile("(?<![\\p{L}])([A-ZĂÂÎȘȚ][\\p{L}'’\\-]{2,}(?:\\s+(?:de|din|von|van|da|del|al|a|the)?\\s*[A-ZĂÂÎȘȚ][\\p{L}'’\\-]{2,}){0,3})");
+    private static final Pattern MULTI_PROPER = Pattern.compile("^[A-ZĂÂÎȘȚ][\\p{L}'’\\-]{2,}(?:\\s+(?:de|din|von|van|da|del|al|a|the)?\\s*[A-ZĂÂÎȘȚ][\\p{L}'’\\-]{2,})+$");
     private static final Pattern EVENT_PHRASE = Pattern.compile("(?i)\\b(reforma|revoluția|revolutia|războiul|razboiul|tratatul|alegerile|bătălia|batalia|criza|revolta|unirea|independența|independenta|conferința|conferinta|conciliul|sinodul)\\s+([\\p{L}\\p{N}'’\\-]+(?:\\s+[\\p{L}\\p{N}'’\\-]+){0,4})");
     private static final Pattern LAW_PHRASE = Pattern.compile("(?i)\\b(legea|decretul|ordonanța|ordonanta|constituția|constitutia|regulamentul|directiva)\\s+([\\p{L}\\p{N}'’\\-]+(?:\\s+[\\p{L}\\p{N}'’\\-]+){0,4})");
     private static final Pattern WORK_PHRASE = Pattern.compile("(?i)\\b(lucrarea|cartea|romanul|tratatul|opera)\\s+[„\"']?([A-ZĂÂÎȘȚ][^,.;:!?]{2,70})");
@@ -47,16 +43,8 @@ public final class LivingIndexEngine {
         private final String contextCode;
         private final List<String> axes;
 
-        Candidate(
-                String surface,
-                LivingIndexStore.Category category,
-                double confidence,
-                int paragraphIndex,
-                String knownId,
-                boolean validated,
-                String contextCode,
-                List<String> axes
-        ) {
+        Candidate(String surface, LivingIndexStore.Category category, double confidence, int paragraphIndex,
+                  String knownId, boolean validated, String contextCode, List<String> axes) {
             this.surface = safe(surface);
             this.category = category == null ? LivingIndexStore.Category.INBOX : category;
             this.confidence = clamp01(confidence);
@@ -78,12 +66,10 @@ public final class LivingIndexEngine {
         public boolean isInboxCandidate() { return !validated && category == LivingIndexStore.Category.INBOX; }
     }
 
-    public static List<Candidate> detect(
-            List<UniversalParagraphDetector.Detection> detections,
-            SemanticGraph graph,
-            ParagraphCartography.Map cartography,
-            LivingIndexStore.State known
-    ) {
+    public static List<Candidate> detect(List<UniversalParagraphDetector.Detection> detections,
+                                         SemanticGraph graph,
+                                         ParagraphCartography.Map cartography,
+                                         LivingIndexStore.State known) {
         if (detections == null || detections.isEmpty()) return Collections.emptyList();
         LivingIndexStore.State state = known == null ? new LivingIndexStore.State() : known;
         Map<String, Candidate> out = new LinkedHashMap<>();
@@ -99,32 +85,29 @@ public final class LivingIndexEngine {
             String context = contextCode(detection, frame, node);
             String paragraph = detection.paragraph();
 
-            // User-validated index terms always win and become immediate detectors.
             for (LivingIndexStore.Entry entry : state.validated()) {
                 String matched = matchedAlias(paragraph, entry);
                 if (!matched.isEmpty()) {
-                    add(out, new Candidate(
-                            matched,
-                            entry.category(),
-                            0.98,
-                            p,
-                            entry.id(),
-                            true,
-                            context,
-                            axes
-                    ));
+                    add(out, new Candidate(matched, entry.category(), 0.98, p, entry.id(), true, context, axes));
                 }
             }
 
-            // Explicit subject/head is an indexable concept, but remains generic: no claim is stored.
             String head = frame.head().isEmpty() ? detection.subject() : frame.head();
             if (!safe(head).isEmpty() && tokenCount(head) <= 10) {
                 LivingIndexStore.Category category = categoryFor(frame.type());
+                boolean safeAuto = true;
                 if (category == LivingIndexStore.Category.INBOX) category = LivingIndexStore.Category.CONCEPT;
-                add(out, knownOr(
-                        state, head, category, 0.83 + detection.subjectConfidence() * 0.12,
-                        p, context, axes, true
-                ));
+
+                // A multi-token capitalized name with no validated identity is not
+                // auto-learned as a generic CONCEPT merely because it is the subject.
+                if (category == LivingIndexStore.Category.CONCEPT
+                        && state.findCanonical(head) == null
+                        && MULTI_PROPER.matcher(head.trim()).matches()) {
+                    category = LivingIndexStore.Category.INBOX;
+                    safeAuto = false;
+                }
+                add(out, knownOr(state, head, category, 0.83 + detection.subjectConfidence() * 0.12,
+                        p, context, axes, safeAuto));
             }
 
             findDates(paragraph, p, context, axes, state, out);
@@ -135,34 +118,18 @@ public final class LivingIndexEngine {
             findPattern(paragraph, PLACE_CUE, LivingIndexStore.Category.PLACE, p, context, axes, state, out, 0.75);
             findProperNames(paragraph, p, context, axes, state, out);
         }
-
         return Collections.unmodifiableList(new ArrayList<>(out.values()));
     }
 
-    private static void findDates(
-            String paragraph, int p, String context, List<String> axes,
-            LivingIndexStore.State state, Map<String, Candidate> out
-    ) {
+    private static void findDates(String paragraph, int p, String context, List<String> axes,
+                                  LivingIndexStore.State state, Map<String, Candidate> out) {
         Matcher matcher = DATE.matcher(paragraph);
-        while (matcher.find()) {
-            String value = matcher.group();
-            LivingIndexStore.Category category = value.matches("\\d{4}")
-                    ? LivingIndexStore.Category.DATE : LivingIndexStore.Category.DATE;
-            add(out, knownOr(state, value, category, 0.99, p, context, axes, true));
-        }
+        while (matcher.find()) add(out, knownOr(state, matcher.group(), LivingIndexStore.Category.DATE, 0.99, p, context, axes, true));
     }
 
-    private static void findPattern(
-            String paragraph,
-            Pattern pattern,
-            LivingIndexStore.Category category,
-            int p,
-            String context,
-            List<String> axes,
-            LivingIndexStore.State state,
-            Map<String, Candidate> out,
-            double confidence
-    ) {
+    private static void findPattern(String paragraph, Pattern pattern, LivingIndexStore.Category category,
+                                    int p, String context, List<String> axes, LivingIndexStore.State state,
+                                    Map<String, Candidate> out, double confidence) {
         Matcher matcher = pattern.matcher(paragraph);
         while (matcher.find()) {
             String value = matcher.group();
@@ -171,14 +138,8 @@ public final class LivingIndexEngine {
         }
     }
 
-    private static void findProperNames(
-            String paragraph,
-            int p,
-            String context,
-            List<String> axes,
-            LivingIndexStore.State state,
-            Map<String, Candidate> out
-    ) {
+    private static void findProperNames(String paragraph, int p, String context, List<String> axes,
+                                        LivingIndexStore.State state, Map<String, Candidate> out) {
         Matcher matcher = PROPER.matcher(paragraph);
         while (matcher.find()) {
             String value = cleanTail(matcher.group(1));
@@ -191,29 +152,23 @@ public final class LivingIndexEngine {
             if (known != null) {
                 add(out, new Candidate(value, known.category(), 0.97, p, known.id(), known.validated(), context, axes));
             } else {
-                // Unknown foreign/proper name is deliberately not classified as PERSON automatically.
-                // It goes to INBOX and the user decides what it is once; that decision is reusable forever.
                 add(out, new Candidate(value, LivingIndexStore.Category.INBOX, 0.61, p, "", false, context, axes));
             }
         }
     }
 
-    private static Candidate knownOr(
-            LivingIndexStore.State state,
-            String value,
-            LivingIndexStore.Category suggested,
-            double confidence,
-            int p,
-            String context,
-            List<String> axes,
-            boolean safeAutoCategory
-    ) {
+    private static Candidate knownOr(LivingIndexStore.State state, String value,
+                                     LivingIndexStore.Category suggested, double confidence, int p,
+                                     String context, List<String> axes, boolean safeAutoCategory) {
         LivingIndexStore.Entry known = state.findCanonical(value);
         if (known != null) {
             return new Candidate(value, known.category(), Math.max(confidence, 0.95), p,
                     known.id(), known.validated(), context, axes);
         }
-        return new Candidate(value, suggested, confidence, p, "", safeAutoCategory, context, axes);
+        LivingIndexStore.Category category = safeAutoCategory && suggested != null
+                ? suggested : LivingIndexStore.Category.INBOX;
+        boolean validated = safeAutoCategory && category != LivingIndexStore.Category.INBOX;
+        return new Candidate(value, category, confidence, p, "", validated, context, axes);
     }
 
     private static LivingIndexStore.Category categoryFor(UniversalSubjectFrame.OntologyType type) {
@@ -245,11 +200,9 @@ public final class LivingIndexEngine {
         }
     }
 
-    private static String contextCode(
-            UniversalParagraphDetector.Detection detection,
-            UniversalSubjectFrame.Frame frame,
-            ParagraphCartography.Node node
-    ) {
+    private static String contextCode(UniversalParagraphDetector.Detection detection,
+                                      UniversalSubjectFrame.Frame frame,
+                                      ParagraphCartography.Node node) {
         StringBuilder out = new StringBuilder();
         out.append("F:").append(detection.function().name());
         if (node != null) out.append("|L:").append(node.depth()).append(':').append(node.link().name());
@@ -287,8 +240,24 @@ public final class LivingIndexEngine {
         if (candidate == null || candidate.surface().isEmpty()) return;
         String key = candidate.paragraphIndex() + "|" + fold(candidate.surface());
         Candidate existing = out.get(key);
-        if (existing == null || candidate.confidence() > existing.confidence()
-                || (candidate.validated() && !existing.validated())) out.put(key, candidate);
+        if (existing == null) { out.put(key, candidate); return; }
+
+        int incomingPriority = priority(candidate);
+        int existingPriority = priority(existing);
+        if (incomingPriority > existingPriority
+                || (incomingPriority == existingPriority && candidate.confidence() > existing.confidence())) {
+            out.put(key, candidate);
+        }
+    }
+
+    private static int priority(Candidate candidate) {
+        if (candidate.validated() && !candidate.knownId().isEmpty()) return 6;
+        if (candidate.category() != LivingIndexStore.Category.CONCEPT
+                && candidate.category() != LivingIndexStore.Category.TERM
+                && candidate.category() != LivingIndexStore.Category.INBOX) return 5;
+        if (candidate.category() == LivingIndexStore.Category.INBOX && !candidate.validated()) return 4;
+        if (candidate.category() == LivingIndexStore.Category.CONCEPT) return 3;
+        return 2;
     }
 
     private static String cleanTail(String value) {
