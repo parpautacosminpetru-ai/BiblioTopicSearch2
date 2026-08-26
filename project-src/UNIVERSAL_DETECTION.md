@@ -86,12 +86,31 @@ Funcția activează automat numai întrebările relevante din schema extinsă:
 
 Exemplu: `CAUSE_EFFECT` activează prioritar `WHY + CONDITION + HOW + EFFECT`, iar `DEFINITION` activează `WHAT + WHICH`.
 
-## Execuție paralelă
+## Activare automată în OCR live
 
-`ParallelTextDetectionEngine` rulează concomitent:
+Fluxul existent al aplicației este deja legat la detector. `MainActivity` continuă să apeleze `TopicMatcher.find(...)`, iar acel apel:
 
-1. potrivirea lexicală deja existentă prin `TopicMatcher`;
+1. pornește imediat detecția `SUBIECT + FUNCȚIE` pe un worker separat;
+2. continuă matching-ul lexical/punctuațional pe fluxul existent;
+3. nu pune cadrele OCR în coadă dacă detectorul semantic este încă ocupat — cadrul intermediar este omis pentru a păstra latența mică;
+4. publică ultima detecție completă prin `TopicMatcher.latestParagraphDetections()`.
+
+Pentru un singur candidat dominant se poate folosi:
+
+```java
+UniversalParagraphDetector.Detection detection = TopicMatcher.strongestLatestParagraph();
+```
+
+Astfel, detecția semantică este activă fără rescrierea analyzerului live și fără să blocheze highlight-urile existente.
+
+## Execuție paralelă explicită
+
+`ParallelTextDetectionEngine` rămâne disponibil când apelantul dorește un rezultat sincron combinat. El rulează concomitent:
+
+1. matching lexical/punctuațional prin ramura `TopicMatcher.findLexicalOnly(...)`;
 2. detecția automată de subiect + funcție pe fiecare `ML Kit TextBlock`.
+
+Ramura lexicală nu pornește încă o dată sidecar-ul semantic, deci nu există detecție dublă.
 
 Pool-ul este fix și reutilizabil; nu se creează fire noi la fiecare cadru OCR.
 
@@ -99,10 +118,11 @@ Pentru text lipit/importat, `detectText(...)` separă paragrafele după liniile 
 
 ## Folosire cu OCR ML Kit
 
+Pentru fluxul live existent nu este necesar cod suplimentar. Dacă este nevoie de rezultat sincron combinat:
+
 ```java
 private final ParallelTextDetectionEngine detector = new ParallelTextDetectionEngine();
 
-// după ce ML Kit a produs Text text:
 ParallelTextDetectionEngine.CombinedResult result = detector.detect(text, searchPlan);
 
 List<MatchHit> hits = result.lexicalHits();
