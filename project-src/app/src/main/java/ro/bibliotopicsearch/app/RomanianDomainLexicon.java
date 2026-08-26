@@ -7,10 +7,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Broad deterministic Romanian domain routing built on lexical families.
- * Values are generic index facets, never claims about the source.
- */
+/** Broad deterministic Romanian domain routing built on lexical families. */
 public final class RomanianDomainLexicon {
     private RomanianDomainLexicon() {}
 
@@ -20,7 +17,7 @@ public final class RomanianDomainLexicon {
         if (text == null || text.trim().isEmpty()) return Collections.emptyList();
         LinkedHashSet<String> out = new LinkedHashSet<>();
         for (Map.Entry<String, String[]> entry : DOMAINS.entrySet()) {
-            if (RomanianLanguagePack.containsAnyFamily(text, entry.getValue())) {
+            if (RomanianMorphology.containsAnyFamily(text, entry.getValue())) {
                 out.add("DOMAIN=" + entry.getKey());
             }
         }
