@@ -61,7 +61,35 @@ public final class OrganizedSessionStore {
         }
         if (target == null || !target.isFile()) target = newestSessionFile(dir);
         if (target == null || !target.isFile()) return null;
+        return loadFile(target);
+    }
 
+    /** All persisted One-Pass sessions, oldest first, for the global research workspace. */
+    public static List<OnePassSemanticOrganizer.Snapshot> loadAll(Context context) {
+        List<OnePassSemanticOrganizer.Snapshot> out = new ArrayList<>();
+        if (context == null) return out;
+        File dir = ensureDir(context);
+        File[] files = dir.listFiles((d, name) -> name.startsWith("session-") && name.endsWith(".json"));
+        if (files == null || files.length == 0) return out;
+        java.util.Arrays.sort(files, (a, b) -> {
+            long left = sessionIdFromName(a.getName());
+            long right = sessionIdFromName(b.getName());
+            if (left == right) return Long.compare(a.lastModified(), b.lastModified());
+            return Long.compare(left, right);
+        });
+        for (File file : files) {
+            OnePassSemanticOrganizer.Snapshot snapshot = loadFile(file);
+            if (snapshot != null) out.add(snapshot);
+        }
+        return out;
+    }
+
+    public static boolean hasLatest(Context context) {
+        return loadLatest(context) != null;
+    }
+
+    private static OnePassSemanticOrganizer.Snapshot loadFile(File target) {
+        if (target == null || !target.isFile()) return null;
         try {
             return fromJson(new JSONObject(readUtf8(target)));
         } catch (IOException | JSONException | RuntimeException ignored) {
@@ -69,8 +97,16 @@ public final class OrganizedSessionStore {
         }
     }
 
-    public static boolean hasLatest(Context context) {
-        return loadLatest(context) != null;
+    private static long sessionIdFromName(String name) {
+        if (name == null) return 0L;
+        try {
+            int start = name.indexOf('-');
+            int end = name.lastIndexOf('.');
+            if (start < 0 || end <= start) return 0L;
+            return Long.parseLong(name.substring(start + 1, end));
+        } catch (RuntimeException ignored) {
+            return 0L;
+        }
     }
 
     private static File ensureDir(Context context) {
