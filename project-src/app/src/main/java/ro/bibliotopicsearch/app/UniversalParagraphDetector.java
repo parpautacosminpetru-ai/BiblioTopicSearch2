@@ -210,7 +210,9 @@ public final class UniversalParagraphDetector {
             add(scores, UniversalDetectionLexicon.Function.INTRODUCTION, 0.5);
         }
         if (containsEarlyCopula(sentences)) {
-            add(scores, UniversalDetectionLexicon.Function.DEFINITION, 0.75);
+            // A plain copular opening ("X este Y") is a strong definition cue,
+            // but weaker than an explicit lexical marker such as "se definește".
+            add(scores, UniversalDetectionLexicon.Function.DEFINITION, 1.15);
         }
         if (containsListShape(trimmed)) {
             add(scores, UniversalDetectionLexicon.Function.ENUMERATION, 0.85);
@@ -369,7 +371,10 @@ public final class UniversalParagraphDetector {
         int best = Integer.MAX_VALUE;
 
         for (String cue : UniversalDetectionLexicon.PREDICATE_CUES) {
-            int index = folded.indexOf(cue);
+            // Cues are normalized without surrounding whitespace; re-add word
+            // boundaries here to avoid matching e.g. "este" inside another word.
+            String needle = " " + cue.trim() + " ";
+            int index = folded.indexOf(needle);
             if (index > 1 && index < best) best = index;
         }
         if (best == Integer.MAX_VALUE) return "";
