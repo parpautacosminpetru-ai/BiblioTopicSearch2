@@ -21,6 +21,12 @@ public final class IndexCoreRuntime {
     private static long currentOutlineId;
     private static int outlineOrder;
 
+    /** Compatibility entry point: reads legacy JSON directly, never through LivingIndexRuntime locks. */
+    public static void start(Context context, long session) {
+        LivingIndexStore.State legacy = context == null ? null : LivingIndexStore.load(context.getApplicationContext());
+        start(context, session, legacy);
+    }
+
     public static void start(Context context, long session, LivingIndexStore.State legacyState) {
         if (context == null) return;
         synchronized (LOCK) {
