@@ -65,10 +65,7 @@ public final class LivingIndexRuntime {
         }
     }
 
-    /**
-     * Fast collector path used by OnePassLiveCollector. It never reruns OCR; it
-     * rebuilds only the small deterministic graph from already available detections.
-     */
+    /** Fast collector path: no second OCR, only already available paragraph detections. */
     public static void observeDetections(List<UniversalParagraphDetector.Detection> detections) {
         if (detections == null || detections.isEmpty()) return;
         synchronized (LOCK) {
@@ -106,6 +103,8 @@ public final class LivingIndexRuntime {
                     System.currentTimeMillis()
             );
             LivingIndexStore.Entry before = state.findCanonical(candidate.surface());
+            if (before != null && hasRef(before, ref)) continue; // repeated camera frame, not a new occurrence
+
             int oldRefs = before == null ? -1 : before.refs().size();
             int oldRecurrence = before == null ? -1 : before.recurrence();
             LivingIndexStore.Entry after = state.merge(
@@ -133,6 +132,12 @@ public final class LivingIndexRuntime {
                     LivingIndexTextMarker.build(text, latestCandidates, state)
             ));
         }
+    }
+
+    private static boolean hasRef(LivingIndexStore.Entry entry, LivingIndexStore.Ref ref) {
+        String key = ref.key();
+        for (LivingIndexStore.Ref existing : entry.refs()) if (existing.key().equals(key)) return true;
+        return false;
     }
 
     public static List<LivingIndexTextMark> latestMarks() {
