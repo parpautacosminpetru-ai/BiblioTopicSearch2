@@ -224,9 +224,13 @@ public final class UniversalDetectionLexicon {
                 "înainte", "inainte", "după", "dupa", "ulterior", "anterior", "în timp ce", "in timp ce", "când", "cand",
                 "astăzi", "astazi", "ieri", "mâine", "maine", "an", "ani", "secol", "perioadă", "perioada");
         putOperator(Operator.SPATIAL, 1.7,
-                "în", "in", "la", "din", "spre", "între", "intre", "regiune", "zonă", "zona", "local", "global");
+                "în regiunea", "in regiunea", "în zona", "in zona", "la nivel local", "la nivel global",
+                "în europa", "in europa", "în românia", "in romania", "regiune", "zonă", "zona", "local", "global");
         putOperator(Operator.COMPARATIVE, 1.8,
-                "mai mult", "mai puțin", "mai putin", "decât", "decat", "similar", "asemănător", "asemanator", "diferit", "diferită", "diferita");
+                "mai mult", "mai puțin", "mai putin", "mai puține", "mai putine", "mai puțini", "mai putini",
+                "mai precis", "mai precisă", "mai precisa", "mai precise", "mai rapid", "mai rapidă", "mai rapida",
+                "mai mare", "mai mari", "mai mic", "mai mică", "mai mica", "mai mici", "decât", "decat",
+                "similar", "asemănător", "asemanator", "diferit", "diferită", "diferita", "superior", "inferior");
         putOperator(Operator.COREFERENCE, 1.5,
                 "acesta", "aceasta", "aceștia", "acestia", "acestea", "el", "ea", "ei", "ele",
                 "acest proces", "acest fenomen", "această metodă", "aceasta metoda", "acest sistem", "respectivul", "respectiva");
@@ -259,11 +263,11 @@ public final class UniversalDetectionLexicon {
 
         STOP_WORDS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
                 "a", "ai", "al", "ale", "acest", "aceasta", "acesta", "acești", "acesti", "aceste",
-                "ca", "că", "ca", "care", "ce", "cel", "cea", "cei", "cele", "cu", "către", "catre",
+                "ca", "că", "care", "ce", "cel", "cea", "cei", "cele", "cu", "către", "catre",
                 "de", "din", "dintre", "după", "dupa", "este", "sunt", "era", "erau", "fi", "fie",
                 "în", "in", "între", "intre", "la", "le", "li", "lui", "lor", "mai", "ne", "o", "pe",
                 "pentru", "prin", "sa", "să", "se", "și", "si", "sau", "un", "una", "unei", "unui",
-                "the", "of", "and", "or", "to", "in", "on", "for", "with", "by", "from", "as", "is", "are"
+                "the", "of", "and", "or", "to", "on", "for", "with", "by", "from", "as", "is", "are"
         )));
 
         FRAME_PREFIXES = normalizedList(
@@ -279,11 +283,11 @@ public final class UniversalDetectionLexicon {
         );
 
         PREDICATE_CUES = normalizedList(
-                " este ", " sunt ", " reprezintă ", " reprezinta ", " constituie ", " înseamnă ", " inseamna ",
-                " are ", " au ", " poate ", " pot ", " produce ", " produc ", " determină ", " determina ",
-                " provoacă ", " provoaca ", " generează ", " genereaza ", " permite ", " permit ",
-                " include ", " includ ", " cuprinde ", " cuprind ", " se definește ", " se defineste ",
-                " se caracterizează ", " se caracterizeaza ", " depinde ", " rezultă ", " rezulta "
+                "este", "sunt", "reprezintă", "reprezinta", "constituie", "înseamnă", "inseamna",
+                "are", "au", "poate", "pot", "produce", "produc", "determină", "determina",
+                "provoacă", "provoaca", "generează", "genereaza", "permite", "permit",
+                "include", "includ", "cuprinde", "cuprind", "se definește", "se defineste",
+                "se caracterizează", "se caracterizeaza", "depinde", "rezultă", "rezulta"
         );
 
         COREFERENCE_WORDS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
@@ -314,6 +318,7 @@ public final class UniversalDetectionLexicon {
                 .replaceAll("\\p{M}+", "")
                 .toLowerCase(Locale.ROOT)
                 .replace('’', '\'')
+                .replaceAll("[^\\p{L}\\p{N}'\\-]+", " ")
                 .replaceAll("\\s+", " ")
                 .trim();
     }
