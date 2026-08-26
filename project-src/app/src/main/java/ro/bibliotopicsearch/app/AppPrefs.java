@@ -65,7 +65,7 @@ public final class AppPrefs {
         boolean enabled = prefs(context).getBoolean("ocr_enabled", true);
         if (enabled) {
             OnePassLiveCollector.start();
-            LivingIndexRuntime.start(context, OnePassSemanticOrganizer.currentSessionId());
+            LivingIndexRuntime.start(context, System.currentTimeMillis());
         }
         return enabled;
     }
@@ -80,7 +80,7 @@ public final class AppPrefs {
         if (value) {
             OnePassSemanticOrganizer.beginSession();
             OnePassLiveCollector.start();
-            LivingIndexRuntime.start(context, OnePassSemanticOrganizer.currentSessionId());
+            LivingIndexRuntime.start(context, System.currentTimeMillis());
             return;
         }
 
@@ -100,8 +100,7 @@ public final class AppPrefs {
             OnePassSemanticOrganizer.Snapshot snapshot = OnePassSemanticOrganizer.finishSession();
 
             if (mode == IndexMode.SOURCE) {
-                // Ethical/source-learning mode: do not persist paragraph text or page images.
-                OnePassSemanticOrganizer.discardTransientSession();
+                // Ethical/source-learning mode: do not write paragraph text or page images to disk.
                 Runnable openIndex = () -> {
                     Intent intent = new Intent(
                             activity == null ? appContext : activity,
