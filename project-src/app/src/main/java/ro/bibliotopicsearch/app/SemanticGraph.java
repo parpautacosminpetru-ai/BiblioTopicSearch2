@@ -179,6 +179,19 @@ public final class SemanticGraph {
         this.lastSubject = !canonicalSubject.isEmpty()
                 ? canonicalSubject
                 : safe(lastSubject);
+
+        // The normal live OCR sidecar already stores its current paragraph detections
+        // before building this graph. Reuse that exact work to publish SubjectFrames,
+        // the query matrix and tool routes without adding a second semantic pass.
+        try {
+            MultiAxisSemanticRuntime.refreshLive(
+                    TopicMatcher.latestParagraphDetections(),
+                    this,
+                    TopicMatcher.researchProfile()
+            );
+        } catch (RuntimeException ignored) {
+            // Multi-axis organization is a sidecar and must never break base parsing.
+        }
     }
 
     public List<Proposition> propositions() { return propositions; }
