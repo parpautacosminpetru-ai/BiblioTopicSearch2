@@ -105,6 +105,16 @@ public final class AppPrefs {
         prefs(context).edit().putInt("zoom_level", Math.max(0, Math.min(3, value))).apply();
     }
 
+    /** One persisted input for either a research topic or a natural-language question. */
+    public static String researchQuery(Context context) {
+        String value = prefs(context).getString("research_query", "");
+        return value == null ? "" : value;
+    }
+
+    public static void setResearchQuery(Context context, String value) {
+        prefs(context).edit().putString("research_query", value == null ? "" : value.trim()).apply();
+    }
+
     /** Compatibilitate cu versiunile anterioare. */
     public static boolean showLabels(Context context) {
         return floatingLabels(context);
