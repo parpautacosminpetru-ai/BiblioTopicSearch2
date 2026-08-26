@@ -45,6 +45,10 @@ public final class TopicMatcher {
     private static volatile ResearchSemanticEngine.Answer latestResearchAnswer;
     private static volatile List<ResearchTextMark> latestResearchTextMarks =
             Collections.emptyList();
+    private static volatile ParagraphCartography.Map latestParagraphCartography =
+            new ParagraphCartography.Map(Collections.emptyList(), "");
+    private static volatile List<ParagraphMapMark> latestParagraphMapMarks =
+            Collections.emptyList();
     private static volatile TopicMap latestResearchThemeMap;
     private static volatile ResearchSemanticEngine.Profile researchProfile =
             ResearchSemanticEngine.compile("", null);
@@ -214,8 +218,8 @@ public final class TopicMatcher {
     }
 
     /**
-     * Existing public live-search entry point. Subject/function and research-answer
-     * detection are automatically scheduled in parallel with lexical matching.
+     * Existing public live-search entry point. Subject/function, paragraph cartography
+     * and research-answer detection are automatically scheduled in parallel with lexical matching.
      */
     public static List<MatchHit> find(Text text, SearchPlan plan) {
         scheduleParagraphDetection(text);
@@ -351,6 +355,16 @@ public final class TopicMatcher {
         return latestResearchTextMarks;
     }
 
+    /** Latest automatic hierarchical map of the visible OCR paragraphs. */
+    public static ParagraphCartography.Map latestParagraphCartography() {
+        return latestParagraphCartography;
+    }
+
+    /** OCR anchors for drawing one compact cartography badge per paragraph. */
+    public static List<ParagraphMapMark> latestParagraphMapMarks() {
+        return latestParagraphMapMarks;
+    }
+
     public static ResearchSemanticEngine.Profile researchProfile() {
         return researchProfile;
     }
@@ -383,12 +397,18 @@ public final class TopicMatcher {
         return best;
     }
 
+    private static void clearSemanticSidecar() {
+        latestParagraphDetections = Collections.emptyList();
+        latestSemanticTextMarks = Collections.emptyList();
+        latestResearchAnswer = null;
+        latestResearchTextMarks = Collections.emptyList();
+        latestParagraphCartography = new ParagraphCartography.Map(Collections.emptyList(), "");
+        latestParagraphMapMarks = Collections.emptyList();
+    }
+
     private static void scheduleParagraphDetection(Text text) {
         if (text == null || text.getTextBlocks() == null || text.getTextBlocks().isEmpty()) {
-            latestParagraphDetections = Collections.emptyList();
-            latestSemanticTextMarks = Collections.emptyList();
-            latestResearchAnswer = null;
-            latestResearchTextMarks = Collections.emptyList();
+            clearSemanticSidecar();
             return;
         }
         if (!PARAGRAPH_DETECTOR_BUSY.compareAndSet(false, true)) {
@@ -404,10 +424,7 @@ public final class TopicMatcher {
 
         if (blocks.isEmpty()) {
             PARAGRAPH_DETECTOR_BUSY.set(false);
-            latestParagraphDetections = Collections.emptyList();
-            latestSemanticTextMarks = Collections.emptyList();
-            latestResearchAnswer = null;
-            latestResearchTextMarks = Collections.emptyList();
+            clearSemanticSidecar();
             return;
         }
 
@@ -425,6 +442,17 @@ public final class TopicMatcher {
                 latestParagraphDetections = immutableDetections;
                 latestSemanticTextMarks = Collections.unmodifiableList(
                         new ArrayList<>(SemanticTextMarker.build(text, immutableDetections))
+                );
+
+                // Reuse one proposition graph for paragraph cartography. The map is
+                // independent of the research query and therefore always runs with OCR LIVE.
+                SemanticGraph semanticGraph = SemanticGraphBuilder.build(immutableDetections);
+                ParagraphCartography.Map cartography = ParagraphCartography.build(
+                        immutableDetections, semanticGraph
+                );
+                latestParagraphCartography = cartography;
+                latestParagraphMapMarks = Collections.unmodifiableList(
+                        new ArrayList<>(ParagraphMapMarker.build(text, cartography))
                 );
 
                 ResearchSemanticEngine.Answer answer = ResearchSemanticEngine.findBest(profile, immutableDetections);
