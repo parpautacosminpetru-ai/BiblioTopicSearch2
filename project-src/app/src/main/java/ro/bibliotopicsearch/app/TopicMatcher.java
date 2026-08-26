@@ -16,9 +16,27 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class TopicMatcher {
     private TopicMatcher() {}
+
+    /**
+     * Semantic sidecar used by the existing live OCR path. It intentionally has a
+     * single worker and a busy gate: camera frames may arrive faster than semantic
+     * detection, and low latency is more useful than building an unbounded queue.
+     */
+    private static final ExecutorService PARAGRAPH_DETECTOR = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "biblio-subject-function");
+        thread.setDaemon(true);
+        thread.setPriority(Thread.NORM_PRIORITY);
+        return thread;
+    });
+    private static final AtomicBoolean PARAGRAPH_DETECTOR_BUSY = new AtomicBoolean(false);
+    private static volatile List<UniversalParagraphDetector.Detection> latestParagraphDetections =
+            Collections.emptyList();
 
     private static final class CompiledTerm {
         final String raw;
@@ -182,7 +200,22 @@ public final class TopicMatcher {
         return find(text, compile(context, map));
     }
 
+    /**
+     * Existing public live-search entry point. Subject/function detection is now
+     * automatically scheduled in parallel, so MainActivity does not need to be
+     * rewritten to activate the new detector.
+     */
     public static List<MatchHit> find(Text text, SearchPlan plan) {
+        scheduleParagraphDetection(text);
+        return findLexicalOnly(text, plan);
+    }
+
+    /**
+     * Lexical/punctuation branch without scheduling the semantic sidecar. Package
+     * visible so ParallelTextDetectionEngine can combine both branches without
+     * executing subject/function detection twice.
+     */
+    static List<MatchHit> findLexicalOnly(Text text, SearchPlan plan) {
         List<MatchHit> hits = new ArrayList<>();
         if (text == null || plan == null || plan.termCount <= 0) return hits;
 
@@ -292,6 +325,64 @@ public final class TopicMatcher {
         }
 
         return hits;
+    }
+
+    /** Latest automatic detections from the live OCR sidecar, in TextBlock order. */
+    public static List<UniversalParagraphDetector.Detection> latestParagraphDetections() {
+        return latestParagraphDetections;
+    }
+
+    /** Convenience accessor for overlays/debug panels that only need one candidate. */
+    public static UniversalParagraphDetector.Detection strongestLatestParagraph() {
+        UniversalParagraphDetector.Detection best = null;
+        double bestScore = -1.0;
+        for (UniversalParagraphDetector.Detection detection : latestParagraphDetections) {
+            double score = detection.subjectConfidence() * 0.55
+                    + detection.functionConfidence() * 0.45;
+            if (score > bestScore) {
+                bestScore = score;
+                best = detection;
+            }
+        }
+        return best;
+    }
+
+    private static void scheduleParagraphDetection(Text text) {
+        if (text == null || text.getTextBlocks() == null || text.getTextBlocks().isEmpty()) {
+            latestParagraphDetections = Collections.emptyList();
+            return;
+        }
+        if (!PARAGRAPH_DETECTOR_BUSY.compareAndSet(false, true)) {
+            return;
+        }
+
+        final List<String> blocks = new ArrayList<>();
+        for (Text.TextBlock block : text.getTextBlocks()) {
+            if (block == null) continue;
+            String value = block.getText();
+            if (value != null && !value.trim().isEmpty()) blocks.add(value.trim());
+        }
+
+        if (blocks.isEmpty()) {
+            PARAGRAPH_DETECTOR_BUSY.set(false);
+            latestParagraphDetections = Collections.emptyList();
+            return;
+        }
+
+        PARAGRAPH_DETECTOR.execute(() -> {
+            try {
+                List<UniversalParagraphDetector.Detection> detections = new ArrayList<>(blocks.size());
+                for (int i = 0; i < blocks.size(); i++) {
+                    detections.add(UniversalParagraphDetector.detect(blocks.get(i), i));
+                }
+                latestParagraphDetections = Collections.unmodifiableList(detections);
+            } catch (RuntimeException ignored) {
+                // Live OCR must never fail because the semantic sidecar encountered
+                // an unexpected input. Preserve the last valid detections instead.
+            } finally {
+                PARAGRAPH_DETECTOR_BUSY.set(false);
+            }
+        });
     }
 
     private static void addPunctuationHits(
