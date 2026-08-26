@@ -84,7 +84,9 @@ public final class LivingIndexRuntime {
             SemanticGraph graph,
             ParagraphCartography.Map cartography
     ) {
-        List<LivingIndexEngine.Candidate> first = LivingIndexEngine.detect(detections, graph, cartography, state);
+        List<LivingIndexEngine.Candidate> first = LivingIndexAutoOrganizerEngine.detect(
+                detections, graph, cartography, state
+        );
         boolean sourceMode = AppPrefs.indexMode(appContext) == AppPrefs.IndexMode.SOURCE;
         boolean changed = false;
 
@@ -103,7 +105,7 @@ public final class LivingIndexRuntime {
                     System.currentTimeMillis()
             );
             LivingIndexStore.Entry before = state.findCanonical(candidate.surface());
-            if (before != null && hasRef(before, ref)) continue; // repeated camera frame, not a new occurrence
+            if (before != null && hasRef(before, ref)) continue;
 
             int oldRefs = before == null ? -1 : before.refs().size();
             int oldRecurrence = before == null ? -1 : before.recurrence();
@@ -125,7 +127,7 @@ public final class LivingIndexRuntime {
         }
 
         latestCandidates = Collections.unmodifiableList(new ArrayList<>(
-                LivingIndexEngine.detect(detections, graph, cartography, state)
+                LivingIndexAutoOrganizerEngine.detect(detections, graph, cartography, state)
         ));
         if (text != null) {
             latestMarks = Collections.unmodifiableList(new ArrayList<>(
@@ -150,6 +152,10 @@ public final class LivingIndexRuntime {
 
     public static LivingIndexStore.State state() {
         synchronized (LOCK) { return state; }
+    }
+
+    public static LivingIndexOrganizer.Index organizedIndex() {
+        synchronized (LOCK) { return LivingIndexOrganizer.build(state); }
     }
 
     public static String currentPage() {
