@@ -40,7 +40,7 @@ public final class IndexCoreActivity extends AppCompatActivity {
 
     private void rebuild() {
         sourceId = IndexCoreSourceRegistry.activeSourceId(this);
-        rows = db.search(query.filters, sourceId, query.pageFrom, query.pageTo, 300);
+        rows = IndexCoreIntersectionEngine.search(db, query.filters, sourceId, query.pageFrom, query.pageTo, 300);
         buildUi();
     }
 
@@ -181,7 +181,7 @@ public final class IndexCoreActivity extends AppCompatActivity {
         input.setHint("DOMAIN=HISTORY + RELATION=CAUSE + PRIMARY=PERSON - RELATION=EFFECT\nPAGE=120..190");
         new AlertDialog.Builder(this)
                 .setTitle("Intersecție fațete")
-                .setMessage("AND între criterii. Prefix '-' = excludere. Filtrul se aplică indexului, nu generează afirmații.")
+                .setMessage("AND pe aceeași apariție. Prefix '-' = excludere. Filtrul indexează, nu generează afirmații.")
                 .setView(input)
                 .setPositiveButton("APLICĂ", (d, w) -> { query = FacetIntersectionQuery.parse(input.getText().toString()); rebuild(); })
                 .setNeutralButton("GOLEȘTE", (d, w) -> { query = FacetIntersectionQuery.parse(""); rebuild(); })
