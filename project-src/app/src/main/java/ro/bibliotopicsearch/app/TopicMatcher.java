@@ -444,8 +444,7 @@ public final class TopicMatcher {
                         new ArrayList<>(SemanticTextMarker.build(text, immutableDetections))
                 );
 
-                // Reuse one proposition graph for paragraph cartography. The map is
-                // independent of the research query and therefore always runs with OCR LIVE.
+                // Build the semantic graph/cartography exactly once per accepted semantic frame.
                 SemanticGraph semanticGraph = SemanticGraphBuilder.build(immutableDetections);
                 ParagraphCartography.Map cartography = ParagraphCartography.build(
                         immutableDetections, semanticGraph
@@ -454,6 +453,10 @@ public final class TopicMatcher {
                 latestParagraphMapMarks = Collections.unmodifiableList(
                         new ArrayList<>(ParagraphMapMarker.build(text, cartography))
                 );
+
+                // Persistence gets the already-computed graph/map on its own low-priority worker.
+                // If storage is busy, that index sample is dropped without slowing OCR/search.
+                LivingIndexDispatcher.observe(text, immutableDetections, semanticGraph, cartography);
 
                 ResearchSemanticEngine.Answer answer = ResearchSemanticEngine.findBest(profile, immutableDetections);
                 if (researchGeneration == RESEARCH_GENERATION.get()) {
