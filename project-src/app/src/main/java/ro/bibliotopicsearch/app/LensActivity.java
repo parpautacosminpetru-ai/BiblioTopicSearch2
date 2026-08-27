@@ -41,10 +41,11 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * LUPĂ v9: one query, progressive semantic zoom, live OCR and persistent index.
- * The rich ontology stays behind the scenes; this Activity exposes only what the user asks for.
+ * LUPĂ v9.1 Stability: one query, progressive semantic zoom and live OCR.
+ * Persistent indexing and query-plan compilation are sidecars and never block the camera/UI threads.
  */
 public final class LensActivity extends AppCompatActivity {
     private static final int REQ_CAMERA = 901;
@@ -62,17 +63,19 @@ public final class LensActivity extends AppCompatActivity {
     private TextRecognizer recognizer;
     private MlKitAnalyzer analyzer;
     private final ExecutorService analysisExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+    private final AtomicInteger queryGeneration = new AtomicInteger(0);
     private final Handler main = new Handler(Looper.getMainLooper());
 
     private volatile TopicMatcher.SearchPlan searchPlan;
+    private volatile boolean destroyed;
     private String activeQuery = "";
     private boolean ocrEnabled = true;
     private boolean torchEnabled = false;
-    private long lastIndexObserveAt = 0L;
 
-    private final Runnable applyQuery = () -> applyQueryNow();
+    private final Runnable applyQuery = this::applyQueryNow;
     private final Runnable clearStale = () -> {
-        if (overlay != null && ocrEnabled) {
+        if (overlay != null && ocrEnabled && !destroyed) {
             overlay.clearHits();
             setStatus("OCR live • caut text", Color.rgb(76, 190, 123));
         }
@@ -83,11 +86,15 @@ public final class LensActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         ocrEnabled = AppPrefs.ocrEnabled(this);
         buildUi();
-        LivingIndexRuntime.start(this, System.currentTimeMillis());
+
+        // Start persistent storage outside the UI thread. Initial OCR frames may be
+        // intentionally skipped by the index until loading is complete.
+        LivingIndexDispatcher.start(getApplicationContext(), System.currentTimeMillis());
+
         activeQuery = AppPrefs.researchQuery(this);
         search.setText(activeQuery);
         search.setSelection(search.length());
-        rebuildSearchPlan();
+        scheduleSearchPlanBuild(activeQuery);
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED) setupCamera();
@@ -98,20 +105,24 @@ public final class LensActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         updateZoomLabel();
-        rebuildSearchPlan();
+        scheduleSearchPlanBuild(activeQuery);
         if (overlay != null) overlay.invalidate();
     }
 
     @Override
     protected void onDestroy() {
+        destroyed = true;
         if (cameraController != null) {
             cameraController.clearImageAnalysisAnalyzer();
             cameraController.unbind();
         }
         if (recognizer != null) recognizer.close();
         main.removeCallbacksAndMessages(null);
-        analysisExecutor.shutdown();
-        LivingIndexRuntime.stop();
+        analysisExecutor.shutdownNow();
+        queryExecutor.shutdownNow();
+
+        // Flush/close is queued on the index worker and never blocks Activity teardown.
+        LivingIndexDispatcher.stop();
         super.onDestroy();
     }
 
@@ -231,7 +242,7 @@ public final class LensActivity extends AppCompatActivity {
     }
 
     private void setupCamera() {
-        if (cameraController != null) return;
+        if (cameraController != null || destroyed) return;
         cameraController = new LifecycleCameraController(this);
         cameraController.setEnabledUseCases(CameraController.IMAGE_ANALYSIS);
         cameraController.setImageAnalysisBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST);
@@ -244,21 +255,25 @@ public final class LensActivity extends AppCompatActivity {
                 COORDINATE_SYSTEM_VIEW_REFERENCED,
                 analysisExecutor,
                 result -> {
-                    if (!ocrEnabled) return;
+                    if (!ocrEnabled || destroyed) return;
                     Text text = result.getValue(recognizer);
                     if (text == null) {
-                        runOnUiThread(() -> { overlay.clearHits(); setStatus("OCR live • fără text", Color.rgb(76, 190, 123)); });
+                        runOnUiThread(() -> {
+                            if (destroyed) return;
+                            overlay.clearHits();
+                            setStatus("OCR live • fără text", Color.rgb(76, 190, 123));
+                        });
                         return;
                     }
+
                     TopicMatcher.SearchPlan plan = searchPlan;
-                    if (plan == null) {
-                        rebuildSearchPlan();
-                        plan = searchPlan;
-                    }
-                    List<MatchHit> hits = TopicMatcher.find(text, plan);
-                    observeIndexOccasionally(text);
+                    List<MatchHit> hits = plan == null
+                            ? Collections.emptyList()
+                            : TopicMatcher.find(text, plan);
                     int words = countWords(text);
-                    runOnUiThread(() -> applyFrame(hits, words));
+                    runOnUiThread(() -> {
+                        if (!destroyed) applyFrame(hits, words);
+                    });
                 }
         );
         if (ocrEnabled) attachAnalyzer();
@@ -266,19 +281,19 @@ public final class LensActivity extends AppCompatActivity {
     }
 
     private void attachAnalyzer() {
-        if (cameraController != null && analyzer != null) {
+        if (cameraController != null && analyzer != null && !destroyed) {
             cameraController.setImageAnalysisAnalyzer(analysisExecutor, analyzer);
         }
     }
 
     private void applyQueryNow() {
-        if (search == null) return;
+        if (search == null || destroyed) return;
         String value = search.getText().toString().trim();
         if (value.equals(activeQuery) && searchPlan != null) return;
         activeQuery = value;
         AppPrefs.setResearchQuery(this, value);
         TopicMatcher.setResearchQuery(value);
-        rebuildSearchPlan();
+        scheduleSearchPlanBuild(value);
         overlay.clearHits();
         overlay.invalidate();
         setStatus(value.isEmpty()
@@ -287,29 +302,30 @@ public final class LensActivity extends AppCompatActivity {
                 value.isEmpty() ? Color.rgb(76, 190, 123) : LensPalette.get(this, LensPalette.Role.TARGET));
     }
 
-    private void rebuildSearchPlan() {
-        TopicMap aliases = TopicMapStore.load(this);
-        TopicMap lensMap = LensQueryMap.build(
-                activeQuery,
-                aliases,
-                LensPalette.get(this, LensPalette.Role.TARGET)
-        );
-        searchPlan = TopicMatcher.compile(this, lensMap);
-    }
-
-    private void observeIndexOccasionally(Text text) {
-        long now = System.currentTimeMillis();
-        if (now - lastIndexObserveAt < 700L) return;
-        List<UniversalParagraphDetector.Detection> detections = TopicMatcher.latestParagraphDetections();
-        if (detections == null || detections.isEmpty()) return;
-        lastIndexObserveAt = now;
-        SemanticGraph graph = SemanticGraphBuilder.build(detections);
-        ParagraphCartography.Map map = ParagraphCartography.build(detections, graph);
-        LivingIndexRuntime.observe(text, detections, graph, map);
+    private void scheduleSearchPlanBuild(String querySnapshot) {
+        if (destroyed) return;
+        final int generation = queryGeneration.incrementAndGet();
+        final String query = querySnapshot == null ? "" : querySnapshot;
+        queryExecutor.execute(() -> {
+            try {
+                TopicMap aliases = TopicMapStore.load(getApplicationContext());
+                TopicMap lensMap = LensQueryMap.build(
+                        query,
+                        aliases,
+                        LensPalette.get(getApplicationContext(), LensPalette.Role.TARGET)
+                );
+                TopicMatcher.SearchPlan compiled = TopicMatcher.compile(getApplicationContext(), lensMap);
+                if (!destroyed && generation == queryGeneration.get() && query.equals(activeQuery)) {
+                    searchPlan = compiled;
+                }
+            } catch (RuntimeException ignored) {
+                // Keep the previous valid plan; typing/search UI must remain responsive.
+            }
+        });
     }
 
     private void applyFrame(List<MatchHit> hits, int words) {
-        if (!ocrEnabled) return;
+        if (!ocrEnabled || destroyed) return;
         main.removeCallbacks(clearStale);
         main.postDelayed(clearStale, STALE_MS);
         overlay.updateTargetHits(hits);
