@@ -1,0 +1,373 @@
++    public final String evidenceEnd;
++
+     public MatchHit(RectF box, String originalText, String searchTerm, TopicNode node, long detectedAt) {
++        this(
++                box,
++                originalText,
++                searchTerm,
++                node,
++                detectedAt,
++                false,
++                false,
++                0f,
++                "",
++                Collections.emptyList(),
++                Collections.emptyList(),
++                Collections.singletonList(new RectF(box)),
++                originalText,
++                originalText
++        );
++    }
++
++    public MatchHit(
++            RectF box,
++            String originalText,
++            String searchTerm,
++            TopicNode node,
++            long detectedAt,
++            boolean semantic,
++            boolean explicitOnly,
++            float similarity,
++            String semanticCategory,
++            List<String> compressionLabels,
++            List<String> relatedTopics,
++            List<RectF> evidenceBoxes,
++            String evidenceStart,
++            String evidenceEnd
++    ) {
+         this.box = new RectF(box);
+-        this.originalText = originalText;
+-        this.searchTerm = searchTerm;
++        this.originalText = originalText == null ? "" : originalText;
++        this.searchTerm = searchTerm == null ? "" : searchTerm;
+         this.node = node;
+         this.detectedAt = detectedAt;
++        this.semantic = semantic;
++        this.explicitOnly = explicitOnly;
++        this.similarity = similarity;
++        this.semanticCategory = semanticCategory == null ? "" : semanticCategory;
++        this.compressionLabels = immutableStrings(compressionLabels);
++        this.relatedTopics = immutableStrings(relatedTopics);
++        this.evidenceBoxes = immutableBoxes(evidenceBoxes, box);
++        this.evidenceStart = evidenceStart == null ? "" : evidenceStart;
++        this.evidenceEnd = evidenceEnd == null ? "" : evidenceEnd;
+     }
+ 
+     public String identityKey() {
+-        return node.path + "|" + searchTerm;
++        String nodePath = node == null || node.path == null ? "" : node.path;
++        if (!semantic) return nodePath + "|" + searchTerm;
++        return "SEM|" + nodePath + "|" + searchTerm + "|" + evidenceStart + "|" + evidenceEnd;
++    }
++
++    private static List<String> immutableStrings(List<String> values) {
++        if (values == null || values.isEmpty()) return Collections.emptyList();
++        return Collections.unmodifiableList(new ArrayList<>(values));
++    }
++
++    private static List<RectF> immutableBoxes(List<RectF> values, RectF fallback) {
++        List<RectF> out = new ArrayList<>();
++        if (values != null) {
++            for (RectF value : values) {
++                if (value != null) out.add(new RectF(value));
++            }
++        }
++        if (out.isEmpty() && fallback != null) out.add(new RectF(fallback));
++        return Collections.unmodifiableList(out);
+     }
+ }
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/OverlayView.java b/app/src/main/java/ro/bibliotopicsearch/app/OverlayView.java
+index dbb30e32df9dafaa3c326bee417daecfa173da8f..d8185478b0acabe97f6b68ae58ace2faa2c4a04d 100644
+--- a/app/src/main/java/ro/bibliotopicsearch/app/OverlayView.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/OverlayView.java
+@@ -33,6 +33,7 @@ public final class OverlayView extends View {
+     private Set<String> flashingOccurrenceKeys = new HashSet<>();
+     private long flashUntil = 0L;
+     private boolean showLabels = true;
++    private int detailLevel = 1;
+     private OnHitTapListener tapListener;
+ 
+     public OverlayView(Context context) {
+@@ -65,6 +66,14 @@ public final class OverlayView extends View {
+         tapListener = listener;
+     }
+ 
++    /**
++     * 0 = topic overview, 1 = full idea/category, 2 = extractive detail labels.
++     */
++    public void setDetailLevel(int level) {
++        detailLevel = Math.max(0, Math.min(2, level));
++        invalidate();
++    }
++
+     public void clearHits() {
+         hits = new ArrayList<>();
+         previousOccurrenceKeys.clear();
+@@ -194,9 +203,19 @@ public final class OverlayView extends View {
+             strokePaint.setColor(withAlpha(color, 245));
+             strokePaint.setStrokeWidth(dp(flashing ? 4f : 2.5f));
+ 
+-            RectF box = paddedBox(hit.box);
+-            canvas.drawRoundRect(box, dp(4), dp(4), fillPaint);
+-            canvas.drawRoundRect(box, dp(4), dp(4), strokePaint);
++            if (hit.semantic && detailLevel > 0 && hit.evidenceBoxes != null && !hit.evidenceBoxes.isEmpty()) {
++                // Semantic span detail: draw every OCR line that belongs to START→END.
++                for (RectF evidence : hit.evidenceBoxes) {
++                    RectF part = paddedBox(evidence);
++                    canvas.drawRoundRect(part, dp(4), dp(4), fillPaint);
++                    canvas.drawRoundRect(part, dp(4), dp(4), strokePaint);
++                }
++            } else {
++                // Overview zoom: one compact thematic block.
++                RectF box = paddedBox(hit.box);
++                canvas.drawRoundRect(box, dp(4), dp(4), fillPaint);
++                canvas.drawRoundRect(box, dp(4), dp(4), strokePaint);
++            }
+         }
+ 
+         if (showLabels) {
+@@ -240,8 +259,27 @@ public final class OverlayView extends View {
+         String symbol = hit.node.symbol == null ? "" : hit.node.symbol.trim();
+         String term = hit.searchTerm == null ? "" : hit.searchTerm.trim();
+         String path = hit.node.path == null ? hit.node.title : hit.node.path;
+-        String main = (symbol.isEmpty() ? "" : symbol + " ") + ellipsizeEnd(term, 30);
+-        String sub = ellipsizeStart(path == null ? "" : path, 42);
++        String main;
++        String sub;
++        if (hit.semantic) {
++            if (detailLevel == 0) {
++                main = (symbol.isEmpty() ? "" : symbol + " ") + ellipsizeEnd(hit.node.title, 30);
++                sub = "TOPIC / NOD";
++            } else if (detailLevel == 1) {
++                String category = hit.semanticCategory == null || hit.semanticCategory.isEmpty()
++                        ? "IDEE EXPLICITĂ" : hit.semanticCategory;
++                main = (symbol.isEmpty() ? "" : symbol + " ") + ellipsizeEnd(category, 28);
++                sub = ellipsizeStart(path == null ? "" : path, 30)
++                        + " • " + Math.round(hit.similarity * 100f) + "%";
++            } else {
++                String labels = joinLabels(hit.compressionLabels, 2);
++                main = ellipsizeEnd(labels.isEmpty() ? term : labels, 34);
++                sub = "START→END • " + Math.round(hit.similarity * 100f) + "%";
++            }
++        } else {
++            main = (symbol.isEmpty() ? "" : symbol + " ") + ellipsizeEnd(term, 30);
++            sub = ellipsizeStart(path == null ? "" : path, 42);
++        }
+ 
+         float textWidth = Math.max(labelPaint.measureText(main), labelSubPaint.measureText(sub));
+         float width = Math.min(getWidth() - dp(8), textWidth + dp(12));
+@@ -316,6 +354,20 @@ public final class OverlayView extends View {
+         labelPaint.setTextSize(oldSize);
+     }
+ 
++
++    private String joinLabels(List<String> labels, int limit) {
++        if (labels == null || labels.isEmpty()) return "";
++        StringBuilder out = new StringBuilder();
++        int count = 0;
++        for (String label : labels) {
++            if (label == null || label.trim().isEmpty()) continue;
++            if (out.length() > 0) out.append(" · ");
++            out.append(label.trim());
++            if (++count >= limit) break;
++        }
++        return out.toString();
++    }
++
+     private boolean intersectsAny(RectF value, List<RectF> occupied) {
+         RectF expanded = new RectF(value);
+         expanded.inset(-dp(2), -dp(2));
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/semantic/ExtractiveCompression.java b/app/src/main/java/ro/bibliotopicsearch/app/semantic/ExtractiveCompression.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..ec6ff3ecbcda9b203f942098af50044944bb92d3
+--- /dev/null
++++ b/app/src/main/java/ro/bibliotopicsearch/app/semantic/ExtractiveCompression.java
+@@ -0,0 +1,110 @@
++package ro.bibliotopicsearch.app.semantic;
++
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.Collections;
++import java.util.Comparator;
++import java.util.HashSet;
++import java.util.LinkedHashSet;
++import java.util.List;
++import java.util.Locale;
++import java.util.Set;
++
++/**
++ * Produces only extractive labels: every label is a contiguous phrase copied from evidence.
++ * No generated interpretation is introduced here.
++ */
++final class ExtractiveCompression {
++    private static final Set<String> STOP = new HashSet<>(Arrays.asList(
++            "a", "ai", "al", "ale", "am", "ar", "are", "au", "ca", "că", "ce", "cu", "cum",
++            "de", "din", "doar", "e", "era", "este", "fi", "fie", "fost", "iar", "în", "la",
++            "mai", "nu", "o", "pe", "pentru", "prin", "sau", "se", "și", "sunt", "un", "una",
++            "unei", "unui", "va", "vor", "the", "and", "of", "to", "in", "is", "are"
++    ));
++
++    private ExtractiveCompression() {}
++
++    static List<String> labels(String evidence, String query, int limit) {
++        if (evidence == null || evidence.trim().isEmpty() || limit <= 0) {
++            return Collections.emptyList();
++        }
++        String[] clauses = evidence.split("(?<=[.!?;:])\\s+|\\s*[,;:]\\s*");
++        List<Candidate> candidates = new ArrayList<>();
++        Set<String> queryTokens = tokens(SemanticCatalog.normalize(query));
++
++        int clauseIndex = 0;
++        for (String clause : clauses) {
++            String trimmed = clause.trim();
++            if (trimmed.isEmpty()) continue;
++            List<String> words = words(trimmed);
++            if (words.isEmpty()) continue;
++            int maxWindow = Math.min(6, words.size());
++            int minWindow = Math.min(2, maxWindow);
++            for (int width = minWindow; width <= maxWindow; width++) {
++                for (int start = 0; start + width <= words.size(); start++) {
++                    List<String> window = words.subList(start, start + width);
++                    int content = 0;
++                    int queryOverlap = 0;
++                    for (String word : window) {
++                        String norm = SemanticCatalog.normalize(word);
++                        if (!STOP.contains(norm) && norm.length() > 2) content++;
++                        if (queryTokens.contains(norm)) queryOverlap++;
++                    }
++                    if (content == 0) continue;
++                    float score = content * 1.0f + queryOverlap * 2.4f - width * 0.08f - clauseIndex * 0.03f;
++                    String phrase = join(window);
++                    candidates.add(new Candidate(phrase, score));
++                }
++            }
++            clauseIndex++;
++        }
++
++        candidates.sort(Comparator.comparingDouble((Candidate c) -> c.score).reversed());
++        LinkedHashSet<String> selected = new LinkedHashSet<>();
++        for (Candidate candidate : candidates) {
++            if (candidate.phrase.length() < 3) continue;
++            String normalized = SemanticCatalog.normalize(candidate.phrase);
++            boolean redundant = false;
++            for (String existing : selected) {
++                String ex = SemanticCatalog.normalize(existing);
++                if (ex.contains(normalized) || normalized.contains(ex)) {
++                    redundant = true;
++                    break;
++                }
++            }
++            if (!redundant) selected.add(candidate.phrase);
++            if (selected.size() >= limit) break;
++        }
++        return new ArrayList<>(selected);
++    }
++
++    private static Set<String> tokens(String normalized) {
++        if (normalized == null || normalized.isEmpty()) return Collections.emptySet();
++        return new HashSet<>(Arrays.asList(normalized.split("\\s+")));
++    }
++
++    private static List<String> words(String clause) {
++        String cleaned = clause.replaceAll("^[\\s\\p{Punct}]+|[\\s\\p{Punct}]+$", "").trim();
++        if (cleaned.isEmpty()) return Collections.emptyList();
++        return new ArrayList<>(Arrays.asList(cleaned.split("\\s+")));
++    }
++
++    private static String join(List<String> words) {
++        StringBuilder out = new StringBuilder();
++        for (String word : words) {
++            if (out.length() > 0) out.append(' ');
++            out.append(word.replaceAll("^[\\p{Punct}]+|[\\p{Punct}]+$", ""));
++        }
++        return out.toString().trim();
++    }
++
++    private static final class Candidate {
++        final String phrase;
++        final float score;
++
++        Candidate(String phrase, float score) {
++            this.phrase = phrase;
++            this.score = score;
++        }
++    }
++}
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/semantic/OnDeviceSentenceEmbedder.java b/app/src/main/java/ro/bibliotopicsearch/app/semantic/OnDeviceSentenceEmbedder.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..6b0f7682d655de1a8871c3e16b8f2c72c539fe12
+--- /dev/null
++++ b/app/src/main/java/ro/bibliotopicsearch/app/semantic/OnDeviceSentenceEmbedder.java
+@@ -0,0 +1,347 @@
++package ro.bibliotopicsearch.app.semantic;
++
++import android.content.Context;
++import android.content.res.AssetFileDescriptor;
++
++import ai.onnxruntime.OnnxTensor;
++import ai.onnxruntime.OnnxValue;
++import ai.onnxruntime.OrtEnvironment;
++import ai.onnxruntime.OrtException;
++import ai.onnxruntime.OrtSession;
++
++import org.json.JSONArray;
++import org.json.JSONException;
++import org.json.JSONObject;
++
++import java.io.BufferedInputStream;
++import java.io.BufferedOutputStream;
++import java.io.ByteArrayOutputStream;
++import java.io.Closeable;
++import java.io.File;
++import java.io.FileOutputStream;
++import java.io.IOException;
++import java.io.InputStream;
++import java.nio.ByteBuffer;
++import java.nio.ByteOrder;
++import java.nio.LongBuffer;
++import java.nio.charset.StandardCharsets;
++import java.util.ArrayList;
++import java.util.Collections;
++import java.util.HashMap;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.Set;
++
++/**
++ * Offline multilingual sentence embedder.
++ *
++ * Pipeline mirrors sentence-transformers/distiluse-base-multilingual-cased-v2:
++ * DistilBERT -> mean pooling -> 768x512 Dense(Tanh) -> L2 normalization.
++ */
++public final class OnDeviceSentenceEmbedder implements Closeable {
++    private static final String MODEL_ASSET = "semantic/semantic_model.onnx";
++    private static final String VOCAB_ASSET = "semantic/vocab.txt";
++    private static final String DENSE_ASSET = "semantic/dense_model.safetensors";
++    private static final int INPUT_DIM = 768;
++    private static final int OUTPUT_DIM = 512;
++    private static final int CACHE_LIMIT = 320;
++    private static final int BATCH_SIZE = 8;
++
++    private final Context context;
++    private final WordPieceTokenizer tokenizer;
++    private final OrtEnvironment environment;
++    private final OrtSession session;
++    private final String inputIdsName;
++    private final String attentionMaskName;
++    private final float[] denseWeight;
++    private final float[] denseBias;
++
++    private final LinkedHashMap<String, float[]> cache = new LinkedHashMap<String, float[]>(
++            CACHE_LIMIT, 0.75f, true
++    ) {
++        @Override
++        protected boolean removeEldestEntry(Map.Entry<String, float[]> eldest) {
++            return size() > CACHE_LIMIT;
++        }
++    };
++
++    public OnDeviceSentenceEmbedder(Context context) throws IOException, OrtException, JSONException {
++        this.context = context.getApplicationContext();
++        tokenizer = new WordPieceTokenizer(this.context, VOCAB_ASSET);
++        DenseParameters dense = loadDense(this.context, DENSE_ASSET);

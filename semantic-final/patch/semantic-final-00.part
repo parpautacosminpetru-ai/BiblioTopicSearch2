@@ -1,0 +1,325 @@
+diff --git a/README.md b/README.md
+index 321cba5f4c9d008f195fb9edd0a1ac94170cbed0..295e692c35b9da952cf1d7a6b99a999e4209d00e 100644
+--- a/README.md
++++ b/README.md
+@@ -1,83 +1,87 @@
+-# Biblio Topic Search 1.1
++# Lupa Semantică 2.2
+ 
+-Biblio Topic Search este o aplicație Android offline pentru cercetare rapidă în cărți și alte surse fizice, folosind OCR live pe cameră. Aplicația nu decide semantic ce este relevant: utilizatorul definește termenii, nodurile și hărțile de cercetare, iar interpretarea contextului rămâne la utilizator.
++Lupa Semantică este o aplicație Android offline pentru scanarea textului tipărit cu camera și detectarea **ideilor exprimate explicit**, nu doar a cuvintelor identice.
+ 
+-## Interfața 1.1
++## Principiul semantic
+ 
+-- Camera rămâne ecranul principal.
+-- Buton mare `OCR LIVE / OCR ÎN PAUZĂ`: camera poate rămâne deschisă chiar dacă detecția este oprită temporar.
+-- Stare OCR vizibilă prin indicator colorat și statistici live.
+-- Harta activă și numărul de noduri/termeni sunt afișate sus; atingerea titlului deschide biblioteca de teme.
+-- Biblioteca locală permite mai multe hărți și foldere. Pentru subfoldere se pot folosi căi precum `Medievală/Reforma`.
+-- Hărțile pot fi activate rapid, duplicate, mutate/redenumite și șterse.
+-- Editorul hărții este vizual: arbore ierarhic, indentare pe nivel, culori permanente, termeni tip „chip”, pliere/expandare și activare/dezactivare rapidă prin apăsare lungă.
+-- Editorul brut cu `# / ## / ###` rămâne disponibil sub `EDITOR TEXT AVANSAT` pentru import și editări masive.
+-- Overlay-ul camerei păstrează toate highlight-urile, dar evită aglomerarea etichetelor: etichetele care nu încap devin badge-uri compacte în loc să se suprapună.
++Motorul 2.2 este extractiv și explicit-only:
+ 
+-## OCR și căutare
++- nu generează explicații;
++- nu produce interpretări literare sau psihologice;
++- nu etichetează o concluzie care nu este susținută de textul OCR;
++- fiecare rezultat păstrează dovada exactă START → END din pagină;
++- etichetele de compresie sunt fragmente copiate din dovadă, nu texte inventate.
+ 
+-- OCR live local pe dispozitiv cu CameraX + ML Kit Text Recognition.
+-- Camera folosește `STRATEGY_KEEP_ONLY_LATEST`, astfel încât cadrele vechi să nu blocheze preview-ul.
+-- Planul de căutare este compilat o singură dată când harta/setările se schimbă.
+-- Caută simultan termenii din toate nodurile active.
+-- Harta nu conține categorii prestabilite.
+-- Dacă un nod nu are termeni expliciți, titlul nodului este folosit temporar ca termen.
+-- Potriviri: Exact / Începe cu / Conține.
+-- Opțional: ignorare diacritice și comparație pe primele N caractere.
+-- Reglajul `Țintire` controlează stabilizarea grafică a etichetelor, nu precizia ML Kit.
+-- Highlight-urile vechi sunt eliminate automat dacă nu mai există un rezultat OCR proaspăt.
++Fluxul este:
+ 
+-## Hărți și noduri
++`OCR → unități de text → embeddings locale → similaritate semantică → nucleu → extindere START/END → topic/nod → categorie → etichete extractive → highlight`
+ 
+-- `+ NOD PRINCIPAL`, `+ SUBNOD`, `+ TERMEN`.
+-- Oricâte niveluri de ierarhie.
+-- Fiecare nod are culoare, simbol și stare activă proprie.
+-- `DOAR` activează temporar numai nodul ales.
+-- Activare/dezactivare pe nivel.
+-- Import din TXT, MD sau DOCX și export TXT.
++## Căutare semantică liberă
+ 
+-Formatul avansat:
++Bara `Caută semantic o idee explicită…` acceptă o formulare liberă. De exemplu, căutarea `restricție de deplasare` poate găsi un pasaj precum `Nu avea voie să părăsească orașul`, chiar dacă termenii nu coincid literal.
+ 
+-```text
+-# Nod principal
+-termen | expresie
+-## Subnod
+-alt termen
+-### Nivel următor
+-termen specific
+-```
++Dacă bara este goală, aplicația scanează semantic nodurile tematice active din harta utilizatorului.
+ 
+-## Dicționar local
++## Delimitarea ideii complete
+ 
+-CSV opțional:
++Un rezultat nu este doar propoziția cu scorul maxim. Motorul găsește nucleul semantic și extinde spre stânga/dreapta numai cât timp textul rămâne coerent cu aceeași idee. Spanul final este reverificat semantic ca întreg înainte să fie afișat.
+ 
+-```text
+-term,definition,synonyms,antonyms,source
+-```
++Fiecare `MatchHit` semantic conține:
+ 
+-Dicționarul și hărțile rămân local pe telefon.
++- topic/nod tematic;
++- categorie semantică;
++- scor de similaritate;
++- textul-dovadă complet;
++- începutul și sfârșitul dovezii;
++- bounding-box-urile OCR ale spanului;
++- maximum trei etichete de compresie extractive;
++- noduri tematice alternative suficient de apropiate.
++
++## Zoom semantic
++
++Butonul `ZOOM` are trei niveluri:
++
++1. `TOPIC` — bloc compact pentru nodul tematic;
++2. `IDEE` — evidențiază întregul span START → END și categoria;
++3. `DETALIU` — păstrează spanul și afișează etichetele de compresie extractive.
++
++Atingerea unui rezultat deschide dovada completă, cu START, END, categorie, topic/nod și etichete.
++
++## Categorii semantice
++
++Categoriile integrate descriu numai relații/forme care pot fi ancorate în text, precum definiție, cauză, consecință, condiție, scop, exemplu, comparație, contrast, restricție, obligație, permisiune, interdicție, schimbare și relație.
++
++Categoria este lăsată goală dacă pragul explicit nu este atins.
++
++## Model semantic offline
++
++Build-ul include local `sentence-transformers/distiluse-base-multilingual-cased-v2` (Apache-2.0), în varianta ONNX qint8 pentru ARM64, împreună cu vocabularul și stratul Dense al modelului. Modelul produce embeddings 512-dimensionale pentru căutare semantică multilinguală.
++
++Modelul este descărcat la build dintr-un commit Hugging Face fixat și este apoi inclus în APK. Aplicația nu are nevoie de internet la rulare și nu cere permisiunea `INTERNET`.
++
++## Fallback
++
++Dacă modelul semantic nu poate fi inițializat, aplicația păstrează motorul lexical existent ca fallback, astfel încât OCR-ul și hărțile de termeni să rămână utilizabile.
+ 
+ ## Confidențialitate
+ 
+-Aplicația nu cere permisiunea `INTERNET`. Camera nu este înregistrată și nimic nu se salvează automat. Un cadru este salvat numai dacă utilizatorul îl îngheață și apasă explicit `SALVEAZĂ`.
++- OCR local cu ML Kit;
++- embeddings locale cu ONNX Runtime;
++- fără upload de cameră sau text;
++- fără permisiune INTERNET;
++- nimic nu se salvează automat;
++- un cadru se salvează numai după acțiunea explicită a utilizatorului.
+ 
+ ## Build
+ 
+-Proiectul folosește:
+-
+ - Java 17
+ - Android API 36
+ - Android Gradle Plugin 8.13.2
+ - CameraX 1.6.1
+ - ML Kit Text Recognition bundled 16.0.1
++- ONNX Runtime Android 1.26.0
+ - minSdk 23
+-- orientare portret
+-
+-Dacă repository-ul tău conține arhiva `BiblioTopicSearch_FINAL.zip`, păstrează workflow-ul GitHub pe care îl folosești deja: acesta dezarhivează proiectul într-un folder `project` și rulează `gradle --no-daemon -p project :app:assembleDebug`.
++- versionCode 22
++- versionName 2.2.0
+ 
+-## 1.1.1 — control vizual live
+-- comenzile camerei au fost mutate sus, departe de bara de navigație Android;
+-- panou NODURI pentru a controla în timp real ce noduri sunt afișate, fără a opri căutarea lor;
+-- legendă compactă cu nod, forma OCR detectată și numărul de apariții;
+-- etichetele plutitoare sunt opționale și pot fi pornite/oprite direct pe cameră;
+-- mod de potrivire „Toate simultan (Exact + Începe cu + Conține)`.
++Repository-ul păstrează proiectul în `BiblioTopicSearch_FINAL.zip`. Workflow-ul GitHub îl dezarhivează, injectează modelul semantic pinned în `app/src/main/assets/semantic/`, verifică SHA-256 pentru fișierele binare principale și rulează `:app:assembleDebug`.
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 2088087c875e5da4403ce12eed44b0dc06298e06..831aead2f5995cd89ab857aa974a15efc5010ca8 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -10,8 +10,8 @@ android {
+         applicationId = "ro.bibliotopicsearch.app"
+         minSdk = 23
+         targetSdk = 36
+-        versionCode = 3
+-        versionName = "1.1.1"
++        versionCode = 22
++        versionName = "2.2.0"
+     }
+ 
+     compileOptions {
+@@ -19,6 +19,10 @@ android {
+         targetCompatibility = JavaVersion.VERSION_17
+     }
+ 
++    androidResources {
++        noCompress += listOf("onnx", "safetensors")
++    }
++
+     buildTypes {
+         release {
+             isMinifyEnabled = false
+@@ -42,4 +46,5 @@ dependencies {
+     implementation("androidx.camera:camera-mlkit-vision:$cameraX")
+ 
+     implementation("com.google.mlkit:text-recognition:16.0.1")
++    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.26.0")
+ }
+diff --git a/app/proguard-rules.pro b/app/proguard-rules.pro
+index 24f5f5aa31606e717144826656330c49be286c32..1c469c7c6dc558463a3fa4155262d21b112f87f5 100644
+--- a/app/proguard-rules.pro
++++ b/app/proguard-rules.pro
+@@ -1 +1,4 @@
+ # BiblioTopicSearch does not currently minify release builds.
++
++# ONNX Runtime Android reflection/JNI bindings.
++-keep class ai.onnxruntime.** { *; }
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java b/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
+index 4a993f3588051b933a767d7273f1f3bdb9dc65ed..49c7f15a908e317c703f38126605a2e7007100ea 100644
+--- a/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
+@@ -23,7 +23,10 @@ import android.os.Vibrator;
+ import android.view.Gravity;
+ import android.view.View;
+ import android.view.ViewGroup;
++import android.view.inputmethod.EditorInfo;
++import android.view.inputmethod.InputMethodManager;
+ import android.widget.Button;
++import android.widget.EditText;
+ import android.widget.FrameLayout;
+ import android.widget.HorizontalScrollView;
+ import android.widget.ImageView;
+@@ -56,6 +59,8 @@ import java.util.Set;
+ import java.util.concurrent.ExecutorService;
+ import java.util.concurrent.Executors;
+ 
++import ro.bibliotopicsearch.app.semantic.SemanticAnalyzer;
++
+ public final class MainActivity extends AppCompatActivity {
+     private static final int REQ_CAMERA = 101;
+     private static final int REQ_SAVE_FRAME = 501;
+@@ -74,6 +79,9 @@ public final class MainActivity extends AppCompatActivity {
+     private Button torchButton;
+     private Button nodesButton;
+     private Button labelsButton;
++    private Button semanticSearchButton;
++    private Button semanticDetailButton;
++    private EditText semanticSearchInput;
+     private LinearLayout nodePanel;
+     private LinearLayout nodeChips;
+     private LinearLayout legendPanel;
+@@ -84,6 +92,11 @@ public final class MainActivity extends AppCompatActivity {
+     private final ExecutorService analysisExecutor = Executors.newSingleThreadExecutor();
+     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+     private volatile TopicMatcher.SearchPlan searchPlan;
++    private volatile SemanticAnalyzer semanticAnalyzer;
++    private volatile boolean semanticReady = false;
++    private volatile String semanticFailure = "";
++    private volatile String semanticQuery = "";
++    private int semanticDetailLevel = 1;
+ 
+     private TopicMap topicMap;
+     private boolean frozen = false;
+@@ -104,7 +117,7 @@ public final class MainActivity extends AppCompatActivity {
+         if (!frozen && ocrEnabled && overlayView != null) {
+             overlayView.clearHits();
+             updateLegend(Collections.emptyList());
+-            setStatus("OCR live • caut text nou", Color.rgb(78, 201, 126));
++            setStatus(semanticReady ? "Semantic explicit • caut idee nouă" : "OCR live • caut text nou", Color.rgb(78, 201, 126));
+         }
+     };
+ 
+@@ -116,6 +129,8 @@ public final class MainActivity extends AppCompatActivity {
+         buildUi();
+         toneGenerator = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 22);
+         overlayView.setOnHitTapListener(this::showHitDetails);
++        overlayView.setDetailLevel(semanticDetailLevel);
++        initializeSemanticEngine();
+ 
+         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                 == PackageManager.PERMISSION_GRANTED) {
+@@ -147,6 +162,11 @@ public final class MainActivity extends AppCompatActivity {
+         }
+         if (recognizer != null) recognizer.close();
+         mainHandler.removeCallbacks(staleOverlayClear);
++        SemanticAnalyzer semantic = semanticAnalyzer;
++        semanticAnalyzer = null;
++        if (semantic != null) {
++            try { semantic.close(); } catch (Exception ignored) {}
++        }
+         analysisExecutor.shutdown();
+         if (toneGenerator != null) toneGenerator.release();
+         super.onDestroy();
+@@ -180,13 +200,13 @@ public final class MainActivity extends AppCompatActivity {
+         titleRow.setGravity(Gravity.CENTER_VERTICAL);
+ 
+         TextView appTitle = new TextView(this);
+-        appTitle.setText("Biblio Topic Search");
++        appTitle.setText("Lupa Semantică");
+         appTitle.setTextColor(Color.WHITE);
+         appTitle.setTextSize(19);
+         appTitle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+         titleRow.addView(appTitle, new LinearLayout.LayoutParams(0, dp(34), 1f));
+ 
+-        TextView localBadge = badge("OFFLINE", Color.rgb(69, 92, 113));
++        TextView localBadge = badge("EXPLICIT • OFFLINE", Color.rgb(31, 112, 128));
+         titleRow.addView(localBadge);
+         top.addView(titleRow);
+ 
+@@ -204,6 +224,33 @@ public final class MainActivity extends AppCompatActivity {
+         mapMetrics.setOnClickListener(v -> openLibrary());
+         top.addView(mapMetrics);
+ 
++        LinearLayout semanticSearchRow = new LinearLayout(this);
++        semanticSearchRow.setOrientation(LinearLayout.HORIZONTAL);
++        semanticSearchRow.setGravity(Gravity.CENTER_VERTICAL);
++        semanticSearchRow.setPadding(0, dp(5), 0, dp(1));
++
++        semanticSearchInput = new EditText(this);
++        semanticSearchInput.setSingleLine(true);
++        semanticSearchInput.setHint("Caută semantic o idee explicită…");
++        semanticSearchInput.setHintTextColor(Color.rgb(150, 169, 183));
++        semanticSearchInput.setTextColor(Color.WHITE);
++        semanticSearchInput.setTextSize(13);
++        semanticSearchInput.setPadding(dp(9), 0, dp(8), 0);
++        semanticSearchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
++        semanticSearchInput.setBackgroundTintList(ColorStateList.valueOf(Color.rgb(74, 111, 132)));
++        semanticSearchRow.addView(semanticSearchInput, new LinearLayout.LayoutParams(0, dp(40), 1f));
++
++        semanticSearchButton = actionButton("CAUTĂ");
++        semanticSearchButton.setMinWidth(dp(72));
++        LinearLayout.LayoutParams searchButtonLp = new LinearLayout.LayoutParams(
++                ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)
++        );
++        searchButtonLp.setMargins(dp(5), 0, 0, 0);
++        semanticSearchRow.addView(semanticSearchButton, searchButtonLp);
++        top.addView(semanticSearchRow, new LinearLayout.LayoutParams(
++                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)
++        ));
++
+         LinearLayout statusRow = new LinearLayout(this);
+         statusRow.setOrientation(LinearLayout.HORIZONTAL);
+         statusRow.setGravity(Gravity.CENTER_VERTICAL);
+@@ -242,6 +289,7 @@ public final class MainActivity extends AppCompatActivity {
+         toolbar.setPadding(0, dp(4), 0, dp(3));
+ 
+         ocrButton = toolbarButton(ocrEnabled ? "● OCR LIVE" : "Ⅱ OCR PAUZĂ");
++        semanticDetailButton = toolbarButton("ZOOM: IDEE");
+         nodesButton = toolbarButton("NODURI");
+         labelsButton = toolbarButton("ETICHETE");
+         Button libraryButton = toolbarButton("TEME");
+@@ -251,6 +299,7 @@ public final class MainActivity extends AppCompatActivity {

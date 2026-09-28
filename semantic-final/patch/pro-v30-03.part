@@ -1,0 +1,187 @@
++        updateLegend(Collections.emptyList());
++        setStatus(
++                activeQueryCount() == 0
++                        ? "Semantic live • adaugă o temă / idee"
++                        : "Semantic live • " + activeQueryCount() + " teme/idei active",
++                Color.rgb(78, 201, 126)
++        );
++    }
++
++    private void invalidateSemanticResults() {
++        invalidateSemanticResults(true);
++    }
++
++    private void invalidateSemanticResults(boolean bumpRevision) {
++        if (bumpRevision) {
++            synchronized (activeSemanticQueries) {
++                queryRevision++;
++            }
++        }
++        synchronized (semanticQueueLock) {
++            pendingSemanticFrame = null;
++        }
++        latestAllHits = Collections.emptyList();
++        if (overlayView != null) overlayView.clearHits();
++    }
++
++    private int activeQueryCount() {
++        synchronized (activeSemanticQueries) {
++            return activeSemanticQueries.size();
++        }
++    }
++
++    private long currentQueryRevision() {
++        synchronized (activeSemanticQueries) {
++            return queryRevision;
++        }
++    }
++
++    private boolean isActiveQuery(String query) {
++        String key = canonicalQuery(query);
++        synchronized (activeSemanticQueries) {
++            return activeSemanticQueries.containsKey(key);
++        }
++    }
++
++    private List<QuerySpec> activeQuerySnapshot() {
++        synchronized (activeSemanticQueries) {
++            return new ArrayList<>(activeSemanticQueries.values());
++        }
++    }
++
++    private int nextQueryColorLocked() {
++        Set<Integer> used = new HashSet<>();
++        for (QuerySpec query : activeSemanticQueries.values()) used.add(query.color);
++        for (int color : QUERY_COLORS) if (!used.contains(color)) return color;
++        return QUERY_COLORS[activeSemanticQueries.size() % QUERY_COLORS.length];
++    }
++
++    private String canonicalQuery(String value) {
++        if (value == null) return "";
++        return java.text.Normalizer.normalize(value.trim().toLowerCase(java.util.Locale.ROOT),
++                        java.text.Normalizer.Form.NFD)
++                .replaceAll("\\p{M}+", "")
++                .replaceAll("\\s+", " ")
++                .trim();
++    }
++
+     private int activeNodeCount(TopicMap map) {
+         int count = 0;
+         if (map != null) for (TopicNode node : map.nodes) if (node.enabled) count++;
+@@ -1094,4 +1290,39 @@ public final class MainActivity extends AppCompatActivity {
+             }
+         }
+     }
++
++    private static final class QuerySpec {
++        final String key;
++        final String text;
++        final int color;
++
++        QuerySpec(String key, String text, int color) {
++            this.key = key;
++            this.text = text;
++            this.color = color;
++        }
++    }
++
++    private static final class SemanticFrame {
++        final Text text;
++        final int recognizedWords;
++        final long queryRevision;
++        final List<QuerySpec> queries;
++        final TopicMap topicMap;
++
++        SemanticFrame(
++                Text text,
++                int recognizedWords,
++                long queryRevision,
++                List<QuerySpec> queries,
++                TopicMap topicMap
++        ) {
++            this.text = text;
++            this.recognizedWords = recognizedWords;
++            this.queryRevision = queryRevision;
++            this.queries = new ArrayList<>(queries);
++            this.topicMap = topicMap;
++        }
++    }
++
+ }
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/MatchHit.java b/app/src/main/java/ro/bibliotopicsearch/app/MatchHit.java
+index e5f7356..22db7d4 100644
+--- a/app/src/main/java/ro/bibliotopicsearch/app/MatchHit.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/MatchHit.java
+@@ -20,6 +20,7 @@ public final class MatchHit {
+     public final List<String> compressionLabels;
+     public final List<String> relatedTopics;
+     public final List<RectF> evidenceBoxes;
++    public final List<Float> evidenceRelevance;
+     public final String evidenceStart;
+     public final String evidenceEnd;
+ 
+@@ -37,6 +38,7 @@ public final class MatchHit {
+                 Collections.emptyList(),
+                 Collections.emptyList(),
+                 Collections.singletonList(new RectF(box)),
++                Collections.singletonList(0f),
+                 originalText,
+                 originalText
+         );
+@@ -55,6 +57,7 @@ public final class MatchHit {
+             List<String> compressionLabels,
+             List<String> relatedTopics,
+             List<RectF> evidenceBoxes,
++            List<Float> evidenceRelevance,
+             String evidenceStart,
+             String evidenceEnd
+     ) {
+@@ -70,10 +73,46 @@ public final class MatchHit {
+         this.compressionLabels = immutableStrings(compressionLabels);
+         this.relatedTopics = immutableStrings(relatedTopics);
+         this.evidenceBoxes = immutableBoxes(evidenceBoxes, box);
++        this.evidenceRelevance = immutableRelevance(evidenceRelevance, this.evidenceBoxes.size(), similarity);
+         this.evidenceStart = evidenceStart == null ? "" : evidenceStart;
+         this.evidenceEnd = evidenceEnd == null ? "" : evidenceEnd;
+     }
+ 
++    public MatchHit(
++            RectF box,
++            String originalText,
++            String searchTerm,
++            TopicNode node,
++            long detectedAt,
++            boolean semantic,
++            boolean explicitOnly,
++            float similarity,
++            String semanticCategory,
++            List<String> compressionLabels,
++            List<String> relatedTopics,
++            List<RectF> evidenceBoxes,
++            String evidenceStart,
++            String evidenceEnd
++    ) {
++        this(
++                box,
++                originalText,
++                searchTerm,
++                node,
++                detectedAt,
++                semantic,
++                explicitOnly,
++                similarity,
++                semanticCategory,
++                compressionLabels,
++                relatedTopics,
++                evidenceBoxes,
++                null,
++                evidenceStart,
++                evidenceEnd
++        );
++    }
++
+     public MatchHit withGeometry(RectF newBox, List<RectF> newEvidenceBoxes) {
+         return new MatchHit(
+                 newBox == null ? box : newBox,
+@@ -88,6 +127,27 @@ public final class MatchHit {
+                 compressionLabels,

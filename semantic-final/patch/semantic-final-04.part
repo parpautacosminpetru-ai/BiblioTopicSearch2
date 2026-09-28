@@ -1,0 +1,367 @@
++        for (int i = 0; i < units.size(); i++) {
++            scores[i] = OnDeviceSentenceEmbedder.cosine(queryVector, vectors.get(i));
++            best = Math.max(best, scores[i]);
++        }
++
++        float base = baseQueryThreshold(query);
++        float threshold = adaptiveThreshold(scores, base, best);
++        float continuation = Math.max(QUERY_CONTINUATION_FLOOR, threshold - 0.09f);
++
++        List<Integer> nuclei = sortedIndices(scores, threshold);
++        if (nuclei.isEmpty() && best >= base + 0.015f) {
++            int bestIndex = maxIndex(scores);
++            if (bestIndex >= 0) nuclei.add(bestIndex);
++        }
++
++        boolean[] consumed = new boolean[units.size()];
++        List<MatchHit> hits = new ArrayList<>();
++        for (int nucleus : nuclei) {
++            if (consumed[nucleus]) continue;
++            Span span = expandSpan(units, vectors, scores, nucleus, continuation);
++            String evidence = join(units, span.start, span.end);
++            float[] spanVector = embedder.embed(evidence);
++            float spanScore = OnDeviceSentenceEmbedder.cosine(queryVector, spanVector);
++
++            // Explicit-only gate: the final evidence itself must stay close to the query;
++            // an associative neighbour alone is not accepted.
++            if (spanScore < base - 0.025f && scores[nucleus] < threshold + 0.025f) continue;
++
++            TopicMatch topic = detectTopic(spanVector, topicMap);
++            TopicNode node = topic.primary == null ? syntheticNode(query) : topic.primary;
++            String category = detectCategory(evidence, spanVector);
++            List<String> labels = ExtractiveCompression.labels(evidence, query, 3);
++            MatchHit hit = buildHit(
++                    units,
++                    span,
++                    evidence,
++                    query,
++                    node,
++                    Math.max(spanScore, scores[nucleus]),
++                    category,
++                    labels,
++                    topic.related
++            );
++            hits.add(hit);
++            for (int i = span.start; i <= span.end; i++) consumed[i] = true;
++        }
++        hits.sort(Comparator.comparingDouble((MatchHit hit) -> hit.similarity).reversed());
++        return hits;
++    }
++
++    private List<MatchHit> analyzeTopics(
++            List<LineUnit> units,
++            List<float[]> vectors,
++            TopicMap topicMap
++    ) throws OrtException {
++        List<TopicNode> nodes = enabledNodes(topicMap);
++        if (nodes.isEmpty() || topicVectors.isEmpty()) return Collections.emptyList();
++
++        TopicNode[] bestNode = new TopicNode[units.size()];
++        float[] scores = new float[units.size()];
++        for (int i = 0; i < units.size(); i++) {
++            float best = -1f;
++            TopicNode winner = null;
++            for (TopicNode node : nodes) {
++                float[] topicVector = topicVectors.get(node.path);
++                if (topicVector == null) continue;
++                float score = OnDeviceSentenceEmbedder.cosine(vectors.get(i), topicVector);
++                if (score > best) {
++                    best = score;
++                    winner = node;
++                }
++            }
++            scores[i] = best;
++            bestNode[i] = winner;
++        }
++
++        List<Integer> nuclei = sortedIndices(scores, TOPIC_DIRECT_THRESHOLD);
++        boolean[] consumed = new boolean[units.size()];
++        List<MatchHit> hits = new ArrayList<>();
++        for (int nucleus : nuclei) {
++            if (consumed[nucleus] || bestNode[nucleus] == null) continue;
++            TopicNode target = bestNode[nucleus];
++            Span span = expandTopicSpan(units, vectors, bestNode, scores, nucleus, target);
++            String evidence = join(units, span.start, span.end);
++            float[] spanVector = embedder.embed(evidence);
++            float[] targetVector = topicVectors.get(target.path);
++            float spanScore = OnDeviceSentenceEmbedder.cosine(spanVector, targetVector);
++            if (spanScore < TOPIC_DIRECT_THRESHOLD - 0.035f) continue;
++
++            TopicMatch topics = detectTopic(spanVector, topicMap);
++            TopicNode node = topics.primary == null ? target : topics.primary;
++            String category = detectCategory(evidence, spanVector);
++            List<String> labels = ExtractiveCompression.labels(evidence, node.title, 3);
++            hits.add(buildHit(
++                    units,
++                    span,
++                    evidence,
++                    node.title,
++                    node,
++                    spanScore,
++                    category,
++                    labels,
++                    topics.related
++            ));
++            for (int i = span.start; i <= span.end; i++) consumed[i] = true;
++        }
++        hits.sort(Comparator.comparingDouble((MatchHit hit) -> hit.similarity).reversed());
++        return hits;
++    }
++
++    private Span expandSpan(
++            List<LineUnit> units,
++            List<float[]> vectors,
++            float[] scores,
++            int nucleus,
++            float continuationThreshold
++    ) {
++        int start = nucleus;
++        int end = nucleus;
++        while (start > 0 && end - start + 1 < MAX_SPAN_LINES) {
++            int candidate = start - 1;
++            if (!sameBlock(units, candidate, start)) break;
++            float coherence = OnDeviceSentenceEmbedder.cosine(vectors.get(candidate), vectors.get(start));
++            if (!canContinueLeft(units.get(candidate), units.get(start), scores[candidate], continuationThreshold, coherence)) break;
++            start = candidate;
++        }
++        while (end + 1 < units.size() && end - start + 1 < MAX_SPAN_LINES) {
++            int candidate = end + 1;
++            if (!sameBlock(units, end, candidate)) break;
++            float coherence = OnDeviceSentenceEmbedder.cosine(vectors.get(end), vectors.get(candidate));
++            if (!canContinueRight(units.get(end), units.get(candidate), scores[candidate], continuationThreshold, coherence)) break;
++            end = candidate;
++        }
++        return new Span(start, end);
++    }
++
++    private Span expandTopicSpan(
++            List<LineUnit> units,
++            List<float[]> vectors,
++            TopicNode[] bestNode,
++            float[] scores,
++            int nucleus,
++            TopicNode target
++    ) {
++        int start = nucleus;
++        int end = nucleus;
++        float continuation = TOPIC_DIRECT_THRESHOLD - 0.09f;
++        while (start > 0 && end - start + 1 < MAX_SPAN_LINES) {
++            int candidate = start - 1;
++            if (!sameBlock(units, candidate, start)) break;
++            boolean sameTopic = bestNode[candidate] != null && bestNode[candidate].path.equals(target.path);
++            float coherence = OnDeviceSentenceEmbedder.cosine(vectors.get(candidate), vectors.get(start));
++            if (!sameTopic || !canContinueLeft(units.get(candidate), units.get(start), scores[candidate], continuation, coherence)) break;
++            start = candidate;
++        }
++        while (end + 1 < units.size() && end - start + 1 < MAX_SPAN_LINES) {
++            int candidate = end + 1;
++            if (!sameBlock(units, end, candidate)) break;
++            boolean sameTopic = bestNode[candidate] != null && bestNode[candidate].path.equals(target.path);
++            float coherence = OnDeviceSentenceEmbedder.cosine(vectors.get(end), vectors.get(candidate));
++            if (!sameTopic || !canContinueRight(units.get(end), units.get(candidate), scores[candidate], continuation, coherence)) break;
++            end = candidate;
++        }
++        return new Span(start, end);
++    }
++
++    private boolean canContinueLeft(
++            LineUnit candidate,
++            LineUnit current,
++            float queryScore,
++            float threshold,
++            float coherence
++    ) {
++        if (queryScore >= threshold) return true;
++        if (queryScore < QUERY_CONTINUATION_FLOOR || coherence < COHERENCE_CONTINUATION) return false;
++        // If the previous visual line did not terminate a sentence, it is likely the
++        // beginning of the same sentence/idea. Otherwise require an explicit connector.
++        return !candidate.terminal || startsWithContinuation(current.text);
++    }
++
++    private boolean canContinueRight(
++            LineUnit current,
++            LineUnit candidate,
++            float queryScore,
++            float threshold,
++            float coherence
++    ) {
++        if (queryScore >= threshold) return true;
++        if (queryScore < QUERY_CONTINUATION_FLOOR || coherence < COHERENCE_CONTINUATION) return false;
++        return !current.terminal || startsWithContinuation(candidate.text);
++    }
++
++    private boolean startsWithContinuation(String text) {
++        String n = SemanticCatalog.normalize(text);
++        return n.startsWith("si ")
++                || n.startsWith("iar ")
++                || n.startsWith("dar ")
++                || n.startsWith("insa ")
++                || n.startsWith("care ")
++                || n.startsWith("ce ")
++                || n.startsWith("astfel ")
++                || n.startsWith("deci ")
++                || n.startsWith("prin urmare ")
++                || n.startsWith("in plus ")
++                || n.startsWith("apoi ");
++    }
++
++    private MatchHit buildHit(
++            List<LineUnit> units,
++            Span span,
++            String evidence,
++            String query,
++            TopicNode node,
++            float score,
++            String category,
++            List<String> labels,
++            List<String> relatedTopics
++    ) {
++        RectF union = null;
++        List<RectF> evidenceBoxes = new ArrayList<>();
++        for (int i = span.start; i <= span.end; i++) {
++            RectF box = units.get(i).box;
++            if (box == null) continue;
++            evidenceBoxes.add(new RectF(box));
++            if (union == null) union = new RectF(box);
++            else union.union(box);
++        }
++        if (union == null) union = new RectF();
++        String startText = units.get(span.start).text;
++        String endText = units.get(span.end).text;
++        return new MatchHit(
++                union,
++                evidence,
++                query,
++                node,
++                System.currentTimeMillis(),
++                true,
++                true,
++                score,
++                category,
++                labels,
++                relatedTopics,
++                evidenceBoxes,
++                startText,
++                endText
++        );
++    }
++
++    private TopicMatch detectTopic(float[] vector, TopicMap topicMap) {
++        List<TopicNode> nodes = enabledNodes(topicMap);
++        if (nodes.isEmpty()) return new TopicMatch(null, Collections.emptyList());
++        List<ScoredTopic> scored = new ArrayList<>();
++        for (TopicNode node : nodes) {
++            float[] nodeVector = topicVectors.get(node.path);
++            if (nodeVector == null) continue;
++            float score = OnDeviceSentenceEmbedder.cosine(vector, nodeVector);
++            if (score >= TOPIC_RELATED_THRESHOLD) scored.add(new ScoredTopic(node, score));
++        }
++        scored.sort(Comparator.comparingDouble((ScoredTopic value) -> value.score).reversed());
++        if (scored.isEmpty() || scored.get(0).score < TOPIC_DIRECT_THRESHOLD) {
++            return new TopicMatch(null, Collections.emptyList());
++        }
++        TopicNode primary = scored.get(0).node;
++        List<String> related = new ArrayList<>();
++        float top = scored.get(0).score;
++        for (ScoredTopic value : scored) {
++            if (related.size() >= 3) break;
++            if (value.score + 0.10f < top) break;
++            related.add(value.node.path + "  " + percent(value.score));
++        }
++        return new TopicMatch(primary, related);
++    }
++
++    private String detectCategory(String evidence, float[] vector) {
++        String bestLabel = "";
++        float bestScore = -1f;
++        for (int i = 0; i < SemanticCatalog.CATEGORIES.size(); i++) {
++            SemanticCatalog.Category category = SemanticCatalog.CATEGORIES.get(i);
++            float score = OnDeviceSentenceEmbedder.cosine(vector, categoryVectors.get(i));
++            boolean cue = category.hasExplicitCue(evidence);
++            boolean accepted = cue
++                    ? score >= CATEGORY_CUE_MIN_THRESHOLD
++                    : score >= CATEGORY_DIRECT_THRESHOLD;
++            if (!accepted) continue;
++            float ranked = score + (cue ? 0.12f : 0f);
++            if (ranked > bestScore) {
++                bestScore = ranked;
++                bestLabel = category.label;
++            }
++        }
++        return bestLabel;
++    }
++
++    private void ensureTopicVectors(TopicMap map) throws OrtException {
++        List<TopicNode> nodes = enabledNodes(map);
++        StringBuilder signature = new StringBuilder();
++        List<String> descriptors = new ArrayList<>();
++        for (TopicNode node : nodes) {
++            String descriptor = topicDescriptor(node);
++            signature.append(node.path).append('|').append(descriptor).append(';');
++            descriptors.add(descriptor);
++        }
++        String next = signature.toString();
++        if (next.equals(topicSignature)) return;
++
++        topicVectors.clear();
++        topicSignature = next;
++        if (nodes.isEmpty()) return;
++        List<float[]> vectors = embedder.embedAll(descriptors);
++        for (int i = 0; i < nodes.size(); i++) topicVectors.put(nodes.get(i).path, vectors.get(i));
++    }
++
++    private String topicDescriptor(TopicNode node) {
++        StringBuilder out = new StringBuilder(node.title == null ? "" : node.title);
++        int count = 0;
++        for (String term : node.terms) {
++            if (term == null || term.trim().isEmpty()) continue;
++            if (out.length() > 0) out.append("; ");
++            out.append(term.trim());
++            if (++count >= 12) break;
++        }
++        return out.toString();
++    }
++
++    private List<TopicNode> enabledNodes(TopicMap map) {
++        if (map == null || map.nodes == null || map.nodes.isEmpty()) return Collections.emptyList();
++        List<TopicNode> out = new ArrayList<>();
++        for (TopicNode node : map.nodes) if (node != null && node.enabled) out.add(node);
++        return out;
++    }
++
++    private TopicNode syntheticNode(String query) {
++        TopicNode node = new TopicNode("⌕ / " + query, query, 0);
++        node.enabled = true;
++        node.symbol = "⌕";
++        node.color = Color.rgb(24, 142, 165);
++        node.terms.add(query);
++        return node;
++    }
++
++    private float baseQueryThreshold(String query) {
++        int words = Math.max(1, SemanticCatalog.normalize(query).split("\\s+").length);
++        float precision = Math.max(0, Math.min(100, AppPrefs.precision(context))) / 100f;
++        float base = words <= 2 ? 0.555f : 0.515f;
++        return base + (precision - 0.90f) * 0.055f;
++    }
++
++    private float adaptiveThreshold(float[] scores, float base, float best) {
++        if (scores.length == 0) return base;
++        float[] sorted = scores.clone();
++        java.util.Arrays.sort(sorted);
++        float median = sorted[sorted.length / 2];
++        float q75 = sorted[(int) Math.floor((sorted.length - 1) * 0.75f)];
++        float threshold = Math.max(base, Math.max(median + 0.075f, q75 + 0.035f));
++        if (best >= base + 0.03f) threshold = Math.min(threshold, best - 0.008f);
++        return threshold;
++    }
++
++    private List<Integer> sortedIndices(float[] values, float minimum) {
++        List<Integer> out = new ArrayList<>();
++        for (int i = 0; i < values.length; i++) if (values[i] >= minimum) out.add(i);
++        out.sort((a, b) -> Float.compare(values[b], values[a]));
++        return out;
++    }
++
++    private int maxIndex(float[] values) {
++        int index = -1;

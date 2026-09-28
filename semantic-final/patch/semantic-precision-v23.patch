@@ -1,0 +1,327 @@
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java b/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
+index 1c30b37..360b3cb 100644
+--- a/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
+@@ -34,18 +34,20 @@ import ai.onnxruntime.OrtException;
+  * and compression label back to the exact OCR text.
+  */
+ public final class SemanticAnalyzer implements Closeable {
+-    private static final float TOPIC_DIRECT_THRESHOLD = 0.54f;
+-    private static final float TOPIC_RELATED_THRESHOLD = 0.47f;
+-    private static final float CATEGORY_DIRECT_THRESHOLD = 0.66f;
+-    private static final float CATEGORY_CUE_MIN_THRESHOLD = 0.30f;
+-    private static final float COHERENCE_CONTINUATION = 0.76f;
+-    private static final float QUERY_CONTINUATION_FLOOR = 0.34f;
+-    private static final int MAX_SPAN_LINES = 10;
++    private static final float TOPIC_DIRECT_THRESHOLD = 0.49f;
++    private static final float TOPIC_RELATED_THRESHOLD = 0.43f;
++    private static final float CATEGORY_DIRECT_THRESHOLD = 0.72f;
++    private static final float CATEGORY_CUE_MIN_THRESHOLD = 0.34f;
++    private static final float COHERENCE_CONTINUATION = 0.70f;
++    private static final float QUERY_CONTINUATION_FLOOR = 0.30f;
++    private static final float LOW_CONFIDENCE_MARGIN = 0.045f;
++    private static final int MAX_SPAN_LINES = 6;
++    private static final int MAX_OCR_LINES_PER_SENTENCE = 4;
+ 
+     private final Context context;
+     private final OnDeviceSentenceEmbedder embedder;
+     private final List<float[]> categoryVectors;
+-    private final Map<String, float[]> topicVectors = new LinkedHashMap<>();
++    private final Map<String, List<float[]>> topicVectors = new LinkedHashMap<>();
+     private String topicSignature = "";
+ 
+     public SemanticAnalyzer(Context context) throws Exception {
+@@ -90,8 +92,9 @@ public final class SemanticAnalyzer implements Closeable {
+ 
+         float base = baseQueryThreshold(query);
+         float threshold = adaptiveThreshold(scores, base, best);
+-        float continuation = Math.max(QUERY_CONTINUATION_FLOOR, threshold - 0.09f);
++        float continuation = Math.max(QUERY_CONTINUATION_FLOOR, threshold - 0.085f);
+ 
++        if (!hasSemanticSeparation(scores, best, base)) return Collections.emptyList();
+         List<Integer> nuclei = sortedIndices(scores, threshold);
+         if (nuclei.isEmpty() && best >= base + 0.015f) {
+             int bestIndex = maxIndex(scores);
+@@ -109,7 +112,8 @@ public final class SemanticAnalyzer implements Closeable {
+ 
+             // Explicit-only gate: the final evidence itself must stay close to the query;
+             // an associative neighbour alone is not accepted.
+-            if (spanScore < base - 0.025f && scores[nucleus] < threshold + 0.025f) continue;
++            float requiredSpanScore = Math.max(base - 0.020f, scores[nucleus] - 0.075f);
++            if (spanScore < requiredSpanScore) continue;
+ 
+             TopicMatch topic = detectTopic(spanVector, topicMap);
+             TopicNode node = topic.primary == null ? syntheticNode(query) : topic.primary;
+@@ -147,9 +151,7 @@ public final class SemanticAnalyzer implements Closeable {
+             float best = -1f;
+             TopicNode winner = null;
+             for (TopicNode node : nodes) {
+-                float[] topicVector = topicVectors.get(node.path);
+-                if (topicVector == null) continue;
+-                float score = OnDeviceSentenceEmbedder.cosine(vectors.get(i), topicVector);
++                float score = topicScore(vectors.get(i), node);
+                 if (score > best) {
+                     best = score;
+                     winner = node;
+@@ -168,9 +170,8 @@ public final class SemanticAnalyzer implements Closeable {
+             Span span = expandTopicSpan(units, vectors, bestNode, scores, nucleus, target);
+             String evidence = join(units, span.start, span.end);
+             float[] spanVector = embedder.embed(evidence);
+-            float[] targetVector = topicVectors.get(target.path);
+-            float spanScore = OnDeviceSentenceEmbedder.cosine(spanVector, targetVector);
+-            if (spanScore < TOPIC_DIRECT_THRESHOLD - 0.035f) continue;
++            float spanScore = topicScore(spanVector, target);
++            if (spanScore < TOPIC_DIRECT_THRESHOLD - 0.025f) continue;
+ 
+             TopicMatch topics = detectTopic(spanVector, topicMap);
+             TopicNode node = topics.primary == null ? target : topics.primary;
+@@ -304,15 +305,16 @@ public final class SemanticAnalyzer implements Closeable {
+         RectF union = null;
+         List<RectF> evidenceBoxes = new ArrayList<>();
+         for (int i = span.start; i <= span.end; i++) {
+-            RectF box = units.get(i).box;
+-            if (box == null) continue;
+-            evidenceBoxes.add(new RectF(box));
+-            if (union == null) union = new RectF(box);
+-            else union.union(box);
++            LineUnit unit = units.get(i);
++            if (unit.box != null) {
++                if (union == null) union = new RectF(unit.box);
++                else union.union(unit.box);
++            }
++            for (RectF box : unit.evidenceBoxes) evidenceBoxes.add(new RectF(box));
+         }
+         if (union == null) union = new RectF();
+-        String startText = units.get(span.start).text;
+-        String endText = units.get(span.end).text;
++        String startText = units.get(span.start).startText;
++        String endText = units.get(span.end).endText;
+         return new MatchHit(
+                 union,
+                 evidence,
+@@ -336,9 +338,7 @@ public final class SemanticAnalyzer implements Closeable {
+         if (nodes.isEmpty()) return new TopicMatch(null, Collections.emptyList());
+         List<ScoredTopic> scored = new ArrayList<>();
+         for (TopicNode node : nodes) {
+-            float[] nodeVector = topicVectors.get(node.path);
+-            if (nodeVector == null) continue;
+-            float score = OnDeviceSentenceEmbedder.cosine(vector, nodeVector);
++            float score = topicScore(vector, node);
+             if (score >= TOPIC_RELATED_THRESHOLD) scored.add(new ScoredTopic(node, score));
+         }
+         scored.sort(Comparator.comparingDouble((ScoredTopic value) -> value.score).reversed());
+@@ -380,31 +380,67 @@ public final class SemanticAnalyzer implements Closeable {
+         List<TopicNode> nodes = enabledNodes(map);
+         StringBuilder signature = new StringBuilder();
+         List<String> descriptors = new ArrayList<>();
++        List<String> descriptorOwners = new ArrayList<>();
++
+         for (TopicNode node : nodes) {
+-            String descriptor = topicDescriptor(node);
+-            signature.append(node.path).append('|').append(descriptor).append(';');
+-            descriptors.add(descriptor);
++            List<String> nodeDescriptors = topicDescriptors(node);
++            signature.append(node.path).append('|');
++            for (String descriptor : nodeDescriptors) {
++                signature.append(descriptor).append(';');
++                descriptors.add(descriptor);
++                descriptorOwners.add(node.path);
++            }
++            signature.append('#');
+         }
++
+         String next = signature.toString();
+         if (next.equals(topicSignature)) return;
+ 
+         topicVectors.clear();
+         topicSignature = next;
+-        if (nodes.isEmpty()) return;
++        if (descriptors.isEmpty()) return;
++
+         List<float[]> vectors = embedder.embedAll(descriptors);
+-        for (int i = 0; i < nodes.size(); i++) topicVectors.put(nodes.get(i).path, vectors.get(i));
++        for (int i = 0; i < vectors.size(); i++) {
++            String owner = descriptorOwners.get(i);
++            List<float[]> values = topicVectors.get(owner);
++            if (values == null) {
++                values = new ArrayList<>();
++                topicVectors.put(owner, values);
++            }
++            values.add(vectors.get(i));
++        }
+     }
+ 
+-    private String topicDescriptor(TopicNode node) {
+-        StringBuilder out = new StringBuilder(node.title == null ? "" : node.title);
++    private List<String> topicDescriptors(TopicNode node) {
++        List<String> out = new ArrayList<>();
++        if (node.title != null && !node.title.trim().isEmpty()) out.add(node.title.trim());
+         int count = 0;
+         for (String term : node.terms) {
+             if (term == null || term.trim().isEmpty()) continue;
+-            if (out.length() > 0) out.append("; ");
+-            out.append(term.trim());
++            String value = term.trim();
++            boolean duplicate = false;
++            for (String existing : out) {
++                if (SemanticCatalog.normalize(existing).equals(SemanticCatalog.normalize(value))) {
++                    duplicate = true;
++                    break;
++                }
++            }
++            if (!duplicate) out.add(value);
+             if (++count >= 12) break;
+         }
+-        return out.toString();
++        return out;
++    }
++
++    private float topicScore(float[] vector, TopicNode node) {
++        if (node == null) return -1f;
++        List<float[]> candidates = topicVectors.get(node.path);
++        if (candidates == null || candidates.isEmpty()) return -1f;
++        float best = -1f;
++        for (float[] candidate : candidates) {
++            best = Math.max(best, OnDeviceSentenceEmbedder.cosine(vector, candidate));
++        }
++        return best;
+     }
+ 
+     private List<TopicNode> enabledNodes(TopicMap map) {
+@@ -426,8 +462,8 @@ public final class SemanticAnalyzer implements Closeable {
+     private float baseQueryThreshold(String query) {
+         int words = Math.max(1, SemanticCatalog.normalize(query).split("\\s+").length);
+         float precision = Math.max(0, Math.min(100, AppPrefs.precision(context))) / 100f;
+-        float base = words <= 2 ? 0.555f : 0.515f;
+-        return base + (precision - 0.90f) * 0.055f;
++        float base = words <= 2 ? 0.485f : 0.445f;
++        return base + (precision - 0.75f) * 0.10f;
+     }
+ 
+     private float adaptiveThreshold(float[] scores, float base, float best) {
+@@ -436,11 +472,21 @@ public final class SemanticAnalyzer implements Closeable {
+         java.util.Arrays.sort(sorted);
+         float median = sorted[sorted.length / 2];
+         float q75 = sorted[(int) Math.floor((sorted.length - 1) * 0.75f)];
+-        float threshold = Math.max(base, Math.max(median + 0.075f, q75 + 0.035f));
+-        if (best >= base + 0.03f) threshold = Math.min(threshold, best - 0.008f);
++        float relative = Math.max(median + 0.055f, q75 + 0.022f);
++        float threshold = Math.max(base, relative);
++        if (best >= base) threshold = Math.min(threshold, best - 0.010f);
+         return threshold;
+     }
+ 
++    private boolean hasSemanticSeparation(float[] scores, float best, float base) {
++        if (scores.length <= 2) return best >= base;
++        float[] sorted = scores.clone();
++        java.util.Arrays.sort(sorted);
++        float median = sorted[sorted.length / 2];
++        if (best >= 0.62f) return true;
++        return best >= base && best - median >= LOW_CONFIDENCE_MARGIN;
++    }
++
+     private List<Integer> sortedIndices(float[] values, float minimum) {
+         List<Integer> out = new ArrayList<>();
+         for (int i = 0; i < values.length; i++) if (values[i] >= minimum) out.add(i);
+@@ -469,20 +515,61 @@ public final class SemanticAnalyzer implements Closeable {
+         List<LineUnit> out = new ArrayList<>();
+         int blockIndex = 0;
+         for (Text.TextBlock block : text.getTextBlocks()) {
+-            int lineIndex = 0;
++            StringBuilder sentence = new StringBuilder();
++            List<RectF> boxes = new ArrayList<>();
++            RectF union = null;
++            String startText = "";
++            String endText = "";
++            int sentenceIndex = 0;
++            int linesInSentence = 0;
++
+             for (Text.Line line : block.getLines()) {
+                 String value = line.getText() == null ? "" : line.getText().trim();
+                 Rect rect = line.getBoundingBox();
+-                if (!value.isEmpty() && rect != null) {
++                if (value.isEmpty() || rect == null) continue;
++
++                if (sentence.length() == 0) startText = value;
++                if (sentence.length() > 0) sentence.append(' ');
++                sentence.append(value);
++                endText = value;
++                RectF lineBox = new RectF(rect);
++                boxes.add(lineBox);
++                if (union == null) union = new RectF(lineBox);
++                else union.union(lineBox);
++                linesInSentence++;
++
++                boolean flush = endsTerminal(value) || linesInSentence >= MAX_OCR_LINES_PER_SENTENCE;
++                if (flush) {
+                     out.add(new LineUnit(
+-                            value,
+-                            new RectF(rect),
++                            sentence.toString().replaceAll("\\s+", " ").trim(),
++                            union,
++                            boxes,
++                            startText,
++                            endText,
+                             blockIndex,
+-                            lineIndex,
++                            sentenceIndex++,
+                             endsTerminal(value)
+                     ));
++                    sentence = new StringBuilder();
++                    boxes = new ArrayList<>();
++                    union = null;
++                    startText = "";
++                    endText = "";
++                    linesInSentence = 0;
+                 }
+-                lineIndex++;
++            }
++
++            if (sentence.length() > 0 && union != null) {
++                out.add(new LineUnit(
++                        sentence.toString().replaceAll("\\s+", " ").trim(),
++                        union,
++                        boxes,
++                        startText,
++                        endText,
++                        blockIndex,
++                        sentenceIndex,
++                        true
++                ));
+             }
+             blockIndex++;
+         }
+@@ -515,13 +602,31 @@ public final class SemanticAnalyzer implements Closeable {
+     private static final class LineUnit {
+         final String text;
+         final RectF box;
++        final List<RectF> evidenceBoxes;
++        final String startText;
++        final String endText;
+         final int blockIndex;
+         final int lineIndex;
+         final boolean terminal;
+ 
+-        LineUnit(String text, RectF box, int blockIndex, int lineIndex, boolean terminal) {
++        LineUnit(
++                String text,
++                RectF box,
++                List<RectF> evidenceBoxes,
++                String startText,
++                String endText,
++                int blockIndex,
++                int lineIndex,
++                boolean terminal
++        ) {
+             this.text = text;
+-            this.box = box;
++            this.box = box == null ? null : new RectF(box);
++            this.evidenceBoxes = new ArrayList<>();
++            if (evidenceBoxes != null) {
++                for (RectF value : evidenceBoxes) if (value != null) this.evidenceBoxes.add(new RectF(value));
++            }
++            this.startText = startText == null ? "" : startText;
++            this.endText = endText == null ? "" : endText;
+             this.blockIndex = blockIndex;
+             this.lineIndex = lineIndex;
+             this.terminal = terminal;

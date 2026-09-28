@@ -1,0 +1,337 @@
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java b/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
+index e2c2bcf..53a3a4d 100644
+--- a/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/MainActivity.java
+@@ -98,7 +98,7 @@ public final class MainActivity extends AppCompatActivity {
+     private volatile String semanticFailure = "";
+     private volatile String semanticQuery = "";
+     private volatile String latestOcrText = "";
+-    private int semanticDetailLevel = 1;
++    private int semanticDetailLevel = 0;
+ 
+     private TopicMap topicMap;
+     private boolean frozen = false;
+@@ -130,7 +130,10 @@ public final class MainActivity extends AppCompatActivity {
+         floatingLabelsEnabled = AppPrefs.floatingLabels(this);
+         buildUi();
+         toneGenerator = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 22);
+-        overlayView.setOnHitTapListener(this::showHitDetails);
++        overlayView.setOnHitTapListener(hit -> {
++            // Professional semantic mode is visual: tap never opens metadata over the page.
++            if (hit != null && !hit.semantic) showHitDetails(hit);
++        });
+         overlayView.setDetailLevel(semanticDetailLevel);
+         initializeSemanticEngine();
+ 
+@@ -278,9 +281,8 @@ public final class MainActivity extends AppCompatActivity {
+         legendScroll.addView(legendPanel, new HorizontalScrollView.LayoutParams(
+                 ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)
+         ));
+-        top.addView(legendScroll, new LinearLayout.LayoutParams(
+-                ViewGroup.LayoutParams.MATCH_PARENT, dp(34)
+-        ));
++        // Semantic search returns the evidence directly on the page. No result legend sits
++        // between the query and the highlighted text.
+         updateLegend(Collections.emptyList());
+ 
+         HorizontalScrollView toolScroll = new HorizontalScrollView(this);
+@@ -291,7 +293,7 @@ public final class MainActivity extends AppCompatActivity {
+         toolbar.setPadding(0, dp(4), 0, dp(3));
+ 
+         ocrButton = toolbarButton(ocrEnabled ? "● OCR LIVE" : "Ⅱ OCR PAUZĂ");
+-        semanticDetailButton = toolbarButton("ZOOM: IDEE");
++        semanticDetailButton = toolbarButton("ZOOM: SPAN");
+         nodesButton = toolbarButton("NODURI");
+         labelsButton = toolbarButton("ETICHETE");
+         Button libraryButton = toolbarButton("TEME");
+@@ -304,7 +306,7 @@ public final class MainActivity extends AppCompatActivity {
+         toolbar.addView(ocrButton, toolbarLp());
+         toolbar.addView(semanticDetailButton, toolbarLp());
+         toolbar.addView(nodesButton, toolbarLp());
+-        toolbar.addView(labelsButton, toolbarLp());
++        // Semantic results never draw text labels over OCR; keep the old control detached.
+         toolbar.addView(libraryButton, toolbarLp());
+         toolbar.addView(notebookButton, toolbarLp());
+         toolbar.addView(freezeButton, toolbarLp());
+@@ -503,9 +505,9 @@ public final class MainActivity extends AppCompatActivity {
+     private void cycleSemanticDetail() {
+         semanticDetailLevel = (semanticDetailLevel + 1) % 3;
+         overlayView.setDetailLevel(semanticDetailLevel);
+-        if (semanticDetailLevel == 0) semanticDetailButton.setText("ZOOM: TOPIC");
+-        else if (semanticDetailLevel == 1) semanticDetailButton.setText("ZOOM: IDEE");
+-        else semanticDetailButton.setText("ZOOM: DETALIU");
++        if (semanticDetailLevel == 0) semanticDetailButton.setText("ZOOM: SPAN");
++        else if (semanticDetailLevel == 1) semanticDetailButton.setText("ZOOM: RELEVANȚĂ");
++        else semanticDetailButton.setText("ZOOM: NUCLEU");
+         redrawVisibleHits();
+     }
+ 
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/MatchHit.java b/app/src/main/java/ro/bibliotopicsearch/app/MatchHit.java
+index e5f7356..e257457 100644
+--- a/app/src/main/java/ro/bibliotopicsearch/app/MatchHit.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/MatchHit.java
+@@ -20,6 +20,7 @@ public final class MatchHit {
+     public final List<String> compressionLabels;
+     public final List<String> relatedTopics;
+     public final List<RectF> evidenceBoxes;
++    public final List<Float> evidenceRelevance;
+     public final String evidenceStart;
+     public final String evidenceEnd;
+ 
+@@ -37,6 +38,7 @@ public final class MatchHit {
+                 Collections.emptyList(),
+                 Collections.emptyList(),
+                 Collections.singletonList(new RectF(box)),
++                Collections.singletonList(0f),
+                 originalText,
+                 originalText
+         );
+@@ -55,6 +57,7 @@ public final class MatchHit {
+             List<String> compressionLabels,
+             List<String> relatedTopics,
+             List<RectF> evidenceBoxes,
++            List<Float> evidenceRelevance,
+             String evidenceStart,
+             String evidenceEnd
+     ) {
+@@ -70,10 +73,46 @@ public final class MatchHit {
+         this.compressionLabels = immutableStrings(compressionLabels);
+         this.relatedTopics = immutableStrings(relatedTopics);
+         this.evidenceBoxes = immutableBoxes(evidenceBoxes, box);
++        this.evidenceRelevance = immutableRelevance(evidenceRelevance, this.evidenceBoxes.size(), similarity);
+         this.evidenceStart = evidenceStart == null ? "" : evidenceStart;
+         this.evidenceEnd = evidenceEnd == null ? "" : evidenceEnd;
+     }
+ 
++    public MatchHit(
++            RectF box,
++            String originalText,
++            String searchTerm,
++            TopicNode node,
++            long detectedAt,
++            boolean semantic,
++            boolean explicitOnly,
++            float similarity,
++            String semanticCategory,
++            List<String> compressionLabels,
++            List<String> relatedTopics,
++            List<RectF> evidenceBoxes,
++            String evidenceStart,
++            String evidenceEnd
++    ) {
++        this(
++                box,
++                originalText,
++                searchTerm,
++                node,
++                detectedAt,
++                semantic,
++                explicitOnly,
++                similarity,
++                semanticCategory,
++                compressionLabels,
++                relatedTopics,
++                evidenceBoxes,
++                null,
++                evidenceStart,
++                evidenceEnd
++        );
++    }
++
+     public MatchHit withGeometry(RectF newBox, List<RectF> newEvidenceBoxes) {
+         return new MatchHit(
+                 newBox == null ? box : newBox,
+@@ -88,6 +127,7 @@ public final class MatchHit {
+                 compressionLabels,
+                 relatedTopics,
+                 newEvidenceBoxes == null ? evidenceBoxes : newEvidenceBoxes,
++                evidenceRelevance,
+                 evidenceStart,
+                 evidenceEnd
+         );
+@@ -114,4 +154,15 @@ public final class MatchHit {
+         if (out.isEmpty() && fallback != null) out.add(new RectF(fallback));
+         return Collections.unmodifiableList(out);
+     }
++
++    private static List<Float> immutableRelevance(List<Float> values, int size, float fallback) {
++        if (size <= 0) return Collections.emptyList();
++        List<Float> out = new ArrayList<>(size);
++        for (int i = 0; i < size; i++) {
++            float value = fallback;
++            if (values != null && i < values.size() && values.get(i) != null) value = values.get(i);
++            out.add(value);
++        }
++        return Collections.unmodifiableList(out);
++    }
+ }
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/OverlayView.java b/app/src/main/java/ro/bibliotopicsearch/app/OverlayView.java
+index b9a2073..241a791 100644
+--- a/app/src/main/java/ro/bibliotopicsearch/app/OverlayView.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/OverlayView.java
+@@ -33,7 +33,7 @@ public final class OverlayView extends View {
+     private Set<String> flashingOccurrenceKeys = new HashSet<>();
+     private long flashUntil = 0L;
+     private boolean showLabels = true;
+-    private int detailLevel = 1;
++    private int detailLevel = 0;
+     private OnHitTapListener tapListener;
+ 
+     public OverlayView(Context context) {
+@@ -67,7 +67,10 @@ public final class OverlayView extends View {
+     }
+ 
+     /**
+-     * 0 = topic overview, 1 = full idea/category, 2 = extractive detail labels.
++     * Semantic zoom is visual only:
++     * 0 = complete START→END span as one block;
++     * 1 = OCR-line relevance inside the span;
++     * 2 = high-contrast semantic nucleus while keeping the full span visible.
+      */
+     public void setDetailLevel(int level) {
+         detailLevel = Math.max(0, Math.min(2, level));
+@@ -214,26 +217,38 @@ public final class OverlayView extends View {
+         long now = System.currentTimeMillis();
+         boolean flashActive = now < flashUntil;
+ 
+-        // Întâi desenăm toate potrivirile. Nicio potrivire nu este eliminată doar
+-        // pentru că ecranul este aglomerat.
++        // Search result = direct highlight. Semantic metadata never sits on top of OCR.
+         for (MatchHit hit : hits) {
+             int color = hit.node.color;
+             boolean flashing = flashActive && flashingOccurrenceKeys.contains(occurrenceKey(hit));
+ 
+             fillPaint.setStyle(Paint.Style.FILL);
+-            fillPaint.setColor(withAlpha(color, flashing ? 100 : 58));
+             strokePaint.setColor(withAlpha(color, 245));
+             strokePaint.setStrokeWidth(dp(flashing ? 4f : 2.5f));
+ 
+             if (hit.semantic && detailLevel > 0 && hit.evidenceBoxes != null && !hit.evidenceBoxes.isEmpty()) {
+-                // Semantic span detail: draw every OCR line that belongs to START→END.
+-                for (RectF evidence : hit.evidenceBoxes) {
++                float minRelevance = minRelevance(hit);
++                float maxRelevance = maxRelevance(hit);
++                for (int i = 0; i < hit.evidenceBoxes.size(); i++) {
++                    RectF evidence = hit.evidenceBoxes.get(i);
++                    float relevance = i < hit.evidenceRelevance.size()
++                            ? hit.evidenceRelevance.get(i)
++                            : hit.similarity;
++                    float normalized = normalizeRelevance(relevance, minRelevance, maxRelevance);
++                    int alpha = relevanceAlpha(normalized, detailLevel, flashing);
++                    fillPaint.setColor(withAlpha(color, alpha));
++                    strokePaint.setColor(withAlpha(color,
++                            detailLevel == 2 && normalized >= 0.82f ? 250 : 135));
++                    strokePaint.setStrokeWidth(dp(detailLevel == 2 && normalized >= 0.82f ? 3.2f : 1.4f));
+                     RectF part = paddedBox(evidence);
+                     canvas.drawRoundRect(part, dp(4), dp(4), fillPaint);
+                     canvas.drawRoundRect(part, dp(4), dp(4), strokePaint);
+                 }
+             } else {
+-                // Overview zoom: one compact thematic block.
++                fillPaint.setColor(withAlpha(color, flashing ? 105 : 64));
++                strokePaint.setColor(withAlpha(color, flashing ? 250 : 205));
++                strokePaint.setStrokeWidth(dp(flashing ? 4f : 2.0f));
++                // Overview: exactly one block for the complete semantic START→END span.
+                 RectF box = paddedBox(hit.box);
+                 canvas.drawRoundRect(box, dp(4), dp(4), fillPaint);
+                 canvas.drawRoundRect(box, dp(4), dp(4), strokePaint);
+@@ -245,6 +260,7 @@ public final class OverlayView extends View {
+             int fullBudget = hits.size() <= 8 ? hits.size() : 8;
+             int fullDrawn = 0;
+             for (MatchHit hit : hits) {
++                if (hit.semantic) continue;
+                 RectF box = paddedBox(hit.box);
+                 boolean wantFull = fullDrawn < fullBudget;
+                 boolean fullWasDrawn = drawSmartLabel(canvas, hit, box, occupied, wantFull);
+@@ -255,6 +271,35 @@ public final class OverlayView extends View {
+         if (flashActive) postInvalidateDelayed(70L);
+     }
+ 
++    private float minRelevance(MatchHit hit) {
++        if (hit.evidenceRelevance == null || hit.evidenceRelevance.isEmpty()) return hit.similarity;
++        float min = Float.POSITIVE_INFINITY;
++        for (Float value : hit.evidenceRelevance) if (value != null) min = Math.min(min, value);
++        return min == Float.POSITIVE_INFINITY ? hit.similarity : min;
++    }
++
++    private float maxRelevance(MatchHit hit) {
++        if (hit.evidenceRelevance == null || hit.evidenceRelevance.isEmpty()) return hit.similarity;
++        float max = Float.NEGATIVE_INFINITY;
++        for (Float value : hit.evidenceRelevance) if (value != null) max = Math.max(max, value);
++        return max == Float.NEGATIVE_INFINITY ? hit.similarity : max;
++    }
++
++    private float normalizeRelevance(float value, float min, float max) {
++        if (max - min < 0.015f) return 0.72f;
++        return clamp((value - min) / (max - min), 0f, 1f);
++    }
++
++    private int relevanceAlpha(float normalized, int level, boolean flashing) {
++        float shaped = level == 1
++                ? 0.35f + 0.65f * normalized
++                : 0.12f + 0.88f * normalized * normalized;
++        int low = level == 1 ? 42 : 22;
++        int high = level == 1 ? 118 : 172;
++        int alpha = Math.round(low + (high - low) * shaped);
++        return Math.min(220, alpha + (flashing ? 34 : 0));
++    }
++
+     private RectF paddedBox(RectF source) {
+         RectF box = new RectF(source);
+         box.inset(-dp(2), -dp(1.5f));
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java b/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
+index 360b3cb..8549844 100644
+--- a/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
+@@ -122,6 +122,7 @@ public final class SemanticAnalyzer implements Closeable {
+             MatchHit hit = buildHit(
+                     units,
+                     span,
++                    scores,
+                     evidence,
+                     query,
+                     node,
+@@ -180,6 +181,7 @@ public final class SemanticAnalyzer implements Closeable {
+             hits.add(buildHit(
+                     units,
+                     span,
++                    scores,
+                     evidence,
+                     node.title,
+                     node,
+@@ -294,6 +296,7 @@ public final class SemanticAnalyzer implements Closeable {
+     private MatchHit buildHit(
+             List<LineUnit> units,
+             Span span,
++            float[] unitScores,
+             String evidence,
+             String query,
+             TopicNode node,
+@@ -304,13 +307,18 @@ public final class SemanticAnalyzer implements Closeable {
+     ) {
+         RectF union = null;
+         List<RectF> evidenceBoxes = new ArrayList<>();
++        List<Float> evidenceRelevance = new ArrayList<>();
+         for (int i = span.start; i <= span.end; i++) {
+             LineUnit unit = units.get(i);
+             if (unit.box != null) {
+                 if (union == null) union = new RectF(unit.box);
+                 else union.union(unit.box);
+             }
+-            for (RectF box : unit.evidenceBoxes) evidenceBoxes.add(new RectF(box));
++            float localScore = unitScores != null && i < unitScores.length ? unitScores[i] : score;
++            for (RectF box : unit.evidenceBoxes) {
++                evidenceBoxes.add(new RectF(box));
++                evidenceRelevance.add(localScore);
++            }
+         }
+         if (union == null) union = new RectF();
+         String startText = units.get(span.start).startText;
+@@ -328,6 +336,7 @@ public final class SemanticAnalyzer implements Closeable {
+                 labels,
+                 relatedTopics,
+                 evidenceBoxes,
++                evidenceRelevance,
+                 startText,
+                 endText
+         );

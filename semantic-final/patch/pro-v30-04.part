@@ -1,0 +1,150 @@
+                 relatedTopics,
+                 newEvidenceBoxes == null ? evidenceBoxes : newEvidenceBoxes,
++                evidenceRelevance,
++                evidenceStart,
++                evidenceEnd
++        );
++    }
++
++    public MatchHit withNode(TopicNode newNode) {
++        return new MatchHit(
++                box,
++                originalText,
++                searchTerm,
++                newNode == null ? node : newNode,
++                detectedAt,
++                semantic,
++                explicitOnly,
++                similarity,
++                semanticCategory,
++                compressionLabels,
++                relatedTopics,
++                evidenceBoxes,
++                evidenceRelevance,
+                 evidenceStart,
+                 evidenceEnd
+         );
+@@ -114,4 +174,17 @@ public final class MatchHit {
+         if (out.isEmpty() && fallback != null) out.add(new RectF(fallback));
+         return Collections.unmodifiableList(out);
+     }
++
++
++    private static List<Float> immutableRelevance(List<Float> values, int size, float fallback) {
++        if (size <= 0) return Collections.emptyList();
++        List<Float> out = new ArrayList<>(size);
++        for (int i = 0; i < size; i++) {
++            float value = fallback;
++            if (values != null && i < values.size() && values.get(i) != null) value = values.get(i);
++            out.add(value);
++        }
++        return Collections.unmodifiableList(out);
++    }
++
+ }
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java b/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java
+index f494f51..f7c4026 100644
+--- a/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/NotebookActivity.java
+@@ -9,9 +9,9 @@ import android.os.Bundle;
+ import android.provider.OpenableColumns;
+ import android.view.Gravity;
+ import android.view.ViewGroup;
+-import android.view.inputmethod.EditorInfo;
+ import android.widget.Button;
+ import android.widget.EditText;
++import android.widget.HorizontalScrollView;
+ import android.widget.LinearLayout;
+ import android.widget.ScrollView;
+ import android.widget.TextView;
+@@ -24,6 +24,7 @@ import java.io.ByteArrayOutputStream;
+ import java.io.InputStream;
+ import java.nio.charset.StandardCharsets;
+ import java.text.DateFormat;
++import java.util.ArrayList;
+ import java.util.Date;
+ import java.util.List;
+ import java.util.Locale;
+@@ -42,10 +43,11 @@ public final class NotebookActivity extends AppCompatActivity {
+ 
+     private NotebookStore store;
+     private OnDeviceSentenceEmbedder embedder;
+-    private EditText searchInput;
+     private TextView status;
+     private LinearLayout content;
+     private String incomingOcr = "";
++    private final ArrayList<String> activeQueries = new ArrayList<>();
++    private final ArrayList<Integer> activeQueryColors = new ArrayList<>();
+ 
+     @Override
+     protected void onCreate(@Nullable Bundle savedInstanceState) {
+@@ -53,9 +55,13 @@ public final class NotebookActivity extends AppCompatActivity {
+         store = new NotebookStore(this);
+         incomingOcr = getIntent().getStringExtra("ocr_text");
+         if (incomingOcr == null) incomingOcr = "";
++        ArrayList<String> queries = getIntent().getStringArrayListExtra("semantic_queries");
++        ArrayList<Integer> colors = getIntent().getIntegerArrayListExtra("semantic_query_colors");
++        if (queries != null) activeQueries.addAll(queries);
++        if (colors != null) activeQueryColors.addAll(colors);
+         buildUi();
+-        showSources();
+-        executor.execute(this::ensureEmbedder);
++        if (activeQueries.isEmpty()) showSources();
++        else runSearches();
+     }
+ 
+     @Override
+@@ -91,19 +97,25 @@ public final class NotebookActivity extends AppCompatActivity {
+         actions.addView(showSources, weighted());
+         root.addView(actions);
+ 
+-        LinearLayout searchRow = new LinearLayout(this);
+-        searchRow.setOrientation(LinearLayout.HORIZONTAL);
+-        searchRow.setPadding(0, dp(10), 0, dp(6));
+-        searchInput = new EditText(this);
+-        searchInput.setSingleLine(true);
+-        searchInput.setTextColor(Color.WHITE);
+-        searchInput.setHintTextColor(Color.rgb(135, 157, 172));
+-        searchInput.setHint("Caută semantic în toate sursele…");
+-        searchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+-        searchRow.addView(searchInput, new LinearLayout.LayoutParams(0, dp(44), 1f));
+-        Button search = button("CAUTĂ");
+-        searchRow.addView(search, new LinearLayout.LayoutParams(dp(86), dp(44)));
+-        root.addView(searchRow);
++        HorizontalScrollView queryScroll = new HorizontalScrollView(this);
++        queryScroll.setHorizontalScrollBarEnabled(false);
++        LinearLayout queryLegend = new LinearLayout(this);
++        queryLegend.setOrientation(LinearLayout.HORIZONTAL);
++        queryLegend.setPadding(0, dp(10), 0, dp(6));
++        if (activeQueries.isEmpty()) {
++            queryLegend.addView(queryChip("BARĂ UNICĂ • adaugă căutări din cameră", Color.rgb(69, 92, 113)));
++        } else {
++            for (int i = 0; i < activeQueries.size(); i++) {
++                int color = i < activeQueryColors.size()
++                        ? activeQueryColors.get(i)
++                        : Color.rgb(31, 112, 128);
++                queryLegend.addView(queryChip(activeQueries.get(i), color));
++            }
++        }
++        queryScroll.addView(queryLegend, new HorizontalScrollView.LayoutParams(
++                ViewGroup.LayoutParams.WRAP_CONTENT, dp(42)));
++        root.addView(queryScroll, new LinearLayout.LayoutParams(
++                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+ 
+         status = text("", 11, Color.rgb(98, 211, 255), false);
+         root.addView(status);
+@@ -120,14 +132,6 @@ public final class NotebookActivity extends AppCompatActivity {
+         addOcr.setOnClickListener(v -> addIncomingOcr());
+         importText.setOnClickListener(v -> importText());
+         showSources.setOnClickListener(v -> showSources());
+-        search.setOnClickListener(v -> runSearch());
+-        searchInput.setOnEditorActionListener((v, actionId, event) -> {
+-            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+-                runSearch();
+-                return true;
+-            }
+-            return false;
+-        });
+         setContentView(root);
+     }
+ 

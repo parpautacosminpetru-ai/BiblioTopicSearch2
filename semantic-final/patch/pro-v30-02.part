@@ -1,0 +1,143 @@
++        intent.putStringArrayListExtra("semantic_queries", queries);
++        intent.putIntegerArrayListExtra("semantic_query_colors", colors);
+         startActivity(intent);
+     }
+ 
+@@ -758,17 +777,17 @@ public final class MainActivity extends AppCompatActivity {
+             return;
+         }
+         if (semanticReady) {
+-            String mode = semanticQuery.isEmpty() ? "TOPIC/NOD" : "CĂUTARE";
+-            if (semanticQuery.isEmpty() && searchableTerms <= 0) {
+-                setStatus("SEMANTIC " + mode + " • nu există noduri tematice active", Color.rgb(244, 188, 77));
++            int active = activeQueryCount();
++            if (active <= 0) {
++                setStatus("SEMANTIC LIVE • adaugă o temă / idee", Color.rgb(78, 201, 126));
+                 return;
+             }
+             if (latestAllHits.isEmpty()) {
+-                setStatus("SEMANTIC EXPLICIT • " + mode + " • " + recognizedWords + " cuvinte • 0 idei",
++                setStatus("SEMANTIC LIVE • " + active + " teme • " + recognizedWords + " cuvinte • 0 spanuri",
+                         Color.rgb(78, 201, 126));
+             } else {
+-                setStatus("SEMANTIC EXPLICIT • " + mode + " • " + latestAllHits.size()
+-                                + " idei START→END • " + visibleHits.size() + " afișate",
++                setStatus("SEMANTIC LIVE • " + active + " teme • " + visibleHits.size()
++                                + " spanuri relevante",
+                         Color.rgb(98, 211, 255));
+                 if (!visibleHits.isEmpty()) maybeFeedback(visibleHits, shownNodes);
+             }
+@@ -946,6 +965,183 @@ public final class MainActivity extends AppCompatActivity {
+                 .show();
+     }
+ 
++    private void enqueueSemanticFrame(Text text, int recognizedWords) {
++        List<QuerySpec> queries = activeQuerySnapshot();
++        if (queries.isEmpty()) {
++            runOnUiThread(() -> applyHits(Collections.emptyList(), recognizedWords, 0));
++            return;
++        }
++
++        SemanticAnalyzer semantic = semanticAnalyzer;
++        if (!semanticReady || semantic == null) {
++            runOnUiThread(() -> setStatus(
++                    "OCR live • " + queries.size() + " teme active • pregătesc semantic",
++                    Color.rgb(244, 188, 77)
++            ));
++            return;
++        }
++
++        TopicMap activeMap = topicMap == null ? TopicMapStore.load(MainActivity.this) : topicMap;
++        long revision = currentQueryRevision();
++        SemanticFrame frame = new SemanticFrame(text, recognizedWords, revision, queries, activeMap);
++
++        synchronized (semanticQueueLock) {
++            // Latest-only semantic backpressure: no inference backlog can accumulate.
++            pendingSemanticFrame = frame;
++            if (semanticWorkerRunning) return;
++            semanticWorkerRunning = true;
++        }
++        semanticExecutor.execute(this::drainSemanticFrames);
++    }
++
++    private void drainSemanticFrames() {
++        while (true) {
++            SemanticFrame frame;
++            synchronized (semanticQueueLock) {
++                frame = pendingSemanticFrame;
++                pendingSemanticFrame = null;
++                if (frame == null) {
++                    semanticWorkerRunning = false;
++                    return;
++                }
++            }
++
++            SemanticAnalyzer semantic = semanticAnalyzer;
++            if (!semanticReady || semantic == null) continue;
++
++            try {
++                List<String> texts = new ArrayList<>(frame.queries.size());
++                for (QuerySpec query : frame.queries) texts.add(query.text);
++
++                List<MatchHit> hits = semantic.analyzeQueries(frame.text, texts, frame.topicMap);
++                List<MatchHit> coloredHits = colorHitsForQueries(hits, frame.queries);
++                if (frame.queryRevision != currentQueryRevision()) continue;
++
++                runOnUiThread(() -> {
++                    if (frame.queryRevision != currentQueryRevision() || frozen || !ocrEnabled) return;
++                    applyHits(coloredHits, frame.recognizedWords, frame.queries.size());
++                });
++            } catch (Throwable semanticError) {
++                semanticFailure = semanticError.getClass().getSimpleName() + ": "
++                        + String.valueOf(semanticError.getMessage());
++                if (frame.queryRevision != currentQueryRevision()) continue;
++                runOnUiThread(() -> setStatus(
++                        "Semantic indisponibil pe cadrul curent • OCR rămâne live",
++                        Color.rgb(235, 100, 100)
++                ));
++            }
++        }
++    }
++
++    private List<MatchHit> colorHitsForQueries(List<MatchHit> hits, List<QuerySpec> queries) {
++        if (hits == null || hits.isEmpty()) return Collections.emptyList();
++        Map<String, QuerySpec> byKey = new LinkedHashMap<>();
++        for (QuerySpec query : queries) byKey.put(query.key, query);
++
++        List<MatchHit> out = new ArrayList<>(hits.size());
++        for (MatchHit hit : hits) {
++            if (hit == null) continue;
++            QuerySpec query = byKey.get(canonicalQuery(hit.searchTerm));
++            if (query == null) continue;
++
++            TopicNode visualNode = new TopicNode("query/" + query.key, query.text, 0);
++            visualNode.enabled = true;
++            visualNode.symbol = "";
++            visualNode.color = query.color;
++            visualNode.terms.add(query.text);
++            out.add(hit.withNode(visualNode));
++        }
++        return out;
++    }
++
++    private boolean addActiveQuery(String text) {
++        String trimmed = text == null ? "" : text.trim();
++        String key = canonicalQuery(trimmed);
++        if (key.isEmpty()) return false;
++        synchronized (activeSemanticQueries) {
++            if (activeSemanticQueries.containsKey(key)) return false;
++            int color = nextQueryColorLocked();
++            activeSemanticQueries.put(key, new QuerySpec(key, trimmed, color));
++            queryRevision++;
++            return true;
++        }
++    }
++
++    private void removeActiveQuery(String key) {
++        boolean removed;
++        synchronized (activeSemanticQueries) {
++            removed = activeSemanticQueries.remove(key) != null;
++            if (removed) queryRevision++;
++        }
++        if (!removed) return;
++        invalidateSemanticResults(false);

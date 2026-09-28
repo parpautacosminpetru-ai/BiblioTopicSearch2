@@ -1,0 +1,122 @@
++                for (int i = 0; i < hit.evidenceBoxes.size(); i++) {
++                    RectF evidence = hit.evidenceBoxes.get(i);
++                    float relevance = i < hit.evidenceRelevance.size()
++                            ? hit.evidenceRelevance.get(i)
++                            : hit.similarity;
++                    float normalized = normalizeRelevance(relevance, minRelevance, maxRelevance);
++                    int alpha = relevanceAlpha(normalized, detailLevel, flashing);
++                    fillPaint.setColor(withAlpha(color, alpha));
++                    strokePaint.setColor(withAlpha(color,
++                            detailLevel == 2 && normalized >= 0.82f ? 250 : 135));
++                    strokePaint.setStrokeWidth(dp(detailLevel == 2 && normalized >= 0.82f ? 3.2f : 1.4f));
+                     RectF part = paddedBox(evidence);
+                     canvas.drawRoundRect(part, dp(4), dp(4), fillPaint);
+                     canvas.drawRoundRect(part, dp(4), dp(4), strokePaint);
+                 }
+             } else {
+-                // Overview zoom: one compact thematic block.
++                fillPaint.setColor(withAlpha(color, flashing ? 105 : 64));
++                strokePaint.setColor(withAlpha(color, flashing ? 250 : 205));
++                strokePaint.setStrokeWidth(dp(flashing ? 4f : 2.0f));
+                 RectF box = paddedBox(hit.box);
+                 canvas.drawRoundRect(box, dp(4), dp(4), fillPaint);
+                 canvas.drawRoundRect(box, dp(4), dp(4), strokePaint);
+@@ -245,6 +257,7 @@ public final class OverlayView extends View {
+             int fullBudget = hits.size() <= 8 ? hits.size() : 8;
+             int fullDrawn = 0;
+             for (MatchHit hit : hits) {
++                if (hit.semantic) continue;
+                 RectF box = paddedBox(hit.box);
+                 boolean wantFull = fullDrawn < fullBudget;
+                 boolean fullWasDrawn = drawSmartLabel(canvas, hit, box, occupied, wantFull);
+@@ -255,6 +268,35 @@ public final class OverlayView extends View {
+         if (flashActive) postInvalidateDelayed(70L);
+     }
+ 
++    private float minRelevance(MatchHit hit) {
++        if (hit.evidenceRelevance == null || hit.evidenceRelevance.isEmpty()) return hit.similarity;
++        float min = Float.POSITIVE_INFINITY;
++        for (Float value : hit.evidenceRelevance) if (value != null) min = Math.min(min, value);
++        return min == Float.POSITIVE_INFINITY ? hit.similarity : min;
++    }
++
++    private float maxRelevance(MatchHit hit) {
++        if (hit.evidenceRelevance == null || hit.evidenceRelevance.isEmpty()) return hit.similarity;
++        float max = Float.NEGATIVE_INFINITY;
++        for (Float value : hit.evidenceRelevance) if (value != null) max = Math.max(max, value);
++        return max == Float.NEGATIVE_INFINITY ? hit.similarity : max;
++    }
++
++    private float normalizeRelevance(float value, float min, float max) {
++        if (max - min < 0.015f) return 0.72f;
++        return clamp((value - min) / (max - min), 0f, 1f);
++    }
++
++    private int relevanceAlpha(float normalized, int level, boolean flashing) {
++        float shaped = level == 1
++                ? 0.35f + 0.65f * normalized
++                : 0.12f + 0.88f * normalized * normalized;
++        int low = level == 1 ? 42 : 22;
++        int high = level == 1 ? 118 : 172;
++        int alpha = Math.round(low + (high - low) * shaped);
++        return Math.min(220, alpha + (flashing ? 34 : 0));
++    }
++
+     private RectF paddedBox(RectF source) {
+         RectF box = new RectF(source);
+         box.inset(-dp(2), -dp(1.5f));
+diff --git a/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java b/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
+index 360b3cb..cac22f6 100644
+--- a/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
+@@ -61,28 +61,72 @@ public final class SemanticAnalyzer implements Closeable {
+     }
+ 
+     public List<MatchHit> analyze(Text text, String query, TopicMap topicMap) throws OrtException {
++        String semanticQuery = query == null ? "" : query.trim();
++        if (!semanticQuery.isEmpty()) {
++            return analyzeQueries(text, Collections.singletonList(semanticQuery), topicMap);
++        }
++
++        List<LineUnit> units = extractUnits(text);
++        if (units.isEmpty()) return Collections.emptyList();
++        List<String> unitTexts = new ArrayList<>(units.size());
++        for (LineUnit unit : units) unitTexts.add(unit.text);
++        List<float[]> unitVectors = embedder.embedAll(unitTexts);
++        ensureTopicVectors(topicMap);
++        return analyzeTopics(units, unitVectors, topicMap);
++    }
++
++    /**
++     * Evaluates many active ideas on the same OCR frame without recomputing OCR-unit embeddings.
++     * The UI may keep several themes active in parallel while this method remains a single,
++     * deterministic extractive pass over the page.
++     */
++    public List<MatchHit> analyzeQueries(Text text, List<String> queries, TopicMap topicMap) throws OrtException {
++        if (queries == null || queries.isEmpty()) return Collections.emptyList();
++
++        List<String> cleaned = new ArrayList<>();
++        Set<String> seen = new HashSet<>();
++        for (String value : queries) {
++            String query = value == null ? "" : value.trim();
++            if (query.isEmpty()) continue;
++            String key = SemanticCatalog.normalize(query);
++            if (key.isEmpty() || !seen.add(key)) continue;
++            cleaned.add(query);
++        }
++        if (cleaned.isEmpty()) return Collections.emptyList();
++
+         List<LineUnit> units = extractUnits(text);
+         if (units.isEmpty()) return Collections.emptyList();
+ 
+         List<String> unitTexts = new ArrayList<>(units.size());
+         for (LineUnit unit : units) unitTexts.add(unit.text);
+         List<float[]> unitVectors = embedder.embedAll(unitTexts);
++        List<float[]> queryVectors = embedder.embedAll(cleaned);
+         ensureTopicVectors(topicMap);
+ 
+-        String semanticQuery = query == null ? "" : query.trim();
+-        if (!semanticQuery.isEmpty()) {
+-            return analyzeQuery(units, unitVectors, semanticQuery, topicMap);
++        Map<String, float[]> spanVectorCache = new LinkedHashMap<>();
++        List<MatchHit> combined = new ArrayList<>();

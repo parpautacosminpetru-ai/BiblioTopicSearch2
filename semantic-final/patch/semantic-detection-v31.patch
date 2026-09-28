@@ -1,0 +1,153 @@
+--- a/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
++++ b/app/src/main/java/ro/bibliotopicsearch/app/semantic/SemanticAnalyzer.java
+@@ -7,7 +7,6 @@
+ 
+ import com.google.mlkit.vision.text.Text;
+ 
+-import ro.bibliotopicsearch.app.AppPrefs;
+ import ro.bibliotopicsearch.app.MatchHit;
+ import ro.bibliotopicsearch.app.TopicMap;
+ import ro.bibliotopicsearch.app.TopicNode;
+@@ -40,7 +39,8 @@
+     private static final float CATEGORY_CUE_MIN_THRESHOLD = 0.34f;
+     private static final float COHERENCE_CONTINUATION = 0.70f;
+     private static final float QUERY_CONTINUATION_FLOOR = 0.30f;
+-    private static final float LOW_CONFIDENCE_MARGIN = 0.045f;
++    private static final float LOW_CONFIDENCE_MARGIN = 0.030f;
++    private static final float DIRECT_LITERAL_CONFIDENCE = 0.94f;
+     private static final int MAX_SPAN_LINES = 6;
+     private static final int MAX_OCR_LINES_PER_SENTENCE = 4;
+ 
+@@ -128,19 +128,32 @@
+             Map<String, float[]> spanVectorCache
+     ) throws OrtException {
+         float[] scores = new float[units.size()];
++        boolean[] literal = new boolean[units.size()];
++        boolean hasLiteral = false;
+         float best = -1f;
+         for (int i = 0; i < units.size(); i++) {
+             scores[i] = OnDeviceSentenceEmbedder.cosine(queryVector, vectors.get(i));
++            literal[i] = explicitSurfaceMatch(query, units.get(i).text);
++            hasLiteral |= literal[i];
+             best = Math.max(best, scores[i]);
+         }
+ 
+-        float base = baseQueryThreshold(query);
+-        float threshold = adaptiveThreshold(scores, base, best);
++        int specificity = querySpecificity(query);
++        float base = baseQueryThreshold(specificity);
++        float threshold = adaptiveThreshold(scores, base, best, specificity);
+         float continuation = Math.max(QUERY_CONTINUATION_FLOOR, threshold - 0.085f);
+ 
+-        if (!hasSemanticSeparation(scores, best, base)) return Collections.emptyList();
+-        List<Integer> nuclei = sortedIndices(scores, threshold);
+-        if (nuclei.isEmpty() && best >= base + 0.015f) {
++        // Literal text is direct evidence and must never be discarded by embedding gates.
++        // Semantic-only candidates stay broad for broad themes and become stricter as the
++        // user narrows the query.
++        if (!hasLiteral && best < base) return Collections.emptyList();
++        if (!hasLiteral && specificity >= 2 && best < base + 0.035f
++                && !hasSemanticSeparation(scores, best, base)) {
++            return Collections.emptyList();
++        }
++
++        List<Integer> nuclei = sortedCandidateIndices(scores, literal, threshold);
++        if (nuclei.isEmpty() && best >= base) {
+             int bestIndex = maxIndex(scores);
+             if (bestIndex >= 0) nuclei.add(bestIndex);
+         }
+@@ -158,10 +171,11 @@
+             }
+             float spanScore = OnDeviceSentenceEmbedder.cosine(queryVector, spanVector);
+ 
+-            // Explicit-only gate: the final evidence itself must stay close to the query;
+-            // an associative neighbour alone is not accepted.
++            // Exact source evidence is authoritative. Semantic-only evidence must still
++            // pass the whole-span gate so related-but-not-explicit neighbours are rejected.
++            boolean directEvidence = explicitSurfaceMatch(query, evidence);
+             float requiredSpanScore = Math.max(base - 0.020f, scores[nucleus] - 0.075f);
+-            if (spanScore < requiredSpanScore) continue;
++            if (!directEvidence && spanScore < requiredSpanScore) continue;
+ 
+             TopicMatch topic = detectTopic(spanVector, topicMap);
+             TopicNode node = topic.primary == null ? syntheticNode(query) : topic.primary;
+@@ -174,7 +188,9 @@
+                     evidence,
+                     query,
+                     node,
+-                    Math.max(spanScore, scores[nucleus]),
++                    directEvidence
++                            ? Math.max(DIRECT_LITERAL_CONFIDENCE, Math.max(spanScore, scores[nucleus]))
++                            : Math.max(spanScore, scores[nucleus]),
+                     category,
+                     labels,
+                     topic.related
+@@ -517,25 +533,60 @@
+         return node;
+     }
+ 
+-    private float baseQueryThreshold(String query) {
+-        int words = Math.max(1, SemanticCatalog.normalize(query).split("\\s+").length);
+-        float precision = Math.max(0, Math.min(100, AppPrefs.precision(context))) / 100f;
+-        float base = words <= 2 ? 0.485f : 0.445f;
+-        return base + (precision - 0.75f) * 0.10f;
++    /**
++     * Specificity is monotonic by design: broad themes accept a wider semantic field;
++     * adding words/details narrows it. Camera targeting/smoothing is not a semantic knob.
++     */
++    private int querySpecificity(String query) {
++        String normalized = SemanticCatalog.normalize(query);
++        if (normalized.isEmpty()) return 1;
++        return Math.max(1, normalized.split("\\s+").length);
+     }
+ 
+-    private float adaptiveThreshold(float[] scores, float base, float best) {
++    private float baseQueryThreshold(int specificity) {
++        if (specificity <= 1) return 0.360f;
++        if (specificity == 2) return 0.395f;
++        if (specificity == 3) return 0.420f;
++        return Math.min(0.480f, 0.420f + (specificity - 3) * 0.015f);
++    }
++
++    private float adaptiveThreshold(float[] scores, float base, float best, int specificity) {
+         if (scores.length == 0) return base;
+         float[] sorted = scores.clone();
+         java.util.Arrays.sort(sorted);
+         float median = sorted[sorted.length / 2];
+         float q75 = sorted[(int) Math.floor((sorted.length - 1) * 0.75f)];
+-        float relative = Math.max(median + 0.055f, q75 + 0.022f);
++        float medianMargin = specificity <= 1 ? 0.025f : (specificity == 2 ? 0.040f : 0.052f);
++        float quartileMargin = specificity <= 1 ? 0.010f : (specificity == 2 ? 0.016f : 0.022f);
++        float relative = Math.max(median + medianMargin, q75 + quartileMargin);
+         float threshold = Math.max(base, relative);
+-        if (best >= base) threshold = Math.min(threshold, best - 0.010f);
++        if (best >= base) threshold = Math.min(threshold, best - 0.008f);
+         return threshold;
+     }
+ 
++    private boolean explicitSurfaceMatch(String query, String text) {
++        String q = SemanticCatalog.normalize(query);
++        String t = SemanticCatalog.normalize(text);
++        if (q.isEmpty() || t.isEmpty()) return false;
++        return t.equals(q) || (" " + t + " ").contains(" " + q + " ");
++    }
++
++    private List<Integer> sortedCandidateIndices(float[] scores, boolean[] literal, float minimum) {
++        List<Integer> out = new ArrayList<>();
++        for (int i = 0; i < scores.length; i++) {
++            if ((literal != null && i < literal.length && literal[i]) || scores[i] >= minimum) {
++                out.add(i);
++            }
++        }
++        out.sort((a, b) -> {
++            boolean aLiteral = literal != null && a < literal.length && literal[a];
++            boolean bLiteral = literal != null && b < literal.length && literal[b];
++            if (aLiteral != bLiteral) return aLiteral ? -1 : 1;
++            return Float.compare(scores[b], scores[a]);
++        });
++        return out;
++    }
++
+     private boolean hasSemanticSeparation(float[] scores, float best, float base) {
+         if (scores.length <= 2) return best >= base;
+         float[] sorted = scores.clone();
