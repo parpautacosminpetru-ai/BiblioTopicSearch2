@@ -73,6 +73,20 @@ public final class HistorianResearchExporter {
             if (!criticism.researchNotes.isEmpty()) out.append("Note metodologice: ").append(criticism.researchNotes).append('\n');
         }
 
+        out.append("\n\nRELAȚII ÎNTRE SURSE / EDIȚII / MARTORI\n");
+        out.append("--------------------------------------\n");
+        List<HistorianSourceRelationsStore.Relation> sourceRelations =
+                HistorianSourceRelationsStore.list(db);
+        if (sourceRelations.isEmpty()) out.append("(nicio relație declarată)\n");
+        for (HistorianSourceRelationsStore.Relation relation : sourceRelations) {
+            out.append("- ")
+                    .append(relation.leftTitle.isEmpty() ? relation.leftSourceId : relation.leftTitle)
+                    .append(" → ").append(relation.type.name()).append(" → ")
+                    .append(relation.rightTitle.isEmpty() ? relation.rightSourceId : relation.rightTitle);
+            if (!relation.note.isEmpty()) out.append(" | ").append(relation.note);
+            out.append('\n');
+        }
+
         out.append("\n\nAFIRMAȚII ȘI REȚEAUA DE DOVEZI\n");
         out.append("--------------------------------\n");
         List<HistorianWorkbenchStore.Claim> claims = HistorianWorkbenchStore.claims(db);

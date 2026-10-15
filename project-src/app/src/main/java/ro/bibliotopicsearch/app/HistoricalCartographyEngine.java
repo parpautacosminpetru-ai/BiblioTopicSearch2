@@ -7,9 +7,12 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Deterministic, evidence-bound map of one explicitly captured OCR frame.
@@ -19,6 +22,9 @@ import java.util.Set;
  */
 public final class HistoricalCartographyEngine {
     private HistoricalCartographyEngine() {}
+
+    private static final Pattern YEAR =
+            Pattern.compile("(?<!\\d)([5-9]\\d{2}|1\\d{3}|20\\d{2})(?!\\d)");
 
     public enum UnitKind {
         PARAGRAPH,
@@ -44,6 +50,7 @@ public final class HistoricalCartographyEngine {
         private final double confidence;
         private final List<DeterministicIndexIntersectionEngine.Anchor> anchors;
         private final List<DeterministicIndexIntersectionEngine.Intersection> intersections;
+        private final List<String> facets;
 
         Unit(
                 UnitKind kind,
@@ -56,7 +63,8 @@ public final class HistoricalCartographyEngine {
                 Status status,
                 double confidence,
                 List<DeterministicIndexIntersectionEngine.Anchor> anchors,
-                List<DeterministicIndexIntersectionEngine.Intersection> intersections
+                List<DeterministicIndexIntersectionEngine.Intersection> intersections,
+                List<String> facets
         ) {
             this.kind = kind == null ? UnitKind.PARAGRAPH : kind;
             this.paragraphIndex = Math.max(0, paragraphIndex);
@@ -73,6 +81,9 @@ public final class HistoricalCartographyEngine {
             this.intersections = Collections.unmodifiableList(new ArrayList<>(
                     intersections == null ? Collections.emptyList() : intersections
             ));
+            this.facets = Collections.unmodifiableList(new ArrayList<>(
+                    facets == null ? Collections.emptyList() : facets
+            ));
         }
 
         public UnitKind kind() { return kind; }
@@ -86,6 +97,7 @@ public final class HistoricalCartographyEngine {
         public double confidence() { return confidence; }
         public List<DeterministicIndexIntersectionEngine.Anchor> anchors() { return anchors; }
         public List<DeterministicIndexIntersectionEngine.Intersection> intersections() { return intersections; }
+        public List<String> facets() { return facets; }
     }
 
     public static final class CaptureMap {
@@ -190,7 +202,8 @@ public final class HistoricalCartographyEngine {
                     paragraphStatus,
                     detection.subjectConfidence() * 0.55 + detection.functionConfidence() * 0.45,
                     paragraphAnchors,
-                    Collections.emptyList()
+                    Collections.emptyList(),
+                    paragraphFacets(paragraph, paragraphProps)
             ));
             if (paragraphStatus == Status.MAPPED) mapped++;
             else if (paragraphStatus == Status.NO_INDEX) noIndex++;
@@ -222,7 +235,8 @@ public final class HistoricalCartographyEngine {
                         status,
                         proposition.confidence(),
                         anchors,
-                        xs
+                        xs,
+                        propositionFacets(proposition)
                 ));
                 if (status == Status.MAPPED) mapped++;
                 else if (status == Status.NO_INDEX) noIndex++;
@@ -242,6 +256,43 @@ public final class HistoricalCartographyEngine {
                 intersections,
                 topicPaths.size()
         );
+    }
+
+    private static List<String> paragraphFacets(
+            String paragraph,
+            List<SemanticGraph.Proposition> propositions
+    ) {
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        if (propositions != null) {
+            for (SemanticGraph.Proposition proposition : propositions) {
+                out.addAll(propositionFacets(proposition));
+            }
+        }
+        addYears(out, paragraph);
+        return Collections.unmodifiableList(new ArrayList<>(out));
+    }
+
+    private static List<String> propositionFacets(SemanticGraph.Proposition proposition) {
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        if (proposition == null) return Collections.emptyList();
+
+        String when = proposition.slot(SemanticGraph.Slot.WHEN);
+        String where = proposition.slot(SemanticGraph.Slot.WHERE);
+        if (!safe(when).isEmpty()) out.add("TIME=" + compactFacet(when));
+        if (!safe(where).isEmpty()) out.add("PLACE=" + compactFacet(where));
+        addYears(out, proposition.raw());
+        return Collections.unmodifiableList(new ArrayList<>(out));
+    }
+
+    private static void addYears(Set<String> out, String text) {
+        if (out == null || text == null) return;
+        Matcher matcher = YEAR.matcher(text);
+        while (matcher.find()) out.add("YEAR=" + matcher.group(1));
+    }
+
+    private static String compactFacet(String value) {
+        String clean = safe(value).replaceAll("\\s+", " ");
+        return clean.length() <= 120 ? clean : clean.substring(0, 120).trim();
     }
 
     private static Status statusFor(

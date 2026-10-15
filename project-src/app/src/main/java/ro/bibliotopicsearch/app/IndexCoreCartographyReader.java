@@ -270,6 +270,51 @@ public final class IndexCoreCartographyReader {
         }
     }
 
+    public static final class FacetSummary {
+        public final String dimension;
+        public final String value;
+        public final int units;
+        public final int pages;
+
+        FacetSummary(String dimension, String value, int units, int pages) {
+            this.dimension = safe(dimension);
+            this.value = safe(value);
+            this.units = Math.max(0, units);
+            this.pages = Math.max(0, pages);
+        }
+    }
+
+    public static final class FacetLocation {
+        public final String page;
+        public final int paragraphIndex;
+        public final int sentenceIndex;
+        public final int clauseIndex;
+        public final String outlineTitle;
+        public final String function;
+        public final String relation;
+        public final String topics;
+
+        FacetLocation(
+                String page,
+                int paragraphIndex,
+                int sentenceIndex,
+                int clauseIndex,
+                String outlineTitle,
+                String function,
+                String relation,
+                String topics
+        ) {
+            this.page = safe(page);
+            this.paragraphIndex = paragraphIndex;
+            this.sentenceIndex = sentenceIndex;
+            this.clauseIndex = clauseIndex;
+            this.outlineTitle = safe(outlineTitle);
+            this.function = safe(function);
+            this.relation = safe(relation);
+            this.topics = safe(topics);
+        }
+    }
+
     public static final class MatrixRow {
         public final String topicPath;
         public final String topicTitle;
@@ -545,6 +590,73 @@ public final class IndexCoreCartographyReader {
         return Collections.unmodifiableList(out);
     }
 
+    public static List<FacetSummary> facetSummary(
+            IndexCoreDatabase db,
+            String sourceId,
+            String dimension,
+            int limit
+    ) {
+        if (db == null || safe(sourceId).isEmpty() || safe(dimension).isEmpty()) {
+            return Collections.emptyList();
+        }
+        String dim = safe(dimension).toUpperCase(java.util.Locale.ROOT);
+        String order = "YEAR".equals(dim)
+                ? "CASE WHEN f.value GLOB '[0-9]*' THEN CAST(f.value AS INTEGER) ELSE 2147483647 END,f.value"
+                : "f.value COLLATE NOCASE";
+        String sql = "SELECT f.dimension,f.value,COUNT(DISTINCT f.unit_id),"
+                + "COUNT(DISTINCT CASE WHEN u.page GLOB '[0-9]*' THEN u.page ELSE NULL END) "
+                + "FROM idx_unit_facets f JOIN idx_semantic_units u ON u.unit_id=f.unit_id "
+                + "WHERE u.source_id=? AND f.dimension=? "
+                + "GROUP BY f.dimension,f.value,f.value_norm ORDER BY " + order + " LIMIT "
+                + Math.max(1, Math.min(3000, limit));
+        List<FacetSummary> out = new ArrayList<>();
+        try (Cursor c = db.getReadableDatabase().rawQuery(sql, new String[]{sourceId, dim})) {
+            while (c.moveToNext()) {
+                out.add(new FacetSummary(c.getString(0), c.getString(1), c.getInt(2), c.getInt(3)));
+            }
+        }
+        return Collections.unmodifiableList(out);
+    }
+
+    public static List<FacetLocation> facetLocations(
+            IndexCoreDatabase db,
+            String sourceId,
+            String dimension,
+            String value,
+            int limit
+    ) {
+        if (db == null || safe(sourceId).isEmpty() || safe(dimension).isEmpty() || safe(value).isEmpty()) {
+            return Collections.emptyList();
+        }
+        String sql = "SELECT u.page,u.paragraph_index,u.sentence_index,u.clause_index,"
+                + "COALESCE(o.title,''),u.function,u.relation,"
+                + "COALESCE(GROUP_CONCAT(DISTINCT t.topic_title),'') "
+                + "FROM idx_unit_facets f "
+                + "JOIN idx_semantic_units u ON u.unit_id=f.unit_id "
+                + "LEFT JOIN idx_outlines o ON o.outline_id=u.outline_id "
+                + "LEFT JOIN idx_unit_topics t ON t.unit_id=u.unit_id "
+                + "WHERE u.source_id=? AND f.dimension=? AND f.value_norm=? "
+                + "GROUP BY u.unit_id,u.page,u.paragraph_index,u.sentence_index,u.clause_index,"
+                + "o.title,u.function,u.relation "
+                + "ORDER BY CASE WHEN u.page GLOB '[0-9]*' THEN CAST(u.page AS INTEGER) ELSE 2147483647 END,"
+                + "u.page,u.paragraph_index,u.sentence_index,u.clause_index LIMIT "
+                + Math.max(1, Math.min(5000, limit));
+        List<FacetLocation> out = new ArrayList<>();
+        String normalized = foldForFacet(value);
+        try (Cursor c = db.getReadableDatabase().rawQuery(
+                sql,
+                new String[]{sourceId, safe(dimension).toUpperCase(java.util.Locale.ROOT), normalized}
+        )) {
+            while (c.moveToNext()) {
+                out.add(new FacetLocation(
+                        c.getString(0), c.getInt(1), c.getInt(2), c.getInt(3),
+                        c.getString(4), c.getString(5), c.getString(6), c.getString(7)
+                ));
+            }
+        }
+        return Collections.unmodifiableList(out);
+    }
+
     public static List<MatrixRow> matrix(IndexCoreDatabase db, int limitTopics) {
         if (db == null) return Collections.emptyList();
         String sql = "SELECT t.topic_path,t.topic_title,u.source_id,"
@@ -596,6 +708,16 @@ public final class IndexCoreCartographyReader {
         try (Cursor c = db.getReadableDatabase().rawQuery(sql, args)) {
             return c.moveToFirst() ? c.getInt(0) : 0;
         }
+    }
+
+    private static String foldForFacet(String value) {
+        if (value == null) return "";
+        return java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "")
+                .toLowerCase(java.util.Locale.ROOT)
+                .replaceAll("[^\\p{L}\\p{N}]+", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
     }
 
     private static String safe(String value) {

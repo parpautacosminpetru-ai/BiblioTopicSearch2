@@ -97,6 +97,19 @@ public final class IndexCoreActivity extends AppCompatActivity {
         research.addView(matrix, new LinearLayout.LayoutParams(0, dp(42), 1f));
         root.addView(research);
 
+        LinearLayout navigation = new LinearLayout(this);
+        navigation.setGravity(Gravity.CENTER_VERTICAL);
+        Button chronology = button("CRONOLOGIE");
+        chronology.setOnClickListener(v -> showFacetIndex("YEAR", "Cronologie explicită"));
+        navigation.addView(chronology, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        Button time = button("TIMP");
+        time.setOnClickListener(v -> showFacetIndex("TIME", "Expresii temporale"));
+        navigation.addView(time, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        Button places = button("LOCURI");
+        places.setOnClickListener(v -> showFacetIndex("PLACE", "Locuri explicite"));
+        navigation.addView(places, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        root.addView(navigation);
+
         LinearLayout audit = new LinearLayout(this);
         audit.setGravity(Gravity.CENTER_VERTICAL);
         Button review = button("REVIZUIRE");
@@ -115,10 +128,15 @@ public final class IndexCoreActivity extends AppCompatActivity {
 
         LinearLayout method = new LinearLayout(this);
         method.setGravity(Gravity.CENTER_VERTICAL);
-        Button workbench = button("ATELIER ISTORIC • AFIRMAȚII + DOVEZI + CRITICA SURSEI");
+        Button workbench = button("ATELIER ISTORIC");
         workbench.setOnClickListener(v ->
                 startActivity(new Intent(this, HistorianWorkbenchActivity.class)));
         method.addView(workbench, new LinearLayout.LayoutParams(0, dp(44), 1f));
+
+        Button digital = button("IMPORT PDF");
+        digital.setOnClickListener(v ->
+                startActivity(new Intent(this, DigitalSourceImportActivity.class)));
+        method.addView(digital, new LinearLayout.LayoutParams(0, dp(44), 1f));
         root.addView(method);
 
         IndexCoreDatabase.SourceRecord source = db.source(sourceId);
@@ -476,6 +494,61 @@ public final class IndexCoreActivity extends AppCompatActivity {
                     rebuild();
                 })
                 .setNegativeButton("LASĂ NEREVIZUITĂ", null)
+                .show();
+    }
+
+    private void showFacetIndex(String dimension, String title) {
+        List<IndexCoreCartographyReader.FacetSummary> values =
+                IndexCoreCartographyReader.facetSummary(db, sourceId, dimension, 1200);
+        if (values.isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle(title)
+                    .setMessage("Nu există încă valori explicite pentru acest tip în CAPTURĂ EXACTĂ.")
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+
+        String[] labels = new String[values.size()];
+        for (int i = 0; i < values.size(); i++) {
+            IndexCoreCartographyReader.FacetSummary value = values.get(i);
+            labels[i] = value.value + " • " + value.units + " unități • " + value.pages + " pagini";
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setItems(labels, (d, which) -> showFacetLocations(values.get(which)))
+                .setNegativeButton("ÎNCHIDE", null)
+                .show();
+    }
+
+    private void showFacetLocations(IndexCoreCartographyReader.FacetSummary facet) {
+        if (facet == null) return;
+        List<IndexCoreCartographyReader.FacetLocation> items =
+                IndexCoreCartographyReader.facetLocations(
+                        db, sourceId, facet.dimension, facet.value, 2000
+                );
+        StringBuilder out = new StringBuilder();
+        int shown = 0;
+        for (IndexCoreCartographyReader.FacetLocation item : items) {
+            if (shown++ >= 700) { out.append("\n…"); break; }
+            out.append("\n• ");
+            if (!item.page.isEmpty()) out.append("pag. ").append(item.page).append(" • ");
+            out.append("P").append(item.paragraphIndex + 1);
+            if (item.sentenceIndex >= 0) out.append(" S").append(item.sentenceIndex + 1);
+            if (item.clauseIndex >= 0) out.append(" C").append(item.clauseIndex + 1);
+            if (!item.outlineTitle.isEmpty()) out.append(" • ").append(item.outlineTitle);
+            if (!item.function.isEmpty()) out.append(" • F:").append(item.function);
+            if (!item.relation.isEmpty() && !"GENERIC".equals(item.relation)) {
+                out.append(" • R:").append(item.relation);
+            }
+            if (!item.topics.isEmpty()) out.append(" • ").append(trim(item.topics, 100));
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle(facet.value + " • " + facet.dimension)
+                .setMessage(out.length() == 0 ? "Nu există locații." : out.toString().trim())
+                .setPositiveButton("ÎNCHIDE", null)
                 .show();
     }
 

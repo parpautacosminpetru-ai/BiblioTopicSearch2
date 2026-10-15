@@ -14,6 +14,7 @@ import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
@@ -62,6 +63,7 @@ public final class LensActivity extends AppCompatActivity {
     private Button ocrButton;
     private Button torchButton;
     private Button autoCaptureButton;
+    private Button archiveKeysButton;
 
     private LifecycleCameraController cameraController;
     private TextRecognizer recognizer;
@@ -84,6 +86,7 @@ public final class LensActivity extends AppCompatActivity {
     private boolean ocrEnabled = true;
     private boolean torchEnabled = false;
     private volatile boolean autoCaptureEnabled = false;
+    private boolean archiveKeysEnabled = false;
 
     private final Runnable applyQuery = this::applyQueryNow;
     private final Runnable clearStale = () -> {
@@ -98,6 +101,7 @@ public final class LensActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         ocrEnabled = AppPrefs.ocrEnabled(this);
         autoCaptureEnabled = AppPrefs.autoExactCapture(this);
+        archiveKeysEnabled = AppPrefs.archiveKeys(this);
         stabilitySourceId = IndexCoreSourceRegistry.activeSourceId(this);
         buildUi();
 
@@ -248,6 +252,13 @@ public final class LensActivity extends AppCompatActivity {
         cartography.addView(map, new LinearLayout.LayoutParams(0, dp(40), 1f));
 
         top.addView(cartography);
+
+        LinearLayout archive = new LinearLayout(this);
+        archive.setGravity(Gravity.CENTER_VERTICAL);
+        archiveKeysButton = button(archiveKeysEnabled ? "PEDALĂ / TASTE ●" : "PEDALĂ / TASTE ○");
+        archiveKeysButton.setOnClickListener(v -> toggleArchiveKeys());
+        archive.addView(archiveKeysButton, new LinearLayout.LayoutParams(0, dp(38), 1f));
+        top.addView(archive);
 
         status = new TextView(this);
         status.setTextSize(10.5f);
@@ -573,6 +584,47 @@ public final class LensActivity extends AppCompatActivity {
             manualPageOverride = "";
             if (pageEdit != null) pageEdit.setText("");
         }
+    }
+
+    private void toggleArchiveKeys() {
+        archiveKeysEnabled = !archiveKeysEnabled;
+        AppPrefs.setArchiveKeys(this, archiveKeysEnabled);
+        if (archiveKeysButton != null) {
+            archiveKeysButton.setText(
+                    archiveKeysEnabled ? "PEDALĂ / TASTE ●" : "PEDALĂ / TASTE ○"
+            );
+            archiveKeysButton.setBackgroundTintList(ColorStateList.valueOf(
+                    archiveKeysEnabled ? Color.rgb(42, 128, 94) : Color.rgb(53, 92, 125)
+            ));
+        }
+        setStatus(
+                archiveKeysEnabled
+                        ? "MOD ARHIVĂ • PageUp/Vol− = captură • PageDown/Vol+ = încheie pagina"
+                        : "Modul de pedală/taste este oprit",
+                archiveKeysEnabled ? Color.rgb(76, 190, 123) : Color.rgb(155, 164, 171)
+        );
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (!archiveKeysEnabled) return super.onKeyDown(keyCode, event);
+        if (event != null && event.getRepeatCount() > 0) return true;
+
+        if (keyCode == KeyEvent.KEYCODE_PAGE_UP
+                || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
+                || keyCode == KeyEvent.KEYCODE_F7) {
+            captureCurrentFrame(false);
+            return true;
+        }
+
+        if (keyCode == KeyEvent.KEYCODE_PAGE_DOWN
+                || keyCode == KeyEvent.KEYCODE_VOLUME_UP
+                || keyCode == KeyEvent.KEYCODE_F8) {
+            captureCurrentFrame(true);
+            return true;
+        }
+
+        return super.onKeyDown(keyCode, event);
     }
 
     private void toggleOcr() {

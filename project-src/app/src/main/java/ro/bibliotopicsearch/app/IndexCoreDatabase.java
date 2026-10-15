@@ -22,7 +22,7 @@ import java.util.Set;
  */
 public final class IndexCoreDatabase extends SQLiteOpenHelper {
     private static final String DB_NAME = "index_core_v7.db";
-    private static final int DB_VERSION = 4;
+    private static final int DB_VERSION = 5;
     private static volatile IndexCoreDatabase INSTANCE;
 
     public static IndexCoreDatabase get(Context context) {
@@ -108,6 +108,7 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
         db.execSQL("CREATE INDEX ix_idx_facets_dim_value ON idx_facets(dimension,value,occurrence_id)");
         createCartographySchema(db);
         createHistorianWorkbenchSchema(db);
+        createDigitalArchiveSchema(db);
     }
 
     @Override
@@ -115,6 +116,7 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
         // Upgrades are additive only: historical provenance must never be destroyed.
         if (oldVersion < 3) createCartographySchema(db);
         if (oldVersion < 4) createHistorianWorkbenchSchema(db);
+        if (oldVersion < 5) createDigitalArchiveSchema(db);
     }
 
     private static void createCartographySchema(SQLiteDatabase db) {
@@ -236,6 +238,28 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
                 "detail TEXT NOT NULL DEFAULT ''," +
                 "created_at INTEGER NOT NULL)");
         db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_research_audit_entity ON idx_research_audit(entity_type,entity_id,created_at)");
+    }
+
+
+    private static void createDigitalArchiveSchema(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS idx_unit_facets (" +
+                "unit_id TEXT NOT NULL REFERENCES idx_semantic_units(unit_id) ON DELETE CASCADE," +
+                "dimension TEXT NOT NULL," +
+                "value TEXT NOT NULL," +
+                "value_norm TEXT NOT NULL," +
+                "PRIMARY KEY(unit_id,dimension,value_norm))");
+        db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_unit_facets_dim ON idx_unit_facets(dimension,value_norm,unit_id)");
+
+        db.execSQL("CREATE TABLE IF NOT EXISTS idx_source_relations (" +
+                "left_source_id TEXT NOT NULL REFERENCES idx_sources(source_id) ON DELETE CASCADE," +
+                "right_source_id TEXT NOT NULL REFERENCES idx_sources(source_id) ON DELETE CASCADE," +
+                "relation TEXT NOT NULL," +
+                "note TEXT NOT NULL DEFAULT ''," +
+                "created_at INTEGER NOT NULL," +
+                "updated_at INTEGER NOT NULL," +
+                "PRIMARY KEY(left_source_id,right_source_id,relation))");
+        db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_source_rel_left ON idx_source_relations(left_source_id,relation)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_source_rel_right ON idx_source_relations(right_source_id,relation)");
     }
 
     public static final class SourceRecord {
@@ -568,6 +592,32 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
                     values.put("start_offset", anchor.start());
                     values.put("end_offset", anchor.end());
                     db.insertWithOnConflict("idx_unit_topics", null, values, SQLiteDatabase.CONFLICT_REPLACE);
+                }
+            }
+            db.setTransactionSuccessful();
+        } finally {
+            db.endTransaction();
+        }
+    }
+
+    public void replaceUnitFacets(String unitId, List<String> facets) {
+        if (safe(unitId).isEmpty()) return;
+        SQLiteDatabase db = getWritableDatabase();
+        db.beginTransaction();
+        try {
+            db.delete("idx_unit_facets", "unit_id=?", new String[]{unitId});
+            if (facets != null) {
+                for (String raw : facets) {
+                    ParsedFacet facet = ParsedFacet.parse(raw);
+                    if (facet == null) continue;
+                    ContentValues row = new ContentValues();
+                    row.put("unit_id", unitId);
+                    row.put("dimension", facet.dimension);
+                    row.put("value", raw.substring(raw.indexOf('=') + 1).trim());
+                    row.put("value_norm", fold(raw.substring(raw.indexOf('=') + 1)));
+                    db.insertWithOnConflict(
+                            "idx_unit_facets", null, row, SQLiteDatabase.CONFLICT_IGNORE
+                    );
                 }
             }
             db.setTransactionSuccessful();
