@@ -88,6 +88,22 @@ public final class IndexCoreCartographyReader {
         }
     }
 
+    public static final class CoPresenceSummary {
+        public final String leftTitle;
+        public final String rightTitle;
+        public final int occurrences;
+        public final int pageFrom;
+        public final int pageTo;
+
+        CoPresenceSummary(String leftTitle, String rightTitle, int occurrences, int pageFrom, int pageTo) {
+            this.leftTitle = safe(leftTitle);
+            this.rightTitle = safe(rightTitle);
+            this.occurrences = occurrences;
+            this.pageFrom = pageFrom;
+            this.pageTo = pageTo;
+        }
+    }
+
     public static final class IntersectionSummary {
         public final String leftTitle;
         public final String rightTitle;
@@ -211,6 +227,39 @@ public final class IndexCoreCartographyReader {
             }
         }
         if (path != null) out.add(new CoverageRange(path, title, start, last, pages, units));
+        return Collections.unmodifiableList(out);
+    }
+
+    /**
+     * Topic pairs sharing the same unit without a proven deterministic crossing.
+     * This is the persistent meaning of A + B, kept separate from A × B.
+     */
+    public static List<CoPresenceSummary> coPresence(IndexCoreDatabase db, String sourceId, int limit) {
+        if (db == null || safe(sourceId).isEmpty()) return Collections.emptyList();
+        String sql = "SELECT a.topic_title,b.topic_title,COUNT(DISTINCT a.unit_id),"
+                + "MIN(CASE WHEN u.page GLOB '[0-9]*' THEN CAST(u.page AS INTEGER) ELSE NULL END),"
+                + "MAX(CASE WHEN u.page GLOB '[0-9]*' THEN CAST(u.page AS INTEGER) ELSE NULL END) "
+                + "FROM idx_unit_topics a "
+                + "JOIN idx_unit_topics b ON b.unit_id=a.unit_id AND a.topic_path < b.topic_path "
+                + "JOIN idx_semantic_units u ON u.unit_id=a.unit_id "
+                + "WHERE u.source_id=? "
+                + "AND b.topic_path NOT LIKE a.topic_path || ' > %' "
+                + "AND a.topic_path NOT LIKE b.topic_path || ' > %' "
+                + "AND NOT EXISTS (SELECT 1 FROM idx_intersections x "
+                + "WHERE x.unit_id=a.unit_id AND x.left_topic_path=a.topic_path AND x.right_topic_path=b.topic_path) "
+                + "GROUP BY a.topic_path,a.topic_title,b.topic_path,b.topic_title "
+                + "ORDER BY COUNT(DISTINCT a.unit_id) DESC,a.topic_title COLLATE NOCASE LIMIT "
+                + Math.max(1, Math.min(1000, limit));
+
+        List<CoPresenceSummary> out = new ArrayList<>();
+        try (Cursor c = db.getReadableDatabase().rawQuery(sql, new String[]{sourceId})) {
+            while (c.moveToNext()) {
+                out.add(new CoPresenceSummary(
+                        c.getString(0), c.getString(1), c.getInt(2),
+                        c.isNull(3) ? 0 : c.getInt(3), c.isNull(4) ? 0 : c.getInt(4)
+                ));
+            }
+        }
         return Collections.unmodifiableList(out);
     }
 
