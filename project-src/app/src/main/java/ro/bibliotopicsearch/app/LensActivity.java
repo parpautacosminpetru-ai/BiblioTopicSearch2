@@ -11,6 +11,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.Editable;
+import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.ViewGroup;
@@ -64,10 +65,12 @@ public final class LensActivity extends AppCompatActivity {
     private MlKitAnalyzer analyzer;
     private final ExecutorService analysisExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService captureExecutor = Executors.newSingleThreadExecutor();
     private final AtomicInteger queryGeneration = new AtomicInteger(0);
     private final Handler main = new Handler(Looper.getMainLooper());
 
     private volatile TopicMatcher.SearchPlan searchPlan;
+    private volatile Text latestOcrText;
     private volatile boolean destroyed;
     private String activeQuery = "";
     private boolean ocrEnabled = true;
@@ -120,6 +123,7 @@ public final class LensActivity extends AppCompatActivity {
         main.removeCallbacksAndMessages(null);
         analysisExecutor.shutdownNow();
         queryExecutor.shutdownNow();
+        captureExecutor.shutdownNow();
 
         // Flush/close is queued on the index worker and never blocks Activity teardown.
         LivingIndexDispatcher.stop();
@@ -194,6 +198,23 @@ public final class LensActivity extends AppCompatActivity {
         controls.addView(torchButton, controlLp());
         top.addView(controls);
 
+        LinearLayout cartography = new LinearLayout(this);
+        cartography.setGravity(Gravity.CENTER_VERTICAL);
+
+        Button capture = button("CAPTURĂ EXACTĂ");
+        capture.setOnClickListener(v -> captureCurrentFrame(false));
+        cartography.addView(capture, new LinearLayout.LayoutParams(0, dp(40), 1f));
+
+        Button completePage = button("ÎNCHEIE PAGINA ✓");
+        completePage.setOnClickListener(v -> captureCurrentFrame(true));
+        cartography.addView(completePage, new LinearLayout.LayoutParams(0, dp(40), 1f));
+
+        Button map = button("CARTOGRAFIE");
+        map.setOnClickListener(v -> startActivity(new Intent(this, IndexCoreActivity.class)));
+        cartography.addView(map, new LinearLayout.LayoutParams(0, dp(40), 1f));
+
+        top.addView(cartography);
+
         status = new TextView(this);
         status.setTextSize(10.5f);
         status.setTextColor(Color.rgb(198, 215, 225));
@@ -266,6 +287,7 @@ public final class LensActivity extends AppCompatActivity {
                         return;
                     }
 
+                    latestOcrText = text;
                     TopicMatcher.SearchPlan plan = searchPlan;
                     List<MatchHit> hits = plan == null
                             ? Collections.emptyList()
@@ -340,6 +362,64 @@ public final class LensActivity extends AppCompatActivity {
             setStatus("OCR " + words + " • ținte " + (hits == null ? 0 : hits.size()) + " • fără răspuns direct încă",
                     LensPalette.get(this, LensPalette.Role.TARGET));
         }
+    }
+
+    private void captureCurrentFrame(boolean completePage) {
+        Text snapshot = latestOcrText;
+        if (snapshot == null || snapshot.getTextBlocks() == null || snapshot.getTextBlocks().isEmpty()) {
+            setStatus("CAPTURĂ • nu există încă un cadru OCR valid", Color.rgb(230, 155, 72));
+            return;
+        }
+
+        String detectedPage = ExactCartographyCapture.detectPage(snapshot);
+        if (completePage && detectedPage.isEmpty()) {
+            EditText input = new EditText(this);
+            input.setHint("Numărul paginii");
+            input.setSingleLine(true);
+            input.setInputType(InputType.TYPE_CLASS_NUMBER);
+            new AlertDialog.Builder(this)
+                    .setTitle("Închide pagina în registrul exhaustivității")
+                    .setMessage("Pagina trebuie identificată explicit. Introdu numărul tipărit al paginii.")
+                    .setView(input)
+                    .setPositiveButton("CAPTUREAZĂ + ÎNCHIDE", (d, w) ->
+                            runExactCapture(snapshot, input.getText().toString().trim(), true))
+                    .setNegativeButton("ANULEAZĂ", null)
+                    .show();
+            return;
+        }
+        runExactCapture(snapshot, detectedPage, completePage);
+    }
+
+    private void runExactCapture(Text snapshot, String page, boolean completePage) {
+        setStatus(completePage ? "CAPTURĂ EXACTĂ • închid pagina…" : "CAPTURĂ EXACTĂ • procesez cadrul…",
+                Color.rgb(230, 190, 80));
+        captureExecutor.execute(() -> {
+            ExactCartographyCapture.Report report;
+            try {
+                TopicMap thematicMap = TopicMapStore.load(getApplicationContext());
+                report = ExactCartographyCapture.capture(
+                        getApplicationContext(),
+                        snapshot,
+                        thematicMap,
+                        page,
+                        completePage
+                );
+            } catch (RuntimeException failure) {
+                runOnUiThread(() -> {
+                    if (!destroyed) setStatus("CAPTURĂ • eroare; cadrul nu a fost declarat complet",
+                            Color.rgb(230, 92, 92));
+                });
+                return;
+            }
+
+            runOnUiThread(() -> {
+                if (destroyed) return;
+                int color = report.map != null && report.map.ambiguousCount() > 0
+                        ? Color.rgb(230, 155, 72)
+                        : Color.rgb(76, 190, 123);
+                setStatus("CAPTURĂ • " + report.compact(), color);
+            });
+        });
     }
 
     private void toggleOcr() {
