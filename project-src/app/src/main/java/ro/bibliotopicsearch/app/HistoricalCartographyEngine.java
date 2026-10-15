@@ -167,9 +167,12 @@ public final class HistoricalCartographyEngine {
             if (paragraph.isEmpty()) continue;
             paragraphs++;
 
+            List<SemanticGraph.Proposition> paragraphProps = propositions.getOrDefault(
+                    detection.paragraphIndex(), Collections.emptyList()
+            );
             List<DeterministicIndexIntersectionEngine.Anchor> paragraphAnchors =
                     DeterministicIndexIntersectionEngine.anchorsForText(thematicMap, paragraph);
-            Status paragraphStatus = statusFor(paragraphAnchors, false);
+            Status paragraphStatus = statusFor(paragraphAnchors, !paragraphProps.isEmpty());
             for (DeterministicIndexIntersectionEngine.Anchor anchor : paragraphAnchors) {
                 if (anchor != null && anchor.node() != null) topicPaths.add(anchor.node().path);
             }
@@ -191,9 +194,6 @@ public final class HistoricalCartographyEngine {
             else if (paragraphStatus == Status.AMBIGUOUS) ambiguous++;
             else unparsed++;
 
-            List<SemanticGraph.Proposition> paragraphProps = propositions.getOrDefault(
-                    detection.paragraphIndex(), Collections.emptyList()
-            );
             for (SemanticGraph.Proposition proposition : paragraphProps) {
                 String raw = safe(proposition.raw());
                 if (raw.isEmpty()) continue;
@@ -245,7 +245,7 @@ public final class HistoricalCartographyEngine {
             List<DeterministicIndexIntersectionEngine.Anchor> anchors,
             boolean parsed
     ) {
-        if (anchors == null || anchors.isEmpty()) return parsed ? Status.NO_INDEX : Status.NO_INDEX;
+        if (anchors == null || anchors.isEmpty()) return parsed ? Status.NO_INDEX : Status.UNPARSED;
         if (DeterministicIndexIntersectionEngine.hasSharedSpanAmbiguity(anchors)) return Status.AMBIGUOUS;
         return Status.MAPPED;
     }
