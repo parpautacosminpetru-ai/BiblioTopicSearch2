@@ -454,12 +454,10 @@ public final class LensActivity extends AppCompatActivity {
                         ? Color.rgb(230, 155, 72)
                         : Color.rgb(76, 190, 123);
                 setStatus("CAPTURĂ • " + report.compact() + progress, color);
-                if (report.pageComplete && pageEdit != null && report.page.matches("\\d+")) {
-                    try {
-                        pageEdit.setText(String.valueOf(Integer.parseInt(report.page) + 1));
-                    } catch (NumberFormatException ignored) {
-                        // Keep the verified page label unchanged.
-                    }
+                if (report.pageComplete && pageEdit != null) {
+                    // Never guess the next physical page: clear the field and let OCR
+                    // or the historian identify the next page explicitly.
+                    pageEdit.setText("");
                 }
             });
         });
