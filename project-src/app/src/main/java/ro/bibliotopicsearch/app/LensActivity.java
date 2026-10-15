@@ -303,7 +303,8 @@ public final class LensActivity extends AppCompatActivity {
                     String detectedPage = ExactCartographyCapture.detectPage(text);
                     if (!detectedPage.isEmpty()) {
                         runOnUiThread(() -> {
-                            if (!destroyed && pageEdit != null && !pageEdit.hasFocus()) {
+                            if (!destroyed && pageEdit != null && !pageEdit.hasFocus()
+                                    && pageEdit.getText().toString().trim().isEmpty()) {
                                 pageEdit.setText(detectedPage);
                             }
                         });
