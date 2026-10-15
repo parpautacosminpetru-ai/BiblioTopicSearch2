@@ -170,6 +170,60 @@ public final class IndexCoreCartographyReader {
         }
     }
 
+    public static final class TopicSummary {
+        public final String topicPath;
+        public final String topicTitle;
+        public final int units;
+        public final int pages;
+
+        TopicSummary(String topicPath, String topicTitle, int units, int pages) {
+            this.topicPath = safe(topicPath);
+            this.topicTitle = safe(topicTitle);
+            this.units = units;
+            this.pages = pages;
+        }
+    }
+
+    public static final class ExtractionItem {
+        public final String page;
+        public final int paragraphIndex;
+        public final int sentenceIndex;
+        public final int clauseIndex;
+        public final String unitKind;
+        public final String outlineTitle;
+        public final String function;
+        public final String relation;
+        public final String surface;
+        public final String matchKind;
+        public final String crossings;
+
+        ExtractionItem(
+                String page,
+                int paragraphIndex,
+                int sentenceIndex,
+                int clauseIndex,
+                String unitKind,
+                String outlineTitle,
+                String function,
+                String relation,
+                String surface,
+                String matchKind,
+                String crossings
+        ) {
+            this.page = safe(page);
+            this.paragraphIndex = paragraphIndex;
+            this.sentenceIndex = sentenceIndex;
+            this.clauseIndex = clauseIndex;
+            this.unitKind = safe(unitKind);
+            this.outlineTitle = safe(outlineTitle);
+            this.function = safe(function);
+            this.relation = safe(relation);
+            this.surface = safe(surface);
+            this.matchKind = safe(matchKind);
+            this.crossings = safe(crossings);
+        }
+    }
+
     public static final class MatrixRow {
         public final String topicPath;
         public final String topicTitle;
@@ -347,6 +401,60 @@ public final class IndexCoreCartographyReader {
                 out.add(new IntersectionSummary(
                         c.getString(0), c.getString(1), c.getString(2), c.getString(3),
                         c.getInt(4), c.isNull(5) ? 0 : c.getInt(5), c.isNull(6) ? 0 : c.getInt(6)
+                ));
+            }
+        }
+        return Collections.unmodifiableList(out);
+    }
+
+    public static List<TopicSummary> topicsForSource(IndexCoreDatabase db, String sourceId, int limit) {
+        if (db == null || safe(sourceId).isEmpty()) return Collections.emptyList();
+        String sql = "SELECT t.topic_path,MAX(t.topic_title),COUNT(DISTINCT t.unit_id),"
+                + "COUNT(DISTINCT CASE WHEN u.page GLOB '[0-9]*' THEN u.page ELSE NULL END) "
+                + "FROM idx_unit_topics t JOIN idx_semantic_units u ON u.unit_id=t.unit_id "
+                + "WHERE u.source_id=? GROUP BY t.topic_path "
+                + "ORDER BY COUNT(DISTINCT t.unit_id) DESC,MAX(t.topic_title) COLLATE NOCASE LIMIT "
+                + Math.max(1, Math.min(1000, limit));
+        List<TopicSummary> out = new ArrayList<>();
+        try (Cursor c = db.getReadableDatabase().rawQuery(sql, new String[]{sourceId})) {
+            while (c.moveToNext()) {
+                out.add(new TopicSummary(c.getString(0), c.getString(1), c.getInt(2), c.getInt(3)));
+            }
+        }
+        return Collections.unmodifiableList(out);
+    }
+
+    public static List<ExtractionItem> extractionQueue(
+            IndexCoreDatabase db,
+            String sourceId,
+            String topicPath,
+            int limit
+    ) {
+        if (db == null || safe(sourceId).isEmpty() || safe(topicPath).isEmpty()) {
+            return Collections.emptyList();
+        }
+        String sql = "SELECT u.page,u.paragraph_index,u.sentence_index,u.clause_index,u.unit_kind,"
+                + "COALESCE(o.title,''),u.function,u.relation,t.surface,t.match_kind,"
+                + "COALESCE(GROUP_CONCAT(DISTINCT "
+                + "CASE WHEN x.left_topic_path=t.topic_path THEN x.right_title || ' [' || x.rule || ']' "
+                + "WHEN x.right_topic_path=t.topic_path THEN x.left_title || ' [' || x.rule || ']' ELSE NULL END),'') "
+                + "FROM idx_unit_topics t "
+                + "JOIN idx_semantic_units u ON u.unit_id=t.unit_id "
+                + "LEFT JOIN idx_outlines o ON o.outline_id=u.outline_id "
+                + "LEFT JOIN idx_intersections x ON x.unit_id=u.unit_id "
+                + "WHERE u.source_id=? AND t.topic_path=? "
+                + "GROUP BY u.unit_id,u.page,u.paragraph_index,u.sentence_index,u.clause_index,u.unit_kind,"
+                + "o.title,u.function,u.relation,t.surface,t.match_kind "
+                + "ORDER BY CASE WHEN u.page GLOB '[0-9]*' THEN CAST(u.page AS INTEGER) ELSE 2147483647 END,"
+                + "u.page,u.paragraph_index,u.sentence_index,u.clause_index LIMIT "
+                + Math.max(1, Math.min(5000, limit));
+        List<ExtractionItem> out = new ArrayList<>();
+        try (Cursor c = db.getReadableDatabase().rawQuery(sql, new String[]{sourceId, topicPath})) {
+            while (c.moveToNext()) {
+                out.add(new ExtractionItem(
+                        c.getString(0), c.getInt(1), c.getInt(2), c.getInt(3), c.getString(4),
+                        c.getString(5), c.getString(6), c.getString(7), c.getString(8),
+                        c.getString(9), c.getString(10)
                 ));
             }
         }
