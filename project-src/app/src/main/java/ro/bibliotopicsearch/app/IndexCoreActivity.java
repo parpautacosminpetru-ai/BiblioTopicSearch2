@@ -296,27 +296,47 @@ public final class IndexCoreActivity extends AppCompatActivity {
     private void showDeterministicIntersections() {
         List<IndexCoreCartographyReader.IntersectionSummary> values =
                 IndexCoreCartographyReader.intersections(db, sourceId, 250);
-        if (values.isEmpty()) {
-            new AlertDialog.Builder(this).setTitle("Încrucișări deterministe")
-                    .setMessage("Nu există încă încrucișări persistate prin CAPTURĂ EXACTĂ.")
+        List<IndexCoreCartographyReader.CoPresenceSummary> plus =
+                IndexCoreCartographyReader.coPresence(db, sourceId, 120);
+        if (values.isEmpty() && plus.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("Relații între indici")
+                    .setMessage("Nu există încă încrucișări sau co-prezențe persistate prin CAPTURĂ EXACTĂ.")
                     .setPositiveButton("OK", null).show();
             return;
         }
+
         StringBuilder out = new StringBuilder();
-        for (IndexCoreCartographyReader.IntersectionSummary value : values) {
-            out.append("\n• ").append(value.leftTitle).append(" × ").append(value.rightTitle)
-                    .append(" [").append(value.rule).append("]");
-            if (!value.relation.isEmpty() && !"GENERIC".equals(value.relation)) {
-                out.append(" • ").append(value.relation);
-            }
-            out.append(" • ").append(value.occurrences).append(" unități");
-            if (value.pageFrom > 0) {
-                out.append(" • pag. ").append(value.pageFrom);
-                if (value.pageTo > value.pageFrom) out.append("–").append(value.pageTo);
+        if (!values.isEmpty()) {
+            out.append("× RELAȚIE STRUCTURAL DEMONSTRATĂ");
+            for (IndexCoreCartographyReader.IntersectionSummary value : values) {
+                out.append("\n• ").append(value.leftTitle).append(" × ").append(value.rightTitle)
+                        .append(" [").append(value.rule).append("]");
+                if (!value.relation.isEmpty() && !"GENERIC".equals(value.relation)) {
+                    out.append(" • ").append(value.relation);
+                }
+                out.append(" • ").append(value.occurrences).append(" unități");
+                if (value.pageFrom > 0) {
+                    out.append(" • pag. ").append(value.pageFrom);
+                    if (value.pageTo > value.pageFrom) out.append("–").append(value.pageTo);
+                }
             }
         }
+
+        if (!plus.isEmpty()) {
+            if (out.length() > 0) out.append("\n\n");
+            out.append("+ CO-PREZENȚĂ FĂRĂ RELAȚIE DEMONSTRATĂ");
+            for (IndexCoreCartographyReader.CoPresenceSummary value : plus) {
+                out.append("\n• ").append(value.leftTitle).append(" + ").append(value.rightTitle)
+                        .append(" • ").append(value.occurrences).append(" unități");
+                if (value.pageFrom > 0) {
+                    out.append(" • pag. ").append(value.pageFrom);
+                    if (value.pageTo > value.pageFrom) out.append("–").append(value.pageTo);
+                }
+            }
+        }
+
         new AlertDialog.Builder(this)
-                .setTitle("Încrucișări auditabile")
+                .setTitle("× ≠ +")
                 .setMessage(out.toString().trim())
                 .setPositiveButton("ÎNCHIDE", null)
                 .show();
