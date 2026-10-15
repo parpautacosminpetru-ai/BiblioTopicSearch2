@@ -381,12 +381,10 @@ public final class DigitalSourceImportActivity extends AppCompatActivity {
                     setStatus("Import oprit de eroare: " + message, Color.rgb(230, 92, 92));
                 });
                 try { recognizer.close(); } catch (RuntimeException ignored) {}
-                IndexCoreRuntime.stop();
                 return;
             }
 
             try { recognizer.close(); } catch (RuntimeException ignored) {}
-            IndexCoreRuntime.stop();
 
             final int completeCount = complete;
             final int unreadableCount = unreadable;
