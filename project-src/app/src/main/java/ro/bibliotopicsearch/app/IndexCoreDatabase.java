@@ -174,6 +174,12 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
                 "last_session_id INTEGER NOT NULL," +
                 "PRIMARY KEY(source_id,page))");
         db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_page_coverage_complete ON idx_page_coverage(source_id,is_complete,page)");
+
+        db.execSQL("CREATE TABLE IF NOT EXISTS idx_source_scope (" +
+                "source_id TEXT PRIMARY KEY REFERENCES idx_sources(source_id) ON DELETE CASCADE," +
+                "page_from INTEGER," +
+                "page_to INTEGER," +
+                "updated_at INTEGER NOT NULL)");
     }
 
     public static final class SourceRecord {
@@ -203,6 +209,24 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
         OutlineRecord(long id, long parentId, String kind, String title, String pageStart, int depth, int orderIndex) {
             this.id = id; this.parentId = parentId; this.kind = safe(kind); this.title = safe(title);
             this.pageStart = safe(pageStart); this.depth = depth; this.orderIndex = orderIndex;
+        }
+    }
+
+    public static final class SourceScope {
+        public final int pageFrom;
+        public final int pageTo;
+
+        SourceScope(int pageFrom, int pageTo) {
+            this.pageFrom = Math.max(0, pageFrom);
+            this.pageTo = Math.max(0, pageTo);
+        }
+
+        public boolean defined() {
+            return pageFrom > 0 && pageTo >= pageFrom;
+        }
+
+        public int expectedPages() {
+            return defined() ? pageTo - pageFrom + 1 : 0;
         }
     }
 
@@ -262,6 +286,36 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
         values.put("edition", safe(edition)); values.put("isbn", safe(isbn));
         values.put("locator", safe(locator)); values.put("updated_at", System.currentTimeMillis());
         getWritableDatabase().update("idx_sources", values, "source_id=?", new String[]{safe(sourceId)});
+    }
+
+    public void setSourceScope(String sourceId, int pageFrom, int pageTo) {
+        String id = safe(sourceId);
+        if (id.isEmpty()) return;
+        ensureSource(id);
+        SQLiteDatabase db = getWritableDatabase();
+        if (pageFrom <= 0 || pageTo < pageFrom) {
+            db.delete("idx_source_scope", "source_id=?", new String[]{id});
+            return;
+        }
+        ContentValues values = new ContentValues();
+        values.put("source_id", id);
+        values.put("page_from", pageFrom);
+        values.put("page_to", pageTo);
+        values.put("updated_at", System.currentTimeMillis());
+        db.insertWithOnConflict("idx_source_scope", null, values, SQLiteDatabase.CONFLICT_REPLACE);
+    }
+
+    public SourceScope sourceScope(String sourceId) {
+        String id = safe(sourceId);
+        if (id.isEmpty()) return new SourceScope(0, 0);
+        try (Cursor c = getReadableDatabase().query(
+                "idx_source_scope",
+                new String[]{"COALESCE(page_from,0)","COALESCE(page_to,0)"},
+                "source_id=?", new String[]{id}, null, null, null, "1"
+        )) {
+            if (!c.moveToFirst()) return new SourceScope(0, 0);
+            return new SourceScope(c.getInt(0), c.getInt(1));
+        }
     }
 
     public SourceRecord source(String sourceId) {
