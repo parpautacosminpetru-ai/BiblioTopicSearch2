@@ -130,6 +130,7 @@ public final class IndexCoreRuntime {
                 );
                 if (unitId.isEmpty()) continue;
                 db.replaceUnitTopics(unitId, unit.anchors());
+                db.replaceUnitFacets(unitId, unit.facets());
                 db.replaceUnitIntersections(unitId, unit.intersections());
             }
             db.recordPageCapture(sourceId, sessionId, page, markPageComplete);
