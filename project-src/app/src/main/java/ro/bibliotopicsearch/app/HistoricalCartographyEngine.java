@@ -151,6 +151,9 @@ public final class HistoricalCartographyEngine {
             }
         }
 
+        DeterministicMultiIndexMatcher.Plan thematicPlan =
+                DeterministicMultiIndexMatcher.forMap(thematicMap);
+
         List<Unit> units = new ArrayList<>();
         Set<String> topicPaths = new HashSet<>();
         int paragraphs = 0;
@@ -171,7 +174,7 @@ public final class HistoricalCartographyEngine {
                     detection.paragraphIndex(), Collections.emptyList()
             );
             List<DeterministicIndexIntersectionEngine.Anchor> paragraphAnchors =
-                    DeterministicIndexIntersectionEngine.anchorsForText(thematicMap, paragraph);
+                    DeterministicMultiIndexMatcher.matchText(thematicPlan, paragraph);
             Status paragraphStatus = statusFor(paragraphAnchors, !paragraphProps.isEmpty());
             for (DeterministicIndexIntersectionEngine.Anchor anchor : paragraphAnchors) {
                 if (anchor != null && anchor.node() != null) topicPaths.add(anchor.node().path);
@@ -199,9 +202,9 @@ public final class HistoricalCartographyEngine {
                 if (raw.isEmpty()) continue;
                 clauses++;
                 List<DeterministicIndexIntersectionEngine.Anchor> anchors =
-                        DeterministicIndexIntersectionEngine.anchorsFor(thematicMap, proposition);
+                        DeterministicMultiIndexMatcher.matchProposition(thematicPlan, proposition);
                 List<DeterministicIndexIntersectionEngine.Intersection> xs =
-                        DeterministicIndexIntersectionEngine.detectProposition(thematicMap, proposition);
+                        DeterministicIndexIntersectionEngine.detectProposition(proposition, anchors);
                 Status status = statusFor(anchors, true);
                 for (DeterministicIndexIntersectionEngine.Anchor anchor : anchors) {
                     if (anchor != null && anchor.node() != null) topicPaths.add(anchor.node().path);

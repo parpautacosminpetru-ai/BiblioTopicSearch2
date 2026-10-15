@@ -42,6 +42,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -60,6 +61,7 @@ public final class LensActivity extends AppCompatActivity {
     private TextView status;
     private Button ocrButton;
     private Button torchButton;
+    private Button autoCaptureButton;
 
     private LifecycleCameraController cameraController;
     private TextRecognizer recognizer;
@@ -68,14 +70,20 @@ public final class LensActivity extends AppCompatActivity {
     private final ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService captureExecutor = Executors.newSingleThreadExecutor();
     private final AtomicInteger queryGeneration = new AtomicInteger(0);
+    private final AtomicBoolean autoCaptureBusy = new AtomicBoolean(false);
+    private final PageStabilityTracker pageStabilityTracker = new PageStabilityTracker();
     private final Handler main = new Handler(Looper.getMainLooper());
 
     private volatile TopicMatcher.SearchPlan searchPlan;
     private volatile Text latestOcrText;
+    private volatile PageStabilityTracker.Observation latestPageStability;
+    private volatile String manualPageOverride = "";
     private volatile boolean destroyed;
     private String activeQuery = "";
+    private String stabilitySourceId = "";
     private boolean ocrEnabled = true;
     private boolean torchEnabled = false;
+    private volatile boolean autoCaptureEnabled = false;
 
     private final Runnable applyQuery = this::applyQueryNow;
     private final Runnable clearStale = () -> {
@@ -89,6 +97,8 @@ public final class LensActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         ocrEnabled = AppPrefs.ocrEnabled(this);
+        autoCaptureEnabled = AppPrefs.autoExactCapture(this);
+        stabilitySourceId = IndexCoreSourceRegistry.activeSourceId(this);
         buildUi();
 
         // Start persistent storage outside the UI thread. Initial OCR frames may be
@@ -109,6 +119,7 @@ public final class LensActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         updateZoomLabel();
+        refreshStabilitySource();
         scheduleSearchPlanBuild(activeQuery);
         if (overlay != null) overlay.invalidate();
     }
@@ -211,17 +222,28 @@ public final class LensActivity extends AppCompatActivity {
         pageEdit.setTextSize(11f);
         pageEdit.setGravity(Gravity.CENTER);
         pageEdit.setBackgroundTintList(ColorStateList.valueOf(Color.rgb(78, 117, 142)));
-        cartography.addView(pageEdit, new LinearLayout.LayoutParams(dp(62), dp(40)));
+        pageEdit.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                manualPageOverride = s == null ? "" : s.toString().trim();
+            }
+            @Override public void afterTextChanged(Editable s) {}
+        });
+        cartography.addView(pageEdit, new LinearLayout.LayoutParams(dp(58), dp(40)));
 
-        Button capture = button("CAPTURĂ EXACTĂ");
+        Button capture = button("CAPTURĂ");
         capture.setOnClickListener(v -> captureCurrentFrame(false));
         cartography.addView(capture, new LinearLayout.LayoutParams(0, dp(40), 1f));
 
-        Button completePage = button("ÎNCHEIE PAGINA ✓");
+        Button completePage = button("ÎNCHEIE ✓");
         completePage.setOnClickListener(v -> captureCurrentFrame(true));
         cartography.addView(completePage, new LinearLayout.LayoutParams(0, dp(40), 1f));
 
-        Button map = button("CARTOGRAFIE");
+        autoCaptureButton = button(autoCaptureEnabled ? "AUTO ●" : "AUTO ○");
+        autoCaptureButton.setOnClickListener(v -> toggleAutoCapture());
+        cartography.addView(autoCaptureButton, new LinearLayout.LayoutParams(0, dp(40), 1f));
+
+        Button map = button("HARTĂ");
         map.setOnClickListener(v -> startActivity(new Intent(this, IndexCoreActivity.class)));
         cartography.addView(map, new LinearLayout.LayoutParams(0, dp(40), 1f));
 
@@ -301,6 +323,18 @@ public final class LensActivity extends AppCompatActivity {
 
                     latestOcrText = text;
                     String detectedPage = ExactCartographyCapture.detectPage(text);
+                    String stabilityPage = detectedPage.isEmpty() ? manualPageOverride : detectedPage;
+                    PageStabilityTracker.Observation stability = pageStabilityTracker.observe(
+                            text.getText(),
+                            stabilityPage,
+                            System.currentTimeMillis()
+                    );
+                    latestPageStability = stability;
+                    if (autoCaptureEnabled && stability.shouldCapture
+                            && !stability.page.isEmpty()
+                            && autoCaptureBusy.compareAndSet(false, true)) {
+                        runAutoExactCapture(text, stability);
+                    }
                     if (!detectedPage.isEmpty()) {
                         runOnUiThread(() -> {
                             if (!destroyed && pageEdit != null && !pageEdit.hasFocus()
@@ -374,13 +408,20 @@ public final class LensActivity extends AppCompatActivity {
         main.postDelayed(clearStale, STALE_MS);
         overlay.updateTargetHits(hits);
         ResearchSemanticEngine.Answer answer = TopicMatcher.latestResearchAnswer();
+        String auto = "";
+        PageStabilityTracker.Observation stability = latestPageStability;
+        if (autoCaptureEnabled && stability != null) {
+            auto = " • AUTO: " + stability.compact();
+            if (stability.stable && stability.page.isEmpty()) auto += " • pagină?";
+        }
         if (activeQuery.isEmpty()) {
-            setStatus("OCR " + words + " cuvinte • cartografiere internă", Color.rgb(76, 190, 123));
+            setStatus("OCR " + words + " cuvinte • cartografiere internă" + auto, Color.rgb(76, 190, 123));
         } else if (answer != null) {
-            setStatus("OCR " + words + " • răspuns direct " + (int) Math.round(answer.score() * 100.0) + "%",
+            setStatus("OCR " + words + " • răspuns direct " + (int) Math.round(answer.score() * 100.0) + "%" + auto,
                     LensPalette.get(this, LensPalette.Role.ANSWER));
         } else {
-            setStatus("OCR " + words + " • ținte " + (hits == null ? 0 : hits.size()) + " • fără răspuns direct încă",
+            setStatus("OCR " + words + " • ținte " + (hits == null ? 0 : hits.size())
+                            + " • fără răspuns direct încă" + auto,
                     LensPalette.get(this, LensPalette.Role.TARGET));
         }
     }
@@ -414,6 +455,46 @@ public final class LensActivity extends AppCompatActivity {
             return;
         }
         runExactCapture(snapshot, page, completePage);
+    }
+
+    private void runAutoExactCapture(Text snapshot, PageStabilityTracker.Observation stability) {
+        if (snapshot == null || stability == null || stability.page.isEmpty()) {
+            autoCaptureBusy.set(false);
+            return;
+        }
+        captureExecutor.execute(() -> {
+            try {
+                TopicMap thematicMap = TopicMapStore.load(getApplicationContext());
+                ExactCartographyCapture.Report report = ExactCartographyCapture.capture(
+                        getApplicationContext(),
+                        snapshot,
+                        thematicMap,
+                        stability.page,
+                        false
+                );
+                pageStabilityTracker.markCaptured(stability);
+                IndexCoreDatabase core = IndexCoreDatabase.get(getApplicationContext());
+                String activeSource = IndexCoreSourceRegistry.activeSourceId(getApplicationContext());
+                IndexCoreCartographyReader.Stats coverage =
+                        IndexCoreCartographyReader.stats(core, activeSource);
+                String progress = coverage.scopeDefined()
+                        ? " • " + coverage.pagesComplete + "/" + coverage.expectedPages + " pag. încheiate"
+                        : "";
+                runOnUiThread(() -> {
+                    if (!destroyed) {
+                        setStatus("AUTO CAPTURĂ • " + report.compact() + progress,
+                                Color.rgb(76, 190, 123));
+                    }
+                });
+            } catch (RuntimeException failure) {
+                runOnUiThread(() -> {
+                    if (!destroyed) setStatus("AUTO CAPTURĂ • nereușită; voi reîncerca după stabilizare",
+                            Color.rgb(230, 155, 72));
+                });
+            } finally {
+                autoCaptureBusy.set(false);
+            }
+        });
     }
 
     private void runExactCapture(Text snapshot, String page, boolean completePage) {
@@ -454,13 +535,44 @@ public final class LensActivity extends AppCompatActivity {
                         ? Color.rgb(230, 155, 72)
                         : Color.rgb(76, 190, 123);
                 setStatus("CAPTURĂ • " + report.compact() + progress, color);
-                if (report.pageComplete && pageEdit != null) {
-                    // Never guess the next physical page: clear the field and let OCR
-                    // or the historian identify the next page explicitly.
-                    pageEdit.setText("");
+                pageStabilityTracker.markCurrentCaptured(report.page);
+                if (report.pageComplete) {
+                    pageStabilityTracker.markPageClosed(report.page);
+                    if (pageEdit != null) {
+                        // Never guess the next physical page: clear the field and let OCR
+                        // or the historian identify the next page explicitly.
+                        pageEdit.setText("");
+                    }
                 }
             });
         });
+    }
+
+    private void toggleAutoCapture() {
+        autoCaptureEnabled = !autoCaptureEnabled;
+        AppPrefs.setAutoExactCapture(this, autoCaptureEnabled);
+        if (autoCaptureButton != null) {
+            autoCaptureButton.setText(autoCaptureEnabled ? "AUTO ●" : "AUTO ○");
+            autoCaptureButton.setBackgroundTintList(ColorStateList.valueOf(
+                    autoCaptureEnabled ? Color.rgb(42, 128, 94) : Color.rgb(53, 92, 125)
+            ));
+        }
+        if (!autoCaptureEnabled) autoCaptureBusy.set(false);
+        setStatus(autoCaptureEnabled
+                        ? "AUTO CAPTURĂ • aștept pagină stabilă; închiderea rămâne manuală"
+                        : "AUTO CAPTURĂ oprită",
+                autoCaptureEnabled ? Color.rgb(76, 190, 123) : Color.rgb(155, 164, 171));
+    }
+
+    private void refreshStabilitySource() {
+        String active = IndexCoreSourceRegistry.activeSourceId(this);
+        if (!active.equals(stabilitySourceId)) {
+            stabilitySourceId = active;
+            pageStabilityTracker.resetForNewSource();
+            latestPageStability = null;
+            manualPageOverride = "";
+            if (pageEdit != null) pageEdit.setText("");
+        }
     }
 
     private void toggleOcr() {

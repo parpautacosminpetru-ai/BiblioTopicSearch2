@@ -124,3 +124,44 @@ Fișa de cartografiere poate fi exportată ca text și conține proveniența, in
 ### Fără interpretare generativă
 
 Nu este folosit niciun LLM și niciun serviciu extern de interpretare semantică. După OCR, clasificarea și cartografierea sunt algoritmice, locale și auditabile. ML Kit este folosit local numai pentru recunoașterea optică a textului.
+
+
+## 1.7.0 — viteză de trecere unică
+
+Această versiune reduce interacțiunea manuală din cartografiere fără a relaxa controlul metodologic.
+
+### AUTO CAPTURĂ deterministă
+
+LUPĂ poate urmări stabilitatea paginii OCR. O pagină este eligibilă pentru captură automată numai dacă:
+
+- există suficient text OCR;
+- mai multe cadre consecutive descriu aceeași pagină;
+- stabilitatea durează un interval minim;
+- pagina nu a fost deja capturată;
+- există un număr de pagină detectat sau introdus explicit.
+
+AUTO CAPTURĂ execută numai **CAPTURĂ EXACTĂ**. Nu declară pagina completă. Actul **ÎNCHEIE ✓** rămâne explicit la cercetător, astfel încât viteza nu poate falsifica exhaustivitatea.
+
+### Matching tematic într-o singură trecere
+
+Toți termenii tuturor nodurilor active sunt compilați într-un matcher multi-pattern pe tokeni. Sunt folosite două automate:
+
+- forma lexicală exactă normalizată;
+- familia flexionară românească conservatoare.
+
+Textul sursei este tokenizat o singură dată, iar toate temele sunt căutate simultan. Sinonimele istorice rămân exclusiv aliasuri definite de utilizator.
+
+Același plan tematic compilat este reutilizat pe întreg cadrul de CAPTURĂ EXACTĂ pentru:
+
+- paragrafe;
+- propoziții/clauze;
+- încrucișări deterministe;
+- continuitate prin coreferență explicită.
+
+Prin urmare, creșterea numărului de teme nu mai implică o recitire separată a textului pentru fiecare indice.
+
+### Principiu de viteză
+
+`ÎNTOARCE PAGINA → STABILIZARE → AUTO CAPTURĂ → ÎNCHEIE ✓ → URMĂTOAREA PAGINĂ`
+
+Interpretarea și sinteza istorică rămân umane.
