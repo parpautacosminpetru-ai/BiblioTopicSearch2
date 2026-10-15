@@ -22,7 +22,7 @@ import java.util.Set;
  */
 public final class IndexCoreDatabase extends SQLiteOpenHelper {
     private static final String DB_NAME = "index_core_v7.db";
-    private static final int DB_VERSION = 2;
+    private static final int DB_VERSION = 3;
     private static volatile IndexCoreDatabase INSTANCE;
 
     public static IndexCoreDatabase get(Context context) {
@@ -112,7 +112,7 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
         // Upgrades are additive only: historical provenance must never be destroyed.
-        if (oldVersion < 2) createCartographySchema(db);
+        if (oldVersion < 3) createCartographySchema(db);
     }
 
     private static void createCartographySchema(SQLiteDatabase db) {
