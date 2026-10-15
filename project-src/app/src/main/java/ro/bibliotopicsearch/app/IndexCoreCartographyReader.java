@@ -24,6 +24,7 @@ public final class IndexCoreCartographyReader {
         public final int noIndexUnits;
         public final int ambiguousUnits;
         public final int unparsedUnits;
+        public final int unresolvedUnits;
         public final int intersections;
         public final int distinctTopics;
         public final List<Integer> missingPages;
@@ -38,6 +39,7 @@ public final class IndexCoreCartographyReader {
                 int noIndexUnits,
                 int ambiguousUnits,
                 int unparsedUnits,
+                int unresolvedUnits,
                 int intersections,
                 int distinctTopics,
                 List<Integer> missingPages
@@ -51,6 +53,7 @@ public final class IndexCoreCartographyReader {
             this.noIndexUnits = Math.max(0, noIndexUnits);
             this.ambiguousUnits = Math.max(0, ambiguousUnits);
             this.unparsedUnits = Math.max(0, unparsedUnits);
+            this.unresolvedUnits = Math.max(0, unresolvedUnits);
             this.intersections = Math.max(0, intersections);
             this.distinctTopics = Math.max(0, distinctTopics);
             this.missingPages = Collections.unmodifiableList(new ArrayList<>(missingPages));
@@ -58,11 +61,46 @@ public final class IndexCoreCartographyReader {
 
         public boolean scopeDefined() { return expectedPages > 0; }
         public boolean exhaustive() {
-            return scopeDefined() && pagesComplete >= expectedPages && missingPages.isEmpty();
+            return scopeDefined() && pagesComplete >= expectedPages && missingPages.isEmpty()
+                    && unresolvedUnits == 0;
         }
         public int coveragePercent() {
             if (expectedPages <= 0) return 0;
             return Math.max(0, Math.min(100, (int) Math.round(pagesComplete * 100.0 / expectedPages)));
+        }
+    }
+
+    public static final class ReviewItem {
+        public final String unitId;
+        public final String page;
+        public final int paragraphIndex;
+        public final String unitKind;
+        public final String status;
+        public final String function;
+        public final String relation;
+        public final String outlineTitle;
+        public final String evidence;
+
+        ReviewItem(
+                String unitId,
+                String page,
+                int paragraphIndex,
+                String unitKind,
+                String status,
+                String function,
+                String relation,
+                String outlineTitle,
+                String evidence
+        ) {
+            this.unitId = safe(unitId);
+            this.page = safe(page);
+            this.paragraphIndex = paragraphIndex;
+            this.unitKind = safe(unitKind);
+            this.status = safe(status);
+            this.function = safe(function);
+            this.relation = safe(relation);
+            this.outlineTitle = safe(outlineTitle);
+            this.evidence = safe(evidence);
         }
     }
 
@@ -146,7 +184,7 @@ public final class IndexCoreCartographyReader {
 
     public static Stats stats(IndexCoreDatabase db, String sourceId) {
         if (db == null || safe(sourceId).isEmpty()) {
-            return new Stats(0,0,0,0,0,0,0,0,0,0,0,Collections.emptyList());
+            return new Stats(0,0,0,0,0,0,0,0,0,0,0,0,Collections.emptyList());
         }
         IndexCoreDatabase.SourceScope scope = db.sourceScope(sourceId);
 
@@ -173,6 +211,11 @@ public final class IndexCoreCartographyReader {
         int unparsed = scalar(db,
                 "SELECT COUNT(*) FROM idx_semantic_units WHERE source_id=? AND status='UNPARSED'",
                 new String[]{sourceId});
+        int unresolved = scalar(db,
+                "SELECT COUNT(*) FROM idx_semantic_units u "
+                        + "WHERE u.source_id=? AND u.status IN ('AMBIGUOUS','UNPARSED') "
+                        + "AND NOT EXISTS (SELECT 1 FROM idx_unit_reviews r WHERE r.unit_id=u.unit_id)",
+                new String[]{sourceId});
         int intersections = scalar(db,
                 "SELECT COUNT(*) FROM idx_intersections x JOIN idx_semantic_units u ON u.unit_id=x.unit_id WHERE u.source_id=?",
                 new String[]{sourceId});
@@ -183,8 +226,33 @@ public final class IndexCoreCartographyReader {
         List<Integer> missing = missingPages(db, sourceId, scope);
         return new Stats(
                 scope.expectedPages(), pagesSeen, pagesComplete, paragraphs, clauses,
-                mapped, noIndex, ambiguous, unparsed, intersections, topics, missing
+                mapped, noIndex, ambiguous, unparsed, unresolved, intersections, topics, missing
         );
+    }
+
+    public static List<ReviewItem> reviewQueue(IndexCoreDatabase db, String sourceId, int limit) {
+        if (db == null || safe(sourceId).isEmpty()) return Collections.emptyList();
+        String sql = "SELECT u.unit_id,u.page,u.paragraph_index,u.unit_kind,u.status,u.function,u.relation,"
+                + "COALESCE(o.title,''),COALESCE(GROUP_CONCAT(t.topic_title || ': ' || t.surface,' | '),'') "
+                + "FROM idx_semantic_units u "
+                + "LEFT JOIN idx_outlines o ON o.outline_id=u.outline_id "
+                + "LEFT JOIN idx_unit_topics t ON t.unit_id=u.unit_id "
+                + "LEFT JOIN idx_unit_reviews r ON r.unit_id=u.unit_id "
+                + "WHERE u.source_id=? AND u.status IN ('AMBIGUOUS','UNPARSED') AND r.unit_id IS NULL "
+                + "GROUP BY u.unit_id,u.page,u.paragraph_index,u.unit_kind,u.status,u.function,u.relation,o.title "
+                + "ORDER BY CASE WHEN u.page GLOB '[0-9]*' THEN CAST(u.page AS INTEGER) ELSE 2147483647 END,"
+                + "u.page,u.paragraph_index,u.unit_kind LIMIT "
+                + Math.max(1, Math.min(2000, limit));
+        List<ReviewItem> out = new ArrayList<>();
+        try (Cursor c = db.getReadableDatabase().rawQuery(sql, new String[]{sourceId})) {
+            while (c.moveToNext()) {
+                out.add(new ReviewItem(
+                        c.getString(0), c.getString(1), c.getInt(2), c.getString(3),
+                        c.getString(4), c.getString(5), c.getString(6), c.getString(7), c.getString(8)
+                ));
+            }
+        }
+        return Collections.unmodifiableList(out);
     }
 
     public static List<CoverageRange> coverageRanges(IndexCoreDatabase db, String sourceId) {
