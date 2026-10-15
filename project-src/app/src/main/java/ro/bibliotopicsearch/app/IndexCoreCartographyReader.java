@@ -224,6 +224,46 @@ public final class IndexCoreCartographyReader {
         }
     }
 
+    public static final class CorpusExtractionItem {
+        public final String sourceId;
+        public final String sourceTitle;
+        public final String page;
+        public final int paragraphIndex;
+        public final int sentenceIndex;
+        public final int clauseIndex;
+        public final String outlineTitle;
+        public final String function;
+        public final String relation;
+        public final String surface;
+        public final String crossings;
+
+        CorpusExtractionItem(
+                String sourceId,
+                String sourceTitle,
+                String page,
+                int paragraphIndex,
+                int sentenceIndex,
+                int clauseIndex,
+                String outlineTitle,
+                String function,
+                String relation,
+                String surface,
+                String crossings
+        ) {
+            this.sourceId = safe(sourceId);
+            this.sourceTitle = safe(sourceTitle);
+            this.page = safe(page);
+            this.paragraphIndex = paragraphIndex;
+            this.sentenceIndex = sentenceIndex;
+            this.clauseIndex = clauseIndex;
+            this.outlineTitle = safe(outlineTitle);
+            this.function = safe(function);
+            this.relation = safe(relation);
+            this.surface = safe(surface);
+            this.crossings = safe(crossings);
+        }
+    }
+
     public static final class MatrixRow {
         public final String topicPath;
         public final String topicTitle;
@@ -455,6 +495,42 @@ public final class IndexCoreCartographyReader {
                         c.getString(0), c.getInt(1), c.getInt(2), c.getInt(3), c.getString(4),
                         c.getString(5), c.getString(6), c.getString(7), c.getString(8),
                         c.getString(9), c.getString(10)
+                ));
+            }
+        }
+        return Collections.unmodifiableList(out);
+    }
+
+    public static List<CorpusExtractionItem> corpusExtractionQueue(
+            IndexCoreDatabase db,
+            String topicPath,
+            int limit
+    ) {
+        if (db == null || safe(topicPath).isEmpty()) return Collections.emptyList();
+        String sql = "SELECT u.source_id,COALESCE(s.title,''),u.page,u.paragraph_index,u.sentence_index,u.clause_index,"
+                + "COALESCE(o.title,''),u.function,u.relation,t.surface,"
+                + "COALESCE(GROUP_CONCAT(DISTINCT "
+                + "CASE WHEN x.left_topic_path=t.topic_path THEN x.right_title || ' [' || x.rule || ']' "
+                + "WHEN x.right_topic_path=t.topic_path THEN x.left_title || ' [' || x.rule || ']' ELSE NULL END),'') "
+                + "FROM idx_unit_topics t "
+                + "JOIN idx_semantic_units u ON u.unit_id=t.unit_id "
+                + "JOIN idx_sources s ON s.source_id=u.source_id "
+                + "LEFT JOIN idx_outlines o ON o.outline_id=u.outline_id "
+                + "LEFT JOIN idx_intersections x ON x.unit_id=u.unit_id "
+                + "WHERE t.topic_path=? "
+                + "GROUP BY u.unit_id,u.source_id,s.title,u.page,u.paragraph_index,u.sentence_index,u.clause_index,"
+                + "o.title,u.function,u.relation,t.surface "
+                + "ORDER BY s.title COLLATE NOCASE,"
+                + "CASE WHEN u.page GLOB '[0-9]*' THEN CAST(u.page AS INTEGER) ELSE 2147483647 END,"
+                + "u.page,u.paragraph_index,u.sentence_index,u.clause_index LIMIT "
+                + Math.max(1, Math.min(10000, limit));
+        List<CorpusExtractionItem> out = new ArrayList<>();
+        try (Cursor c = db.getReadableDatabase().rawQuery(sql, new String[]{topicPath})) {
+            while (c.moveToNext()) {
+                out.add(new CorpusExtractionItem(
+                        c.getString(0), c.getString(1), c.getString(2), c.getInt(3),
+                        c.getInt(4), c.getInt(5), c.getString(6), c.getString(7),
+                        c.getString(8), c.getString(9), c.getString(10)
                 ));
             }
         }
