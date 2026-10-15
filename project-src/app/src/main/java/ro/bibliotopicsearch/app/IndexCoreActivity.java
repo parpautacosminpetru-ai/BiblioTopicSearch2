@@ -494,9 +494,11 @@ public final class IndexCoreActivity extends AppCompatActivity {
         StringBuilder out = new StringBuilder();
         for (IndexCoreCartographyReader.MatrixRow row : matrix) {
             out.append("\n\n").append(row.topicTitle.isEmpty() ? row.topicPath : row.topicTitle);
-            for (Map.Entry<String, Integer> cell : row.countsBySource.entrySet()) {
-                out.append("\n  • ").append(sourceNames.getOrDefault(cell.getKey(), cell.getKey()))
-                        .append(": ").append(cell.getValue()).append(" zone-paragraf");
+            for (Map.Entry<String, String> source : sourceNames.entrySet()) {
+                int count = row.countsBySource.getOrDefault(source.getKey(), 0);
+                out.append("\n  • ").append(source.getValue())
+                        .append(": ").append(count).append(" zone-paragraf");
+                if (count == 0) out.append("  ← GOL");
             }
         }
         new AlertDialog.Builder(this)
