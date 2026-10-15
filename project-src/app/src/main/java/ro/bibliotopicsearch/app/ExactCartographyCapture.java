@@ -78,7 +78,9 @@ public final class ExactCartographyCapture {
         SemanticGraph graph = SemanticGraphBuilder.build(detections);
         String page = safe(pageOverride);
         if (page.isEmpty()) page = detectPage(text);
-        boolean complete = markPageComplete && !page.isEmpty();
+        // A page is complete only if it is identified and produced at least one
+        // explicit OCR paragraph. Empty/unreadable pages remain open for human review.
+        boolean complete = markPageComplete && !page.isEmpty() && !detections.isEmpty();
 
         HistoricalCartographyEngine.CaptureMap map = IndexCoreRuntime.captureExhaustive(
                 context.getApplicationContext(),
