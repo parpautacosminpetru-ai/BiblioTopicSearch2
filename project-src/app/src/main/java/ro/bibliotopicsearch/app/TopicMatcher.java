@@ -49,19 +49,26 @@ public final class TopicMatcher {
             new ParagraphCartography.Map(Collections.emptyList(), "");
     private static volatile List<ParagraphMapMark> latestParagraphMapMarks =
             Collections.emptyList();
+    private static volatile List<DeterministicIndexIntersectionEngine.Intersection> latestIndexIntersections =
+            Collections.emptyList();
+    private static volatile List<IndexIntersectionTextMark> latestIndexIntersectionMarks =
+            Collections.emptyList();
     private static volatile TopicMap latestResearchThemeMap;
+    private static volatile TopicMap latestIntersectionThemeMap;
     private static volatile ResearchSemanticEngine.Profile researchProfile =
             ResearchSemanticEngine.compile("", null);
 
     private static final class CompiledTerm {
         final String raw;
         final String normalized;
+        final String familyKey;
         final int tokenCount;
         final TopicNode node;
 
         CompiledTerm(String raw, String normalized, int tokenCount, TopicNode node) {
             this.raw = raw;
             this.normalized = normalized;
+            this.familyKey = RomanianLanguagePack.phraseFamilyKey(raw);
             this.tokenCount = tokenCount;
             this.node = node;
         }
@@ -273,7 +280,8 @@ public final class TopicMatcher {
                         String actual = normalizedElements[i];
                         if (actual == null || actual.isEmpty()) continue;
                         for (CompiledTerm term : plan.candidates(1, actual)) {
-                            if (matches(actual, term.normalized, plan.mode, plan.compareChars)) {
+                            if (matches(actual, term.normalized, plan.mode, plan.compareChars)
+                                    || matchesInflectionalFamily(actual, term.familyKey)) {
                                 addHit(
                                         hits,
                                         dedupe,
@@ -317,7 +325,8 @@ public final class TopicMatcher {
                         if (actualPhrase.isEmpty()) continue;
 
                         for (CompiledTerm term : plan.candidates(tokenCount, actualPhrase)) {
-                            if (matches(actualPhrase, term.normalized, plan.mode, plan.compareChars)) {
+                            if (matches(actualPhrase, term.normalized, plan.mode, plan.compareChars)
+                                    || matchesInflectionalFamily(actualPhrase, term.familyKey)) {
                                 addHit(
                                         hits,
                                         dedupe,
@@ -365,6 +374,26 @@ public final class TopicMatcher {
         return latestParagraphMapMarks;
     }
 
+    /** Deterministic topic-index crossings for the most recent accepted OCR frame. */
+    public static List<DeterministicIndexIntersectionEngine.Intersection> latestIndexIntersections() {
+        return latestIndexIntersections;
+    }
+
+    /** Concrete OCR boxes for the two independent anchors behind each crossing. */
+    public static List<IndexIntersectionTextMark> latestIndexIntersectionMarks() {
+        return latestIndexIntersectionMarks;
+    }
+
+    /**
+     * Sets the user-owned thematic map used only for deterministic crossings.
+     * This is intentionally separate from the transient LUPĂ query map.
+     */
+    public static void setIntersectionThemeMap(TopicMap map) {
+        latestIntersectionThemeMap = map;
+        latestIndexIntersections = Collections.emptyList();
+        latestIndexIntersectionMarks = Collections.emptyList();
+    }
+
     public static ResearchSemanticEngine.Profile researchProfile() {
         return researchProfile;
     }
@@ -404,6 +433,8 @@ public final class TopicMatcher {
         latestResearchTextMarks = Collections.emptyList();
         latestParagraphCartography = new ParagraphCartography.Map(Collections.emptyList(), "");
         latestParagraphMapMarks = Collections.emptyList();
+        latestIndexIntersections = Collections.emptyList();
+        latestIndexIntersectionMarks = Collections.emptyList();
     }
 
     private static void scheduleParagraphDetection(Text text) {
@@ -430,6 +461,7 @@ public final class TopicMatcher {
 
         final int researchGeneration = RESEARCH_GENERATION.get();
         final ResearchSemanticEngine.Profile profile = researchProfile;
+        final TopicMap intersectionMap = latestIntersectionThemeMap;
 
         PARAGRAPH_DETECTOR.execute(() -> {
             try {
@@ -452,6 +484,13 @@ public final class TopicMatcher {
                 latestParagraphCartography = cartography;
                 latestParagraphMapMarks = Collections.unmodifiableList(
                         new ArrayList<>(ParagraphMapMarker.build(text, cartography))
+                );
+
+                List<DeterministicIndexIntersectionEngine.Intersection> intersections =
+                        DeterministicIndexIntersectionEngine.detect(intersectionMap, semanticGraph);
+                latestIndexIntersections = Collections.unmodifiableList(new ArrayList<>(intersections));
+                latestIndexIntersectionMarks = Collections.unmodifiableList(
+                        new ArrayList<>(IndexIntersectionTextMarker.build(text, intersections))
                 );
 
                 // Persistence gets the already-computed graph/map on its own low-priority worker.
@@ -553,6 +592,16 @@ public final class TopicMatcher {
         if (dedupe.add(key)) {
             hits.add(new MatchHit(box, original, searchTerm, node, timestamp));
         }
+    }
+
+    /**
+     * Narrow, deterministic Romanian inflectional matching. This is deliberately
+     * not derivational/synonym expansion: semantic aliases remain user-owned.
+     */
+    public static boolean matchesInflectionalFamily(String actual, String compiledFamilyKey) {
+        if (actual == null || compiledFamilyKey == null || compiledFamilyKey.trim().isEmpty()) return false;
+        String actualFamily = RomanianLanguagePack.phraseFamilyKey(actual);
+        return !actualFamily.isEmpty() && actualFamily.equals(compiledFamilyKey.trim());
     }
 
     public static boolean matches(

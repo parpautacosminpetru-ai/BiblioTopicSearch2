@@ -1,7 +1,10 @@
 package ro.bibliotopicsearch.app;
 
+import android.content.Intent;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Bundle;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
@@ -14,16 +17,23 @@ import android.widget.TextView;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /** Scalable v7 workspace: stable sources, physical outline and facet intersections. */
 public final class IndexCoreActivity extends AppCompatActivity {
+    private static final int REQ_EXPORT_CARTOGRAPHY = 401;
+
     private IndexCoreDatabase db;
     private String sourceId;
     private FacetIntersectionQuery.Parsed query = FacetIntersectionQuery.parse("");
     private List<IndexCoreDatabase.SearchResult> rows = Collections.emptyList();
+    private String pendingExportText = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,8 +81,41 @@ public final class IndexCoreActivity extends AppCompatActivity {
         top.addView(close, new LinearLayout.LayoutParams(dp(78), dp(42)));
         root.addView(top);
 
+        LinearLayout research = new LinearLayout(this);
+        research.setGravity(Gravity.CENTER_VERTICAL);
+        Button coverage = button("ACOPERIRE");
+        coverage.setOnClickListener(v -> showCoverage());
+        research.addView(coverage, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        Button ranges = button("ARII");
+        ranges.setOnClickListener(v -> showCoverageRanges());
+        research.addView(ranges, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        Button crossings = button("× DET.");
+        crossings.setOnClickListener(v -> showDeterministicIntersections());
+        research.addView(crossings, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        Button matrix = button("MATRICE");
+        matrix.setOnClickListener(v -> showMatrix());
+        research.addView(matrix, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        root.addView(research);
+
+        LinearLayout audit = new LinearLayout(this);
+        audit.setGravity(Gravity.CENTER_VERTICAL);
+        Button review = button("REVIZUIRE");
+        review.setOnClickListener(v -> showReviewQueue());
+        audit.addView(review, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        Button extraction = button("EXTRACȚIE");
+        extraction.setOnClickListener(v -> showExtractionTopics());
+        audit.addView(extraction, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        Button corpus = button("CORPUS");
+        corpus.setOnClickListener(v -> showCorpusTopics());
+        audit.addView(corpus, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        Button export = button("EXPORT FIȘĂ");
+        export.setOnClickListener(v -> exportCartography());
+        audit.addView(export, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        root.addView(audit);
+
         IndexCoreDatabase.SourceRecord source = db.source(sourceId);
         IndexCoreDatabase.Stats stats = db.stats();
+        IndexCoreCartographyReader.Stats cartography = IndexCoreCartographyReader.stats(db, sourceId);
         TextView summary = text(12.2f, Color.rgb(207, 221, 230));
         summary.setText(
                 "SURSĂ ACTIVĂ: " + (source == null ? "—" : source.displayName())
@@ -80,6 +123,17 @@ public final class IndexCoreActivity extends AppCompatActivity {
                         + "\nDB: " + stats.sources + " surse • " + stats.entries + " intrări • "
                         + stats.occurrences + " apariții • " + stats.facets + " fațete • " + stats.outlines + " noduri outline"
                         + "\nREZULTATE ÎN SURSĂ: " + rows.size() + " • aparițiile SQLite nu au plafonul de 256."
+                        + "\nCARTOGRAFIE: " + cartography.paragraphUnits + " paragrafe • "
+                        + cartography.clauseUnits + " clauze • " + cartography.distinctTopics + " indici • "
+                        + cartography.intersections + " încrucișări"
+                        + (cartography.scopeDefined()
+                            ? "\nACOPERIRE CONFIRMATĂ: " + cartography.pagesComplete + "/" + cartography.expectedPages
+                                + " pagini (" + cartography.coveragePercent() + "%)"
+                                + (cartography.exhaustive() ? " • EXHAUSTIVĂ ✓" : "")
+                            : "\nACOPERIRE: definește intervalul sursei pentru măsurare exhaustivă")
+                        + (cartography.unresolvedUnits > 0
+                            ? "\nDE VERIFICAT: " + cartography.unresolvedUnits + " unități excepționale"
+                            : "")
         );
         summary.setPadding(0, dp(4), 0, dp(8));
         root.addView(summary);
@@ -174,6 +228,354 @@ public final class IndexCoreActivity extends AppCompatActivity {
                 .setMessage(out.toString().trim()).setPositiveButton("ÎNCHIDE", null).show();
     }
 
+    private void showCoverage() {
+        IndexCoreCartographyReader.Stats stats = IndexCoreCartographyReader.stats(db, sourceId);
+        IndexCoreDatabase.SourceScope scope = db.sourceScope(sourceId);
+        StringBuilder msg = new StringBuilder();
+        if (scope.defined()) {
+            msg.append("DOMENIU DECLARAT: pag. ").append(scope.pageFrom).append("–").append(scope.pageTo)
+                    .append(" • ").append(scope.expectedPages()).append(" pagini")
+                    .append("\nPAGINI ÎNCHEIATE: ").append(stats.pagesComplete).append("/").append(stats.expectedPages)
+                    .append(" • ").append(stats.coveragePercent()).append("%");
+            if (stats.exhaustive()) msg.append("\nSTARE: EXHAUSTIVĂ ✓");
+            else msg.append("\nLIPSESC: ").append(compactPages(stats.missingPages, 60));
+        } else {
+            msg.append("Nu este definit încă intervalul complet al sursei. ")
+                    .append("Fără un domeniu declarat, aplicația nu pretinde că sursa este exhaustiv cartografiată.");
+        }
+        msg.append("\n\nPAGINI VĂZUTE: ").append(stats.pagesSeen)
+                .append("\nPARAGRAFE CONTABILIZATE: ").append(stats.paragraphUnits)
+                .append("\nCLAUZE CONTABILIZATE: ").append(stats.clauseUnits)
+                .append("\nUNITĂȚI CU INDICE: ").append(stats.mappedUnits)
+                .append("\nFĂRĂ INDICE TEMATIC: ").append(stats.noIndexUnits)
+                .append("\nAMBIGUE: ").append(stats.ambiguousUnits)
+                .append("\nNEPARSE: ").append(stats.unparsedUnits)
+                .append("\nEXCEPȚII NEREVIZUITE: ").append(stats.unresolvedUnits)
+                .append("\nÎNCRUCIȘĂRI DETERMINISTE: ").append(stats.intersections)
+                .append("\nINDICI DISTINCȚI: ").append(stats.distinctTopics)
+                .append("\n\nO pagină intră la «încheiată» numai prin comanda explicită ÎNCHEIE PAGINA ✓.");
+
+        new AlertDialog.Builder(this)
+                .setTitle("Registrul exhaustivității")
+                .setMessage(msg.toString())
+                .setPositiveButton("DEFINEȘTE DOMENIUL", (d, w) -> editCoverageScope())
+                .setNegativeButton("ÎNCHIDE", null)
+                .show();
+    }
+
+    private void editCoverageScope() {
+        IndexCoreDatabase.SourceScope old = db.sourceScope(sourceId);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(18), dp(8), dp(18), 0);
+        EditText from = field("Prima pagină inclusă", old.defined() ? String.valueOf(old.pageFrom) : "");
+        EditText to = field("Ultima pagină inclusă", old.defined() ? String.valueOf(old.pageTo) : "");
+        from.setInputType(InputType.TYPE_CLASS_NUMBER);
+        to.setInputType(InputType.TYPE_CLASS_NUMBER);
+        box.addView(from);
+        box.addView(to);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Domeniul fizic al sursei")
+                .setMessage("Acest interval este etalonul exhaustivității. Pagina este bifată numai când o închei explicit în LUPĂ.")
+                .setView(box)
+                .setPositiveButton("SALVEAZĂ", (d, w) -> {
+                    int a = parseInt(from.getText().toString());
+                    int b = parseInt(to.getText().toString());
+                    db.setSourceScope(sourceId, a, b);
+                    rebuild();
+                })
+                .setNeutralButton("ȘTERGE DOMENIUL", (d, w) -> {
+                    db.setSourceScope(sourceId, 0, 0);
+                    rebuild();
+                })
+                .setNegativeButton("ANULEAZĂ", null)
+                .show();
+    }
+
+    private void showCorpusTopics() {
+        List<IndexCoreCartographyReader.MatrixRow> topics =
+                IndexCoreCartographyReader.matrix(db, 300);
+        if (topics.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("Corpus tematic")
+                    .setMessage("Nu există încă surse cartografiate exact.")
+                    .setPositiveButton("OK", null).show();
+            return;
+        }
+
+        String[] labels = new String[topics.size()];
+        for (int i = 0; i < topics.size(); i++) {
+            IndexCoreCartographyReader.MatrixRow row = topics.get(i);
+            int sources = 0;
+            int units = 0;
+            for (Integer count : row.countsBySource.values()) {
+                if (count != null && count > 0) sources++;
+                if (count != null) units += count;
+            }
+            labels[i] = (row.topicTitle.isEmpty() ? row.topicPath : row.topicTitle)
+                    + " • " + sources + " surse • " + units + " zone-paragraf";
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Alege tema transversală")
+                .setItems(labels, (d, which) -> showCorpusExtraction(topics.get(which)))
+                .setNegativeButton("ÎNCHIDE", null)
+                .show();
+    }
+
+    private void showCorpusExtraction(IndexCoreCartographyReader.MatrixRow topic) {
+        if (topic == null) return;
+        List<IndexCoreCartographyReader.CorpusExtractionItem> items =
+                IndexCoreCartographyReader.corpusExtractionQueue(db, topic.topicPath, 3000);
+        StringBuilder out = new StringBuilder();
+        String lastSource = null;
+        int shown = 0;
+        for (IndexCoreCartographyReader.CorpusExtractionItem item : items) {
+            if (shown++ >= 900) { out.append("\n…"); break; }
+            if (!item.sourceId.equals(lastSource)) {
+                if (out.length() > 0) out.append("\n");
+                out.append("\n[").append(item.sourceTitle.isEmpty() ? item.sourceId : item.sourceTitle).append("]");
+                lastSource = item.sourceId;
+            }
+            out.append("\n• ");
+            if (!item.page.isEmpty()) out.append("pag. ").append(item.page).append(" • ");
+            out.append("P").append(item.paragraphIndex + 1);
+            if (item.sentenceIndex >= 0) out.append(" S").append(item.sentenceIndex + 1);
+            if (item.clauseIndex >= 0) out.append(" C").append(item.clauseIndex + 1);
+            if (!item.outlineTitle.isEmpty()) out.append(" • ").append(item.outlineTitle);
+            if (!item.function.isEmpty()) out.append(" • F:").append(item.function);
+            if (!item.relation.isEmpty() && !"GENERIC".equals(item.relation)) {
+                out.append(" • R:").append(item.relation);
+            }
+            if (!item.surface.isEmpty()) out.append(" • „").append(trim(item.surface, 48)).append("”");
+            if (!item.crossings.isEmpty()) out.append(" • × ").append(trim(item.crossings, 90));
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Corpus — " + (topic.topicTitle.isEmpty() ? topic.topicPath : topic.topicTitle))
+                .setMessage(out.length() == 0 ? "Nu există locații." : out.toString().trim())
+                .setPositiveButton("ÎNCHIDE", null)
+                .show();
+    }
+
+    private void showExtractionTopics() {
+        List<IndexCoreCartographyReader.TopicSummary> topics =
+                IndexCoreCartographyReader.topicsForSource(db, sourceId, 300);
+        if (topics.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("Extracție țintită")
+                    .setMessage("Nu există încă indici proveniți din CAPTURĂ EXACTĂ.")
+                    .setPositiveButton("OK", null).show();
+            return;
+        }
+        String[] labels = new String[topics.size()];
+        for (int i = 0; i < topics.size(); i++) {
+            IndexCoreCartographyReader.TopicSummary topic = topics.get(i);
+            labels[i] = (topic.topicTitle.isEmpty() ? topic.topicPath : topic.topicTitle)
+                    + " • " + topic.units + " unități • " + topic.pages + " pagini";
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Alege indicele pentru extracție")
+                .setItems(labels, (d, which) -> showExtractionQueue(topics.get(which)))
+                .setNegativeButton("ÎNCHIDE", null)
+                .show();
+    }
+
+    private void showExtractionQueue(IndexCoreCartographyReader.TopicSummary topic) {
+        if (topic == null) return;
+        List<IndexCoreCartographyReader.ExtractionItem> items =
+                IndexCoreCartographyReader.extractionQueue(db, sourceId, topic.topicPath, 1200);
+        StringBuilder out = new StringBuilder();
+        int shown = 0;
+        for (IndexCoreCartographyReader.ExtractionItem item : items) {
+            if (shown++ >= 500) { out.append("\n…"); break; }
+            out.append("\n• ");
+            if (!item.page.isEmpty()) out.append("pag. ").append(item.page).append(" • ");
+            out.append("P").append(item.paragraphIndex + 1);
+            if (item.sentenceIndex >= 0) out.append(" S").append(item.sentenceIndex + 1);
+            if (item.clauseIndex >= 0) out.append(" C").append(item.clauseIndex + 1);
+            out.append(" • ").append(item.unitKind);
+            if (!item.outlineTitle.isEmpty()) out.append(" • ").append(item.outlineTitle);
+            if (!item.function.isEmpty()) out.append(" • F:").append(item.function);
+            if (!item.relation.isEmpty() && !"GENERIC".equals(item.relation)) {
+                out.append(" • R:").append(item.relation);
+            }
+            if (!item.surface.isEmpty()) out.append(" • „").append(trim(item.surface, 48)).append("”");
+            if (!item.crossings.isEmpty()) out.append(" • × ").append(trim(item.crossings, 90));
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Coada de extracție — " + (topic.topicTitle.isEmpty() ? topic.topicPath : topic.topicTitle))
+                .setMessage(out.length() == 0 ? "Nu există locații." : out.toString().trim())
+                .setPositiveButton("ÎNCHIDE", null)
+                .show();
+    }
+
+    private void showReviewQueue() {
+        List<IndexCoreCartographyReader.ReviewItem> items =
+                IndexCoreCartographyReader.reviewQueue(db, sourceId, 500);
+        if (items.isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Revizuire excepții")
+                    .setMessage("Nu există unități AMBIGUOUS/UNPARSED nerevizuite. Registrul nu are excepții deschise.")
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+
+        String[] labels = new String[items.size()];
+        for (int i = 0; i < items.size(); i++) {
+            IndexCoreCartographyReader.ReviewItem item = items.get(i);
+            StringBuilder label = new StringBuilder();
+            if (!item.page.isEmpty()) label.append("pag. ").append(item.page).append(" • ");
+            label.append("P").append(item.paragraphIndex + 1)
+                    .append(" • ").append(item.unitKind)
+                    .append(" • ").append(item.status);
+            if (!item.outlineTitle.isEmpty()) label.append(" • ").append(item.outlineTitle);
+            if (!item.evidence.isEmpty()) label.append("\n").append(trim(item.evidence, 110));
+            labels[i] = label.toString();
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Excepții nerevizuite: " + items.size())
+                .setItems(labels, (dialog, which) -> reviewUnit(items.get(which)))
+                .setNegativeButton("ÎNCHIDE", null)
+                .show();
+    }
+
+    private void reviewUnit(IndexCoreCartographyReader.ReviewItem item) {
+        if (item == null) return;
+        StringBuilder detail = new StringBuilder();
+        if (!item.page.isEmpty()) detail.append("Pagina: ").append(item.page).append("\n");
+        detail.append("Paragraf: ").append(item.paragraphIndex + 1)
+                .append("\nUnitate: ").append(item.unitKind)
+                .append("\nStare automată: ").append(item.status);
+        if (!item.function.isEmpty()) detail.append("\nFuncție: ").append(item.function);
+        if (!item.relation.isEmpty()) detail.append("\nRelație: ").append(item.relation);
+        if (!item.outlineTitle.isEmpty()) detail.append("\nSecțiune: ").append(item.outlineTitle);
+        if (!item.evidence.isEmpty()) detail.append("\nDovezi tematice: ").append(item.evidence);
+        detail.append("\n\nRevizuirea este umană și nu inventează conținut. Dacă clasificarea trebuie schimbată, modifică harta și recapturează pasajul.");
+
+        new AlertDialog.Builder(this)
+                .setTitle("Audit unitate")
+                .setMessage(detail.toString())
+                .setItems(new String[]{
+                        "REVIZUITĂ — păstrează starea explicită",
+                        "CONFIRMĂ FĂRĂ INDICE TEMATIC",
+                        "NON-CONȚINUT / ELEMENT EDITORIAL"
+                }, (d, which) -> {
+                    if (which == 0) db.reviewSemanticUnit(item.unitId, "ACKNOWLEDGED");
+                    else if (which == 1) db.reviewSemanticUnit(item.unitId, "CONFIRMED_NO_INDEX");
+                    else db.reviewSemanticUnit(item.unitId, "NON_CONTENT");
+                    rebuild();
+                })
+                .setNegativeButton("LASĂ NEREVIZUITĂ", null)
+                .show();
+    }
+
+    private void showCoverageRanges() {
+        List<IndexCoreCartographyReader.CoverageRange> ranges =
+                IndexCoreCartographyReader.coverageRanges(db, sourceId);
+        if (ranges.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("Arii tematice")
+                    .setMessage("Nu există încă intervale tematice provenite din CAPTURĂ EXACTĂ.")
+                    .setPositiveButton("OK", null).show();
+            return;
+        }
+        StringBuilder out = new StringBuilder();
+        int shown = 0;
+        for (IndexCoreCartographyReader.CoverageRange range : ranges) {
+            if (shown++ >= 260) { out.append("\n…"); break; }
+            out.append("\n• ").append(range.topicTitle.isEmpty() ? range.topicPath : range.topicTitle)
+                    .append(" • pag. ").append(range.pageLabel())
+                    .append(" • ").append(range.units).append(" unități");
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Arii de acoperire tematice")
+                .setMessage(out.toString().trim())
+                .setPositiveButton("ÎNCHIDE", null)
+                .show();
+    }
+
+    private void showDeterministicIntersections() {
+        List<IndexCoreCartographyReader.IntersectionSummary> values =
+                IndexCoreCartographyReader.intersections(db, sourceId, 250);
+        List<IndexCoreCartographyReader.CoPresenceSummary> plus =
+                IndexCoreCartographyReader.coPresence(db, sourceId, 120);
+        if (values.isEmpty() && plus.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("Relații între indici")
+                    .setMessage("Nu există încă încrucișări sau co-prezențe persistate prin CAPTURĂ EXACTĂ.")
+                    .setPositiveButton("OK", null).show();
+            return;
+        }
+
+        StringBuilder out = new StringBuilder();
+        if (!values.isEmpty()) {
+            out.append("× RELAȚIE STRUCTURAL DEMONSTRATĂ");
+            for (IndexCoreCartographyReader.IntersectionSummary value : values) {
+                out.append("\n• ").append(value.leftTitle).append(" × ").append(value.rightTitle)
+                        .append(" [").append(value.rule).append("]");
+                if (!value.relation.isEmpty() && !"GENERIC".equals(value.relation)) {
+                    out.append(" • ").append(value.relation);
+                }
+                out.append(" • ").append(value.occurrences).append(" unități");
+                if (value.pageFrom > 0) {
+                    out.append(" • pag. ").append(value.pageFrom);
+                    if (value.pageTo > value.pageFrom) out.append("–").append(value.pageTo);
+                }
+            }
+        }
+
+        if (!plus.isEmpty()) {
+            if (out.length() > 0) out.append("\n\n");
+            out.append("+ CO-PREZENȚĂ FĂRĂ RELAȚIE DEMONSTRATĂ");
+            for (IndexCoreCartographyReader.CoPresenceSummary value : plus) {
+                out.append("\n• ").append(value.leftTitle).append(" + ").append(value.rightTitle)
+                        .append(" • ").append(value.occurrences).append(" unități");
+                if (value.pageFrom > 0) {
+                    out.append(" • pag. ").append(value.pageFrom);
+                    if (value.pageTo > value.pageFrom) out.append("–").append(value.pageTo);
+                }
+            }
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("× ≠ +")
+                .setMessage(out.toString().trim())
+                .setPositiveButton("ÎNCHIDE", null)
+                .show();
+    }
+
+    private void showMatrix() {
+        List<IndexCoreCartographyReader.MatrixRow> matrix =
+                IndexCoreCartographyReader.matrix(db, 180);
+        if (matrix.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("Matrice multisursă")
+                    .setMessage("Nu există încă suficiente capturi exacte pentru matrice.")
+                    .setPositiveButton("OK", null).show();
+            return;
+        }
+
+        Map<String, String> sourceNames = new LinkedHashMap<>();
+        for (IndexCoreDatabase.SourceRecord source : db.listSources()) {
+            sourceNames.put(source.id, source.displayName());
+        }
+
+        StringBuilder out = new StringBuilder();
+        for (IndexCoreCartographyReader.MatrixRow row : matrix) {
+            out.append("\n\n").append(row.topicTitle.isEmpty() ? row.topicPath : row.topicTitle);
+            for (Map.Entry<String, String> source : sourceNames.entrySet()) {
+                int count = row.countsBySource.getOrDefault(source.getKey(), 0);
+                out.append("\n  • ").append(source.getValue())
+                        .append(": ").append(count).append(" zone-paragraf");
+                if (count == 0) out.append("  ← GOL");
+            }
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Matrice temă × sursă")
+                .setMessage(out.toString().trim())
+                .setPositiveButton("ÎNCHIDE", null)
+                .show();
+    }
+
     private void showIntersection() {
         EditText input = new EditText(this);
         input.setSingleLine(false);
@@ -211,6 +613,77 @@ public final class IndexCoreActivity extends AppCompatActivity {
                 .setTitle(row.canonical)
                 .setMessage(msg.toString())
                 .setPositiveButton("ÎNCHIDE", null).show();
+    }
+
+    private void exportCartography() {
+        pendingExportText = HistoricalCartographyExporter.buildSourceMap(db, sourceId);
+        if (pendingExportText.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("Export")
+                    .setMessage("Nu există încă o fișă de cartografiere de exportat.")
+                    .setPositiveButton("OK", null).show();
+            return;
+        }
+        IndexCoreDatabase.SourceRecord source = db.source(sourceId);
+        String base = source == null ? "sursa" : source.displayName();
+        base = base.replaceAll("[^\\p{L}\\p{N}._-]+", "_");
+        if (base.isEmpty()) base = "sursa";
+
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("text/plain");
+        intent.putExtra(Intent.EXTRA_TITLE, "cartografiere_" + base + ".txt");
+        startActivityForResult(intent, REQ_EXPORT_CARTOGRAPHY);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_EXPORT_CARTOGRAPHY || resultCode != RESULT_OK || data == null) return;
+        Uri uri = data.getData();
+        if (uri == null || pendingExportText.isEmpty()) return;
+        try {
+            OutputStream stream = getContentResolver().openOutputStream(uri, "wt");
+            if (stream == null) throw new IllegalStateException("Nu se poate deschide destinația.");
+            try (OutputStream out = stream) {
+                out.write(pendingExportText.getBytes(StandardCharsets.UTF_8));
+                out.flush();
+            }
+            new AlertDialog.Builder(this).setTitle("Export")
+                    .setMessage("Fișa deterministă de cartografiere a fost exportată.")
+                    .setPositiveButton("OK", null).show();
+        } catch (Exception failure) {
+            new AlertDialog.Builder(this).setTitle("Export nereușit")
+                    .setMessage(failure.getMessage() == null ? "Nu s-a putut scrie fișierul." : failure.getMessage())
+                    .setPositiveButton("OK", null).show();
+        }
+    }
+
+    private String compactPages(List<Integer> pages, int maxItems) {
+        if (pages == null || pages.isEmpty()) return "—";
+        StringBuilder out = new StringBuilder();
+        int shown = 0;
+        int i = 0;
+        while (i < pages.size() && shown < maxItems) {
+            int start = pages.get(i);
+            int end = start;
+            int j = i + 1;
+            while (j < pages.size() && pages.get(j) == end + 1) {
+                end = pages.get(j);
+                j++;
+            }
+            if (out.length() > 0) out.append(", ");
+            out.append(start);
+            if (end > start) out.append("–").append(end);
+            shown++;
+            i = j;
+        }
+        if (i < pages.size()) out.append(", …");
+        return out.toString();
+    }
+
+    private int parseInt(String value) {
+        try { return Integer.parseInt(value == null ? "" : value.trim()); }
+        catch (Exception ignored) { return 0; }
     }
 
     private EditText field(String hint, String value) {

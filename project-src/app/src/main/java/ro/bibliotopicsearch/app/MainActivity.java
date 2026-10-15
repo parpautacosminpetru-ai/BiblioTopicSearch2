@@ -451,6 +451,7 @@ public final class MainActivity extends AppCompatActivity {
     private void reloadSearchLayers() {
         MapProfile activeProfile = TopicLibraryStore.getActive(this);
         userTopicMap = TopicMapStore.load(this);
+        TopicMatcher.setIntersectionThemeMap(userTopicMap);
         topicMap = buildActiveSearchMap();
         searchPlan = TopicMatcher.compile(this, topicMap);
         syncVisibleNodes(activeProfile.id);

@@ -75,6 +75,7 @@ public final class LensOverlayView extends View {
                 LensPalette.get(getContext(), LensPalette.Role.SUBJECT), level);
         if (plan.function) drawSemantic(canvas, SemanticTextMark.Kind.FUNCTION,
                 LensPalette.get(getContext(), LensPalette.Role.FUNCTION), level);
+        if (plan.intersection) drawIntersections(canvas);
         if (plan.answer) drawAnswers(canvas);
         drawFooter(canvas, level, queryActive);
     }
@@ -98,6 +99,36 @@ public final class LensOverlayView extends View {
             if (onePerParagraph && !shown.add(mark.paragraphIndex)) continue;
             int fillAlpha = 35 + (int) Math.round(mark.confidence * 38.0);
             drawBox(canvas, mark.box, color, fillAlpha, 225, mark.confidence >= 0.66 ? 3.0f : 2.1f);
+        }
+    }
+
+    private void drawIntersections(Canvas canvas) {
+        List<IndexIntersectionTextMark> marks = TopicMatcher.latestIndexIntersectionMarks();
+        if (marks == null || marks.isEmpty()) return;
+
+        int shown = 0;
+        for (IndexIntersectionTextMark mark : marks) {
+            if (mark == null || mark.leftBox == null || mark.rightBox == null
+                    || mark.leftBox.isEmpty() || mark.rightBox.isEmpty()) continue;
+
+            int leftColor = visibleColor(mark.leftColor);
+            int rightColor = visibleColor(mark.rightColor);
+            drawBox(canvas, mark.leftBox, leftColor, 24, 235, 3.0f);
+            drawBox(canvas, mark.rightBox, rightColor, 24, 235, 3.0f);
+
+            stroke.setStyle(Paint.Style.STROKE);
+            stroke.setStrokeWidth(dp(1.8f));
+            stroke.setColor(Color.argb(205, 245, 245, 245));
+            canvas.drawLine(
+                    mark.leftBox.centerX(), mark.leftBox.centerY(),
+                    mark.rightBox.centerX(), mark.rightBox.centerY(),
+                    stroke
+            );
+
+            RectF union = new RectF(mark.leftBox);
+            union.union(mark.rightBox);
+            drawBadge(canvas, "× " + mark.ruleCode, union, Color.rgb(73, 99, 116));
+            if (++shown >= 3) break;
         }
     }
 
@@ -166,14 +197,24 @@ public final class LensOverlayView extends View {
                     ? "SURSĂ • nucleu încă nedeterminat"
                     : "SURSĂ • " + map.globalSubject();
         } else {
-            UniversalParagraphDetector.Detection best = TopicMatcher.strongestLatestParagraph();
-            if (best == null) second = "Apropie textul • caut ancora";
-            else {
-                String subject = best.subject() == null || best.subject().trim().isEmpty()
-                        ? "?" : best.subject().trim();
-                second = "S: " + subject;
-                if (!queryActive && level.ordinal() >= LensDisplayPolicy.Level.PARAGRAPH.ordinal()) {
-                    second += " • F: " + functionLabel(best.function());
+            List<DeterministicIndexIntersectionEngine.Intersection> intersections =
+                    TopicMatcher.latestIndexIntersections();
+            if (!queryActive
+                    && level.ordinal() >= LensDisplayPolicy.Level.SENTENCE.ordinal()
+                    && intersections != null
+                    && !intersections.isEmpty()) {
+                second = "× " + intersections.get(0).auditLabel();
+                if (intersections.size() > 1) second += " • +" + (intersections.size() - 1);
+            } else {
+                UniversalParagraphDetector.Detection best = TopicMatcher.strongestLatestParagraph();
+                if (best == null) second = "Apropie textul • caut ancora";
+                else {
+                    String subject = best.subject() == null || best.subject().trim().isEmpty()
+                            ? "?" : best.subject().trim();
+                    second = "S: " + subject;
+                    if (!queryActive && level.ordinal() >= LensDisplayPolicy.Level.PARAGRAPH.ordinal()) {
+                        second += " • F: " + functionLabel(best.function());
+                    }
                 }
             }
         }
@@ -239,6 +280,14 @@ public final class LensOverlayView extends View {
         float dots = paint.measureText("…");
         while (end > 1 && paint.measureText(value, 0, end) + dots > width) end--;
         return value.substring(0, Math.max(1, end)).trim() + "…";
+    }
+
+    private int visibleColor(int color) {
+        if (Color.alpha(color) == 0 && Color.red(color) == 0
+                && Color.green(color) == 0 && Color.blue(color) == 0) {
+            return LensPalette.get(getContext(), LensPalette.Role.TARGET);
+        }
+        return color;
     }
 
     private int withAlpha(int color, int alpha) {

@@ -54,6 +54,28 @@ public final class IndexCoreV7Test {
     }
 
     @Test
+    public void semanticUnitIdsAreStableAcrossSessionsWhenPageIsKnown() {
+        String a = IndexCoreDatabase.semanticUnitId(
+                "src-a", 100L, "42", "PARAGRAPH", "abc", 3, -1, -1
+        );
+        String b = IndexCoreDatabase.semanticUnitId(
+                "src-a", 999L, "42", "PARAGRAPH", "abc", 3, -1, -1
+        );
+        assertEquals(a, b);
+    }
+
+    @Test
+    public void semanticUnitIdsSeparateSessionsWhenPageIsUnknown() {
+        String a = IndexCoreDatabase.semanticUnitId(
+                "src-a", 100L, "", "PARAGRAPH", "abc", 3, -1, -1
+        );
+        String b = IndexCoreDatabase.semanticUnitId(
+                "src-a", 999L, "", "PARAGRAPH", "abc", 3, -1, -1
+        );
+        assertNotEquals(a, b);
+    }
+
+    @Test
     public void coreEntryIdsAreStableLongAndCollisionResistantComparedWithShortDisplayCodes() {
         String a = IndexCoreDatabase.coreEntryId("Martin Luther");
         String b = IndexCoreDatabase.coreEntryId("Martin Luther");

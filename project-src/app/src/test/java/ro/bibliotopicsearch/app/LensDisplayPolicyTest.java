@@ -15,6 +15,7 @@ public final class LensDisplayPolicyTest {
             assertTrue(plan.target);
             assertTrue(plan.answer);
             assertFalse(plan.function);
+            assertFalse(plan.intersection);
         }
     }
 
@@ -25,7 +26,19 @@ public final class LensDisplayPolicyTest {
         assertTrue(plan.function);
         assertFalse(plan.target);
         assertFalse(plan.answer);
+        assertFalse(plan.intersection);
         assertEquals(2, plan.coloredLayers());
+    }
+
+    @Test
+    public void blankSentenceModeAddsOnlyTheDeterministicIntersectionLayer() {
+        LensDisplayPolicy.Plan plan = LensDisplayPolicy.plan(LensDisplayPolicy.Level.SENTENCE, false);
+        assertTrue(plan.subject);
+        assertTrue(plan.function);
+        assertTrue(plan.intersection);
+        assertFalse(plan.target);
+        assertFalse(plan.answer);
+        assertEquals(3, plan.coloredLayers());
     }
 
     @Test

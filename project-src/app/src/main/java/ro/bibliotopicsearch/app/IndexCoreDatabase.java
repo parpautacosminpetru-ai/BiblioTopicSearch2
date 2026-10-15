@@ -22,7 +22,7 @@ import java.util.Set;
  */
 public final class IndexCoreDatabase extends SQLiteOpenHelper {
     private static final String DB_NAME = "index_core_v7.db";
-    private static final int DB_VERSION = 1;
+    private static final int DB_VERSION = 3;
     private static volatile IndexCoreDatabase INSTANCE;
 
     public static IndexCoreDatabase get(Context context) {
@@ -106,11 +106,86 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
                 "value TEXT NOT NULL," +
                 "PRIMARY KEY(occurrence_id,dimension,value))");
         db.execSQL("CREATE INDEX ix_idx_facets_dim_value ON idx_facets(dimension,value,occurrence_id)");
+        createCartographySchema(db);
     }
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        // v7 begins at schema 1. Future upgrades must be additive/migrating, never destructive.
+        // Upgrades are additive only: historical provenance must never be destroyed.
+        if (oldVersion < 3) createCartographySchema(db);
+    }
+
+    private static void createCartographySchema(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS idx_semantic_units (" +
+                "unit_id TEXT PRIMARY KEY," +
+                "source_id TEXT NOT NULL REFERENCES idx_sources(source_id) ON DELETE CASCADE," +
+                "session_id INTEGER NOT NULL," +
+                "page_key TEXT NOT NULL," +
+                "page TEXT NOT NULL DEFAULT ''," +
+                "unit_kind TEXT NOT NULL," +
+                "paragraph_index INTEGER NOT NULL," +
+                "sentence_index INTEGER NOT NULL DEFAULT -1," +
+                "clause_index INTEGER NOT NULL DEFAULT -1," +
+                "outline_id INTEGER REFERENCES idx_outlines(outline_id) ON DELETE SET NULL," +
+                "fingerprint TEXT NOT NULL," +
+                "function TEXT NOT NULL DEFAULT ''," +
+                "relation TEXT NOT NULL DEFAULT ''," +
+                "status TEXT NOT NULL," +
+                "confidence REAL NOT NULL DEFAULT 0," +
+                "captured_at INTEGER NOT NULL)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_units_source_page ON idx_semantic_units(source_id,page_key,paragraph_index)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_units_status ON idx_semantic_units(source_id,status,unit_kind)");
+
+        db.execSQL("CREATE TABLE IF NOT EXISTS idx_unit_topics (" +
+                "unit_id TEXT NOT NULL REFERENCES idx_semantic_units(unit_id) ON DELETE CASCADE," +
+                "topic_path TEXT NOT NULL," +
+                "topic_title TEXT NOT NULL DEFAULT ''," +
+                "term TEXT NOT NULL DEFAULT ''," +
+                "surface TEXT NOT NULL DEFAULT ''," +
+                "match_kind TEXT NOT NULL," +
+                "start_offset INTEGER NOT NULL DEFAULT 0," +
+                "end_offset INTEGER NOT NULL DEFAULT 0," +
+                "PRIMARY KEY(unit_id,topic_path))");
+        db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_unit_topics_path ON idx_unit_topics(topic_path,unit_id)");
+
+        db.execSQL("CREATE TABLE IF NOT EXISTS idx_intersections (" +
+                "intersection_id TEXT PRIMARY KEY," +
+                "unit_id TEXT NOT NULL REFERENCES idx_semantic_units(unit_id) ON DELETE CASCADE," +
+                "left_topic_path TEXT NOT NULL," +
+                "left_title TEXT NOT NULL DEFAULT ''," +
+                "right_topic_path TEXT NOT NULL," +
+                "right_title TEXT NOT NULL DEFAULT ''," +
+                "rule TEXT NOT NULL," +
+                "relation TEXT NOT NULL DEFAULT ''," +
+                "operators TEXT NOT NULL DEFAULT ''," +
+                "left_surface TEXT NOT NULL DEFAULT ''," +
+                "right_surface TEXT NOT NULL DEFAULT ''," +
+                "created_at INTEGER NOT NULL)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_intersections_unit ON idx_intersections(unit_id)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_intersections_pair ON idx_intersections(left_topic_path,right_topic_path,rule)");
+
+        db.execSQL("CREATE TABLE IF NOT EXISTS idx_page_coverage (" +
+                "source_id TEXT NOT NULL REFERENCES idx_sources(source_id) ON DELETE CASCADE," +
+                "page TEXT NOT NULL," +
+                "capture_passes INTEGER NOT NULL DEFAULT 0," +
+                "is_complete INTEGER NOT NULL DEFAULT 0," +
+                "first_captured_at INTEGER NOT NULL," +
+                "last_captured_at INTEGER NOT NULL," +
+                "last_session_id INTEGER NOT NULL," +
+                "PRIMARY KEY(source_id,page))");
+        db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_page_coverage_complete ON idx_page_coverage(source_id,is_complete,page)");
+
+        db.execSQL("CREATE TABLE IF NOT EXISTS idx_unit_reviews (" +
+                "unit_id TEXT PRIMARY KEY REFERENCES idx_semantic_units(unit_id) ON DELETE CASCADE," +
+                "resolution TEXT NOT NULL," +
+                "reviewed_at INTEGER NOT NULL)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_unit_reviews_resolution ON idx_unit_reviews(resolution,reviewed_at)");
+
+        db.execSQL("CREATE TABLE IF NOT EXISTS idx_source_scope (" +
+                "source_id TEXT PRIMARY KEY REFERENCES idx_sources(source_id) ON DELETE CASCADE," +
+                "page_from INTEGER," +
+                "page_to INTEGER," +
+                "updated_at INTEGER NOT NULL)");
     }
 
     public static final class SourceRecord {
@@ -140,6 +215,24 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
         OutlineRecord(long id, long parentId, String kind, String title, String pageStart, int depth, int orderIndex) {
             this.id = id; this.parentId = parentId; this.kind = safe(kind); this.title = safe(title);
             this.pageStart = safe(pageStart); this.depth = depth; this.orderIndex = orderIndex;
+        }
+    }
+
+    public static final class SourceScope {
+        public final int pageFrom;
+        public final int pageTo;
+
+        SourceScope(int pageFrom, int pageTo) {
+            this.pageFrom = Math.max(0, pageFrom);
+            this.pageTo = Math.max(0, pageTo);
+        }
+
+        public boolean defined() {
+            return pageFrom > 0 && pageTo >= pageFrom;
+        }
+
+        public int expectedPages() {
+            return defined() ? pageTo - pageFrom + 1 : 0;
         }
     }
 
@@ -199,6 +292,36 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
         values.put("edition", safe(edition)); values.put("isbn", safe(isbn));
         values.put("locator", safe(locator)); values.put("updated_at", System.currentTimeMillis());
         getWritableDatabase().update("idx_sources", values, "source_id=?", new String[]{safe(sourceId)});
+    }
+
+    public void setSourceScope(String sourceId, int pageFrom, int pageTo) {
+        String id = safe(sourceId);
+        if (id.isEmpty()) return;
+        ensureSource(id);
+        SQLiteDatabase db = getWritableDatabase();
+        if (pageFrom <= 0 || pageTo < pageFrom) {
+            db.delete("idx_source_scope", "source_id=?", new String[]{id});
+            return;
+        }
+        ContentValues values = new ContentValues();
+        values.put("source_id", id);
+        values.put("page_from", pageFrom);
+        values.put("page_to", pageTo);
+        values.put("updated_at", System.currentTimeMillis());
+        db.insertWithOnConflict("idx_source_scope", null, values, SQLiteDatabase.CONFLICT_REPLACE);
+    }
+
+    public SourceScope sourceScope(String sourceId) {
+        String id = safe(sourceId);
+        if (id.isEmpty()) return new SourceScope(0, 0);
+        try (Cursor c = getReadableDatabase().query(
+                "idx_source_scope",
+                new String[]{"COALESCE(page_from,0)","COALESCE(page_to,0)"},
+                "source_id=?", new String[]{id}, null, null, null, "1"
+        )) {
+            if (!c.moveToFirst()) return new SourceScope(0, 0);
+            return new SourceScope(c.getInt(0), c.getInt(1));
+        }
     }
 
     public SourceRecord source(String sourceId) {
@@ -328,6 +451,184 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
         }
     }
 
+    /**
+     * Upsert one exhaustively-accounted source unit. No full OCR body is persisted:
+     * the fingerprint proves identity while topic evidence keeps only explicit spans.
+     */
+    public String upsertSemanticUnit(
+            String sourceId,
+            long sessionId,
+            String page,
+            HistoricalCartographyEngine.Unit unit,
+            long outlineId,
+            long capturedAt
+    ) {
+        if (unit == null || safe(sourceId).isEmpty() || safe(unit.fingerprint()).isEmpty()) return "";
+        ensureSource(sourceId);
+        String id = semanticUnitId(
+                sourceId, sessionId, page, unit.kind().name(), unit.fingerprint(),
+                unit.paragraphIndex(), unit.sentenceIndex(), unit.clauseIndex()
+        );
+        ContentValues values = new ContentValues();
+        values.put("unit_id", id);
+        values.put("source_id", sourceId);
+        values.put("session_id", sessionId);
+        values.put("page_key", pageKey(sessionId, page));
+        values.put("page", safe(page));
+        values.put("unit_kind", unit.kind().name());
+        values.put("paragraph_index", unit.paragraphIndex());
+        values.put("sentence_index", unit.sentenceIndex());
+        values.put("clause_index", unit.clauseIndex());
+        if (outlineId > 0) values.put("outline_id", outlineId); else values.putNull("outline_id");
+        values.put("fingerprint", unit.fingerprint());
+        values.put("function", unit.function());
+        values.put("relation", unit.relation());
+        values.put("status", unit.status().name());
+        values.put("confidence", unit.confidence());
+        values.put("captured_at", capturedAt > 0 ? capturedAt : System.currentTimeMillis());
+        SQLiteDatabase db = getWritableDatabase();
+        db.insertWithOnConflict(
+                "idx_semantic_units", null, values, SQLiteDatabase.CONFLICT_IGNORE
+        );
+        ContentValues update = new ContentValues(values);
+        update.remove("unit_id");
+        db.update("idx_semantic_units", update, "unit_id=?", new String[]{id});
+        return id;
+    }
+
+    public void replaceUnitTopics(
+            String unitId,
+            List<DeterministicIndexIntersectionEngine.Anchor> anchors
+    ) {
+        if (safe(unitId).isEmpty()) return;
+        SQLiteDatabase db = getWritableDatabase();
+        db.beginTransaction();
+        try {
+            db.delete("idx_unit_topics", "unit_id=?", new String[]{unitId});
+            if (anchors != null) {
+                for (DeterministicIndexIntersectionEngine.Anchor anchor : anchors) {
+                    if (anchor == null || anchor.node() == null || safe(anchor.node().path).isEmpty()) continue;
+                    ContentValues values = new ContentValues();
+                    values.put("unit_id", unitId);
+                    values.put("topic_path", anchor.node().path);
+                    values.put("topic_title", safe(anchor.node().title));
+                    values.put("term", anchor.term());
+                    values.put("surface", anchor.surface());
+                    values.put("match_kind", anchor.matchKind().name());
+                    values.put("start_offset", anchor.start());
+                    values.put("end_offset", anchor.end());
+                    db.insertWithOnConflict("idx_unit_topics", null, values, SQLiteDatabase.CONFLICT_REPLACE);
+                }
+            }
+            db.setTransactionSuccessful();
+        } finally {
+            db.endTransaction();
+        }
+    }
+
+    public void replaceUnitIntersections(
+            String unitId,
+            List<DeterministicIndexIntersectionEngine.Intersection> intersections
+    ) {
+        if (safe(unitId).isEmpty()) return;
+        SQLiteDatabase db = getWritableDatabase();
+        db.beginTransaction();
+        try {
+            db.delete("idx_intersections", "unit_id=?", new String[]{unitId});
+            if (intersections != null) {
+                for (DeterministicIndexIntersectionEngine.Intersection value : intersections) {
+                    if (value == null || value.left() == null || value.right() == null
+                            || value.left().node() == null || value.right().node() == null) continue;
+                    String leftPath = safe(value.left().node().path);
+                    String rightPath = safe(value.right().node().path);
+                    String rawId = unitId + "|" + leftPath + "|" + rightPath + "|" + value.rule().code();
+                    ContentValues row = new ContentValues();
+                    row.put("intersection_id", "x-" + sha256(rawId).substring(0, 40));
+                    row.put("unit_id", unitId);
+                    row.put("left_topic_path", leftPath);
+                    row.put("left_title", safe(value.left().node().title));
+                    row.put("right_topic_path", rightPath);
+                    row.put("right_title", safe(value.right().node().title));
+                    row.put("rule", value.rule().code());
+                    row.put("relation", value.relation().name());
+                    row.put("operators", joinOperators(value.operators()));
+                    row.put("left_surface", value.left().surface());
+                    row.put("right_surface", value.right().surface());
+                    row.put("created_at", System.currentTimeMillis());
+                    db.insertWithOnConflict("idx_intersections", null, row, SQLiteDatabase.CONFLICT_REPLACE);
+                }
+            }
+            db.setTransactionSuccessful();
+        } finally {
+            db.endTransaction();
+        }
+    }
+
+    /** Only known physical/digital page numbers participate in the exhaustivity ledger. */
+    public void recordPageCapture(String sourceId, long sessionId, String page, boolean complete) {
+        String p = safe(page);
+        if (safe(sourceId).isEmpty() || p.isEmpty()) return;
+        ensureSource(sourceId);
+        SQLiteDatabase db = getWritableDatabase();
+        long now = System.currentTimeMillis();
+        try (Cursor c = db.query(
+                "idx_page_coverage",
+                new String[]{"capture_passes","is_complete","first_captured_at"},
+                "source_id=? AND page=?",
+                new String[]{sourceId, p},
+                null, null, null, "1"
+        )) {
+            ContentValues values = new ContentValues();
+            values.put("source_id", sourceId);
+            values.put("page", p);
+            if (c.moveToFirst()) {
+                values.put("capture_passes", c.getInt(0) + 1);
+                values.put("is_complete", (c.getInt(1) != 0 || complete) ? 1 : 0);
+                values.put("first_captured_at", c.getLong(2));
+            } else {
+                values.put("capture_passes", 1);
+                values.put("is_complete", complete ? 1 : 0);
+                values.put("first_captured_at", now);
+            }
+            values.put("last_captured_at", now);
+            values.put("last_session_id", sessionId);
+            db.insertWithOnConflict(
+                    "idx_page_coverage", null, values, SQLiteDatabase.CONFLICT_REPLACE
+            );
+        }
+    }
+
+    public void reviewSemanticUnit(String unitId, String resolution) {
+        String id = safe(unitId);
+        String value = upper(resolution);
+        if (id.isEmpty() || value.isEmpty()) return;
+        ContentValues row = new ContentValues();
+        row.put("unit_id", id);
+        row.put("resolution", value);
+        row.put("reviewed_at", System.currentTimeMillis());
+        getWritableDatabase().insertWithOnConflict(
+                "idx_unit_reviews", null, row, SQLiteDatabase.CONFLICT_REPLACE
+        );
+    }
+
+    public void clearSemanticUnitReview(String unitId) {
+        String id = safe(unitId);
+        if (id.isEmpty()) return;
+        getWritableDatabase().delete("idx_unit_reviews", "unit_id=?", new String[]{id});
+    }
+
+    public void setPageComplete(String sourceId, String page, boolean complete) {
+        String p = safe(page);
+        if (safe(sourceId).isEmpty() || p.isEmpty()) return;
+        ContentValues values = new ContentValues();
+        values.put("is_complete", complete ? 1 : 0);
+        values.put("last_captured_at", System.currentTimeMillis());
+        getWritableDatabase().update(
+                "idx_page_coverage", values, "source_id=? AND page=?",
+                new String[]{sourceId, p}
+        );
+    }
+
     public long countOccurrences(String coreEntryId) {
         return scalar("SELECT COUNT(*) FROM idx_occurrences WHERE entry_id=?", new String[]{safe(coreEntryId)});
     }
@@ -426,6 +727,40 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
         String raw = safe(entryId) + "|" + safe(sourceId) + "|" + sessionPart + "|" + p + "|" +
                 Math.max(0, paragraphIndex) + "|" + Math.max(0, outlineId) + "|" + safe(contextCode);
         return "o-" + sha256(raw).substring(0, 40);
+    }
+
+    public static String semanticUnitId(
+            String sourceId,
+            long sessionId,
+            String page,
+            String kind,
+            String fingerprint,
+            int paragraphIndex,
+            int sentenceIndex,
+            int clauseIndex
+    ) {
+        String p = safe(page);
+        String sessionPart = p.isEmpty() ? String.valueOf(sessionId) : "page";
+        String raw = safe(sourceId) + "|" + sessionPart + "|" + p + "|" + safe(kind)
+                + "|" + Math.max(0, paragraphIndex) + "|" + sentenceIndex + "|" + clauseIndex
+                + "|" + safe(fingerprint);
+        return "u-" + sha256(raw).substring(0, 40);
+    }
+
+    public static String pageKey(long sessionId, String page) {
+        String p = safe(page);
+        return p.isEmpty() ? "session:" + sessionId : "page:" + p;
+    }
+
+    private static String joinOperators(Set<SemanticGraph.Operator> operators) {
+        if (operators == null || operators.isEmpty()) return "";
+        StringBuilder out = new StringBuilder();
+        for (SemanticGraph.Operator operator : operators) {
+            if (operator == null) continue;
+            if (out.length() > 0) out.append(',');
+            out.append(operator.name());
+        }
+        return out.toString();
     }
 
     private static final class ParsedFacet {
