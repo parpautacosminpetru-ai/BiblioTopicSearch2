@@ -61,12 +61,14 @@ public final class TopicMatcher {
     private static final class CompiledTerm {
         final String raw;
         final String normalized;
+        final String familyKey;
         final int tokenCount;
         final TopicNode node;
 
         CompiledTerm(String raw, String normalized, int tokenCount, TopicNode node) {
             this.raw = raw;
             this.normalized = normalized;
+            this.familyKey = RomanianLanguagePack.phraseFamilyKey(raw);
             this.tokenCount = tokenCount;
             this.node = node;
         }
@@ -278,7 +280,8 @@ public final class TopicMatcher {
                         String actual = normalizedElements[i];
                         if (actual == null || actual.isEmpty()) continue;
                         for (CompiledTerm term : plan.candidates(1, actual)) {
-                            if (matches(actual, term.normalized, plan.mode, plan.compareChars)) {
+                            if (matches(actual, term.normalized, plan.mode, plan.compareChars)
+                                    || matchesInflectionalFamily(actual, term.familyKey)) {
                                 addHit(
                                         hits,
                                         dedupe,
@@ -322,7 +325,8 @@ public final class TopicMatcher {
                         if (actualPhrase.isEmpty()) continue;
 
                         for (CompiledTerm term : plan.candidates(tokenCount, actualPhrase)) {
-                            if (matches(actualPhrase, term.normalized, plan.mode, plan.compareChars)) {
+                            if (matches(actualPhrase, term.normalized, plan.mode, plan.compareChars)
+                                    || matchesInflectionalFamily(actualPhrase, term.familyKey)) {
                                 addHit(
                                         hits,
                                         dedupe,
@@ -588,6 +592,16 @@ public final class TopicMatcher {
         if (dedupe.add(key)) {
             hits.add(new MatchHit(box, original, searchTerm, node, timestamp));
         }
+    }
+
+    /**
+     * Narrow, deterministic Romanian inflectional matching. This is deliberately
+     * not derivational/synonym expansion: semantic aliases remain user-owned.
+     */
+    public static boolean matchesInflectionalFamily(String actual, String compiledFamilyKey) {
+        if (actual == null || compiledFamilyKey == null || compiledFamilyKey.trim().isEmpty()) return false;
+        String actualFamily = RomanianLanguagePack.phraseFamilyKey(actual);
+        return !actualFamily.isEmpty() && actualFamily.equals(compiledFamilyKey.trim());
     }
 
     public static boolean matches(
