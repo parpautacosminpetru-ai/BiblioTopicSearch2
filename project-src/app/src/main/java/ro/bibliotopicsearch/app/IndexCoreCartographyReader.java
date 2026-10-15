@@ -93,7 +93,6 @@ public final class IndexCoreCartographyReader {
                 String evidence
         ) {
             this.unitId = safe(unitId);
-            this.unitId = safe(unitId);
             this.page = safe(page);
             this.paragraphIndex = paragraphIndex;
             this.unitKind = safe(unitKind);
