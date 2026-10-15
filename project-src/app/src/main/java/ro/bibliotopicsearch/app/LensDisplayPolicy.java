@@ -38,12 +38,14 @@ public final class LensDisplayPolicy {
         public final boolean subject;
         public final boolean function;
         public final boolean answer;
+        public final boolean intersection;
 
-        Plan(boolean target, boolean subject, boolean function, boolean answer) {
+        Plan(boolean target, boolean subject, boolean function, boolean answer, boolean intersection) {
             this.target = target;
             this.subject = subject;
             this.function = function;
             this.answer = answer;
+            this.intersection = intersection;
         }
 
         public int coloredLayers() {
@@ -52,6 +54,7 @@ public final class LensDisplayPolicy {
             if (subject) n++;
             if (function) n++;
             if (answer) n++;
+            if (intersection) n++;
             return n;
         }
     }
@@ -60,19 +63,19 @@ public final class LensDisplayPolicy {
         Level safe = level == null ? Level.PARAGRAPH : level;
         if (queryActive) {
             // Search is a filter, not a dashboard: target + subject + direct answer.
-            return new Plan(true, safe.ordinal() >= Level.SECTION.ordinal(), false, true);
+            return new Plan(true, safe.ordinal() >= Level.SECTION.ordinal(), false, true, false);
         }
         switch (safe) {
             case SOURCE:
-                return new Plan(false, false, false, false);
+                return new Plan(false, false, false, false, false);
             case SECTION:
-                return new Plan(false, true, false, false);
+                return new Plan(false, true, false, false, false);
             case PARAGRAPH:
-                return new Plan(false, true, true, false);
+                return new Plan(false, true, true, false, false);
             case SENTENCE:
             case SEGMENT:
             default:
-                return new Plan(false, true, true, false);
+                return new Plan(false, true, true, false, true);
         }
     }
 }
