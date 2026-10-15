@@ -81,3 +81,46 @@ Dacă repository-ul tău conține arhiva `BiblioTopicSearch_FINAL.zip`, păstrea
 - legendă compactă cu nod, forma OCR detectată și numărul de apariții;
 - etichetele plutitoare sunt opționale și pot fi pornite/oprite direct pe cameră;
 - mod de potrivire „Toate simultan (Exact + Începe cu + Conține)”.
+
+
+## 1.6.0 — cartografiere istorică exhaustivă, deterministă
+
+Aplicația separă acum două moduri de lucru:
+
+- **OCR LIVE** = orientare rapidă și previzualizare; poate eșantiona cadre pentru a păstra latența mică.
+- **CAPTURĂ EXACTĂ** = cale explicită, ne-eșantionată, pentru cercetare. Fiecare paragraf OCR din cadrul acceptat intră în registrul sursei, inclusiv dacă nu corespunde niciunui indice.
+
+Fluxul de cercetare este controlat de utilizator și nu generează sinteză istorică:
+
+`SURSĂ → PAGINĂ → PARAGRAF → CLAUZĂ → INDICI → + / × → ARII → MATRICE MULTISURSĂ`
+
+### Registrul exhaustivității
+
+Pentru fiecare sursă se poate declara intervalul de pagini care trebuie parcurs. O pagină devine `COMPLETĂ` numai prin acțiunea explicită **ÎNCHEIE PAGINA ✓**. Aplicația nu declară o sursă exhaustivă numai pentru că a văzut câteva cadre.
+
+Fiecare unitate este contabilizată ca:
+
+- `MAPPED` — există cel puțin un indice tematic explicit;
+- `NO_INDEX` — unitatea a fost procesată, dar nu conține un indice configurat;
+- `AMBIGUOUS` — aceeași dovadă lexicală ar susține mai multe noduri independente;
+- `UNPARSED` — textul OCR a fost păstrat în registru, dar parserul determinist nu a produs o clauză utilizabilă.
+
+Unitățile excepționale pot fi revizuite uman. Exhaustivitatea cere atât închiderea tuturor paginilor din domeniul declarat, cât și absența excepțiilor nerevizuite.
+
+### Indici și încrucișări
+
+Potrivirea tematică acceptă forme românești din aceeași familie flexionară conservatoare. Sinonimele, echivalențele istorice și conceptele rămân definite de utilizator; aplicația nu inventează sinonimie.
+
+- `A + B` = co-prezență în aceeași unitate fără relație structural demonstrată;
+- `A × B [R1/R2/...]` = încrucișare deterministă cu două ancore independente și regulă auditabilă;
+- părinte/subnod = ierarhie, nu încrucișare.
+
+### Arii și matrice multisursă
+
+Index Core poate reconstrui intervalele de pagini în care fiecare indice este activ și poate afișa o matrice `temă × sursă`. Astfel cercetătorul poate vedea rapid acoperirea, suprapunerile și golurile bibliografice fără ca aplicația să formuleze în locul lui concluzii istorice.
+
+Fișa de cartografiere poate fi exportată ca text și conține proveniența, intervalele tematice, încrucișările deterministe și co-prezențele.
+
+### Fără interpretare generativă
+
+Nu este folosit niciun LLM și niciun serviciu extern de interpretare semantică. După OCR, clasificarea și cartografierea sunt algoritmice, locale și auditabile. ML Kit este folosit local numai pentru recunoașterea optică a textului.
