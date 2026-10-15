@@ -83,7 +83,7 @@ public final class LensActivity extends AppCompatActivity {
     private String stabilitySourceId = "";
     private boolean ocrEnabled = true;
     private boolean torchEnabled = false;
-    private boolean autoCaptureEnabled = false;
+    private volatile boolean autoCaptureEnabled = false;
 
     private final Runnable applyQuery = this::applyQueryNow;
     private final Runnable clearStale = () -> {
@@ -535,6 +535,7 @@ public final class LensActivity extends AppCompatActivity {
                         ? Color.rgb(230, 155, 72)
                         : Color.rgb(76, 190, 123);
                 setStatus("CAPTURĂ • " + report.compact() + progress, color);
+                pageStabilityTracker.markCurrentCaptured(report.page);
                 if (report.pageComplete) {
                     pageStabilityTracker.markPageClosed(report.page);
                     if (pageEdit != null) {
