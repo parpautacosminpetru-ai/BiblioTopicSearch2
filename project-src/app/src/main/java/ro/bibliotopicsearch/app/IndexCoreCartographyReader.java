@@ -185,6 +185,7 @@ public final class IndexCoreCartographyReader {
     }
 
     public static final class ExtractionItem {
+        public final String unitId;
         public final String page;
         public final int paragraphIndex;
         public final int sentenceIndex;
@@ -198,6 +199,7 @@ public final class IndexCoreCartographyReader {
         public final String crossings;
 
         ExtractionItem(
+                String unitId,
                 String page,
                 int paragraphIndex,
                 int sentenceIndex,
@@ -210,6 +212,7 @@ public final class IndexCoreCartographyReader {
                 String matchKind,
                 String crossings
         ) {
+            this.unitId = safe(unitId);
             this.page = safe(page);
             this.paragraphIndex = paragraphIndex;
             this.sentenceIndex = sentenceIndex;
@@ -225,6 +228,7 @@ public final class IndexCoreCartographyReader {
     }
 
     public static final class CorpusExtractionItem {
+        public final String unitId;
         public final String sourceId;
         public final String sourceTitle;
         public final String page;
@@ -238,6 +242,7 @@ public final class IndexCoreCartographyReader {
         public final String crossings;
 
         CorpusExtractionItem(
+                String unitId,
                 String sourceId,
                 String sourceTitle,
                 String page,
@@ -250,6 +255,7 @@ public final class IndexCoreCartographyReader {
                 String surface,
                 String crossings
         ) {
+            this.unitId = safe(unitId);
             this.sourceId = safe(sourceId);
             this.sourceTitle = safe(sourceTitle);
             this.page = safe(page);
@@ -475,7 +481,7 @@ public final class IndexCoreCartographyReader {
         if (db == null || safe(sourceId).isEmpty() || safe(topicPath).isEmpty()) {
             return Collections.emptyList();
         }
-        String sql = "SELECT u.page,u.paragraph_index,u.sentence_index,u.clause_index,u.unit_kind,"
+        String sql = "SELECT u.unit_id,u.page,u.paragraph_index,u.sentence_index,u.clause_index,u.unit_kind,"
                 + "COALESCE(o.title,''),u.function,u.relation,t.surface,t.match_kind,"
                 + "COALESCE(GROUP_CONCAT(DISTINCT "
                 + "CASE WHEN x.left_topic_path=t.topic_path THEN x.right_title || ' [' || x.rule || ']' "
@@ -494,9 +500,9 @@ public final class IndexCoreCartographyReader {
         try (Cursor c = db.getReadableDatabase().rawQuery(sql, new String[]{sourceId, topicPath})) {
             while (c.moveToNext()) {
                 out.add(new ExtractionItem(
-                        c.getString(0), c.getInt(1), c.getInt(2), c.getInt(3), c.getString(4),
-                        c.getString(5), c.getString(6), c.getString(7), c.getString(8),
-                        c.getString(9), c.getString(10)
+                        c.getString(0), c.getString(1), c.getInt(2), c.getInt(3), c.getInt(4), c.getString(5),
+                        c.getString(6), c.getString(7), c.getString(8), c.getString(9),
+                        c.getString(10), c.getString(11)
                 ));
             }
         }
@@ -509,7 +515,7 @@ public final class IndexCoreCartographyReader {
             int limit
     ) {
         if (db == null || safe(topicPath).isEmpty()) return Collections.emptyList();
-        String sql = "SELECT u.source_id,COALESCE(s.title,''),u.page,u.paragraph_index,u.sentence_index,u.clause_index,"
+        String sql = "SELECT u.unit_id,u.source_id,COALESCE(s.title,''),u.page,u.paragraph_index,u.sentence_index,u.clause_index,"
                 + "COALESCE(o.title,''),u.function,u.relation,t.surface,"
                 + "COALESCE(GROUP_CONCAT(DISTINCT "
                 + "CASE WHEN x.left_topic_path=t.topic_path THEN x.right_title || ' [' || x.rule || ']' "
@@ -530,9 +536,9 @@ public final class IndexCoreCartographyReader {
         try (Cursor c = db.getReadableDatabase().rawQuery(sql, new String[]{topicPath})) {
             while (c.moveToNext()) {
                 out.add(new CorpusExtractionItem(
-                        c.getString(0), c.getString(1), c.getString(2), c.getInt(3),
-                        c.getInt(4), c.getInt(5), c.getString(6), c.getString(7),
-                        c.getString(8), c.getString(9), c.getString(10)
+                        c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getInt(4),
+                        c.getInt(5), c.getInt(6), c.getString(7), c.getString(8),
+                        c.getString(9), c.getString(10), c.getString(11)
                 ));
             }
         }
