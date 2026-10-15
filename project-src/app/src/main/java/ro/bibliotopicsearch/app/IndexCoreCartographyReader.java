@@ -362,9 +362,10 @@ public final class IndexCoreCartographyReader {
         }
 
         List<Point> points = new ArrayList<>();
-        String sql = "SELECT t.topic_path,t.topic_title,CAST(u.page AS INTEGER),COUNT(DISTINCT u.unit_id) "
+        String sql = "SELECT t.topic_path,t.topic_title,CAST(u.page AS INTEGER),"
+                + "COUNT(DISTINCT u.page_key || ':' || u.paragraph_index) "
                 + "FROM idx_unit_topics t JOIN idx_semantic_units u ON u.unit_id=t.unit_id "
-                + "WHERE u.source_id=? AND u.unit_kind='PARAGRAPH' AND u.page GLOB '[0-9]*' "
+                + "WHERE u.source_id=? AND u.page GLOB '[0-9]*' "
                 + "GROUP BY t.topic_path,t.topic_title,u.page "
                 + "ORDER BY t.topic_path COLLATE NOCASE,CAST(u.page AS INTEGER)";
         try (Cursor c = db.getReadableDatabase().rawQuery(sql, new String[]{sourceId})) {
@@ -449,7 +450,8 @@ public final class IndexCoreCartographyReader {
 
     public static List<TopicSummary> topicsForSource(IndexCoreDatabase db, String sourceId, int limit) {
         if (db == null || safe(sourceId).isEmpty()) return Collections.emptyList();
-        String sql = "SELECT t.topic_path,MAX(t.topic_title),COUNT(DISTINCT t.unit_id),"
+        String sql = "SELECT t.topic_path,MAX(t.topic_title),"
+                + "COUNT(DISTINCT u.page_key || ':' || u.paragraph_index),"
                 + "COUNT(DISTINCT CASE WHEN u.page GLOB '[0-9]*' THEN u.page ELSE NULL END) "
                 + "FROM idx_unit_topics t JOIN idx_semantic_units u ON u.unit_id=t.unit_id "
                 + "WHERE u.source_id=? GROUP BY t.topic_path "
@@ -539,9 +541,9 @@ public final class IndexCoreCartographyReader {
 
     public static List<MatrixRow> matrix(IndexCoreDatabase db, int limitTopics) {
         if (db == null) return Collections.emptyList();
-        String sql = "SELECT t.topic_path,t.topic_title,u.source_id,COUNT(DISTINCT u.unit_id) "
+        String sql = "SELECT t.topic_path,t.topic_title,u.source_id,"
+                + "COUNT(DISTINCT u.page_key || ':' || u.paragraph_index) "
                 + "FROM idx_unit_topics t JOIN idx_semantic_units u ON u.unit_id=t.unit_id "
-                + "WHERE u.unit_kind='PARAGRAPH' "
                 + "GROUP BY t.topic_path,t.topic_title,u.source_id "
                 + "ORDER BY t.topic_path COLLATE NOCASE,u.source_id";
         Map<String, String> titles = new LinkedHashMap<>();
