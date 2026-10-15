@@ -170,6 +170,15 @@ public final class AppPrefs {
         prefs(context).edit().putBoolean("auto_exact_capture", value).apply();
     }
 
+    /** Hardware/Bluetooth keys for archival capture: PageUp/VolumeDown=capture, PageDown/VolumeUp=close page. */
+    public static boolean archiveKeys(Context context) {
+        return prefs(context).getBoolean("archive_keys", false);
+    }
+
+    public static void setArchiveKeys(Context context, boolean value) {
+        prefs(context).edit().putBoolean("archive_keys", value).apply();
+    }
+
     public static boolean floatingLabels(Context context) {
         return prefs(context).getBoolean("floating_labels", false);
     }
