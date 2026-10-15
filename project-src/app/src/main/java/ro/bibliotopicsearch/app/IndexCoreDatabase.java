@@ -22,7 +22,7 @@ import java.util.Set;
  */
 public final class IndexCoreDatabase extends SQLiteOpenHelper {
     private static final String DB_NAME = "index_core_v7.db";
-    private static final int DB_VERSION = 3;
+    private static final int DB_VERSION = 4;
     private static volatile IndexCoreDatabase INSTANCE;
 
     public static IndexCoreDatabase get(Context context) {
@@ -107,12 +107,14 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
                 "PRIMARY KEY(occurrence_id,dimension,value))");
         db.execSQL("CREATE INDEX ix_idx_facets_dim_value ON idx_facets(dimension,value,occurrence_id)");
         createCartographySchema(db);
+        createHistorianWorkbenchSchema(db);
     }
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
         // Upgrades are additive only: historical provenance must never be destroyed.
         if (oldVersion < 3) createCartographySchema(db);
+        if (oldVersion < 4) createHistorianWorkbenchSchema(db);
     }
 
     private static void createCartographySchema(SQLiteDatabase db) {
@@ -186,6 +188,54 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
                 "page_from INTEGER," +
                 "page_to INTEGER," +
                 "updated_at INTEGER NOT NULL)");
+    }
+
+
+    private static void createHistorianWorkbenchSchema(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS idx_source_criticism (" +
+                "source_id TEXT PRIMARY KEY REFERENCES idx_sources(source_id) ON DELETE CASCADE," +
+                "source_class TEXT NOT NULL DEFAULT ''," +
+                "genre TEXT NOT NULL DEFAULT ''," +
+                "dating TEXT NOT NULL DEFAULT ''," +
+                "origin TEXT NOT NULL DEFAULT ''," +
+                "language TEXT NOT NULL DEFAULT ''," +
+                "provenance TEXT NOT NULL DEFAULT ''," +
+                "transmission TEXT NOT NULL DEFAULT ''," +
+                "audience TEXT NOT NULL DEFAULT ''," +
+                "proximity TEXT NOT NULL DEFAULT ''," +
+                "perspective TEXT NOT NULL DEFAULT ''," +
+                "authenticity TEXT NOT NULL DEFAULT ''," +
+                "edition_notes TEXT NOT NULL DEFAULT ''," +
+                "research_notes TEXT NOT NULL DEFAULT ''," +
+                "updated_at INTEGER NOT NULL)");
+
+        db.execSQL("CREATE TABLE IF NOT EXISTS idx_research_claims (" +
+                "claim_id TEXT PRIMARY KEY," +
+                "title TEXT NOT NULL DEFAULT ''," +
+                "statement TEXT NOT NULL," +
+                "status TEXT NOT NULL DEFAULT 'OPEN'," +
+                "created_at INTEGER NOT NULL," +
+                "updated_at INTEGER NOT NULL)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_claims_status ON idx_research_claims(status,updated_at)");
+
+        db.execSQL("CREATE TABLE IF NOT EXISTS idx_claim_evidence (" +
+                "claim_id TEXT NOT NULL REFERENCES idx_research_claims(claim_id) ON DELETE CASCADE," +
+                "unit_id TEXT NOT NULL REFERENCES idx_semantic_units(unit_id) ON DELETE CASCADE," +
+                "role TEXT NOT NULL," +
+                "note TEXT NOT NULL DEFAULT ''," +
+                "linked_at INTEGER NOT NULL," +
+                "PRIMARY KEY(claim_id,unit_id,role))");
+        db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_claim_evidence_claim ON idx_claim_evidence(claim_id,role,unit_id)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_claim_evidence_unit ON idx_claim_evidence(unit_id,claim_id)");
+
+        db.execSQL("CREATE TABLE IF NOT EXISTS idx_research_audit (" +
+                "audit_id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                "entity_type TEXT NOT NULL," +
+                "entity_id TEXT NOT NULL," +
+                "action TEXT NOT NULL," +
+                "detail TEXT NOT NULL DEFAULT ''," +
+                "created_at INTEGER NOT NULL)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_research_audit_entity ON idx_research_audit(entity_type,entity_id,created_at)");
     }
 
     public static final class SourceRecord {
