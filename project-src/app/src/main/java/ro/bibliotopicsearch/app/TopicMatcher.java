@@ -49,7 +49,12 @@ public final class TopicMatcher {
             new ParagraphCartography.Map(Collections.emptyList(), "");
     private static volatile List<ParagraphMapMark> latestParagraphMapMarks =
             Collections.emptyList();
+    private static volatile List<DeterministicIndexIntersectionEngine.Intersection> latestIndexIntersections =
+            Collections.emptyList();
+    private static volatile List<IndexIntersectionTextMark> latestIndexIntersectionMarks =
+            Collections.emptyList();
     private static volatile TopicMap latestResearchThemeMap;
+    private static volatile TopicMap latestIntersectionThemeMap;
     private static volatile ResearchSemanticEngine.Profile researchProfile =
             ResearchSemanticEngine.compile("", null);
 
@@ -365,6 +370,26 @@ public final class TopicMatcher {
         return latestParagraphMapMarks;
     }
 
+    /** Deterministic topic-index crossings for the most recent accepted OCR frame. */
+    public static List<DeterministicIndexIntersectionEngine.Intersection> latestIndexIntersections() {
+        return latestIndexIntersections;
+    }
+
+    /** Concrete OCR boxes for the two independent anchors behind each crossing. */
+    public static List<IndexIntersectionTextMark> latestIndexIntersectionMarks() {
+        return latestIndexIntersectionMarks;
+    }
+
+    /**
+     * Sets the user-owned thematic map used only for deterministic crossings.
+     * This is intentionally separate from the transient LUPĂ query map.
+     */
+    public static void setIntersectionThemeMap(TopicMap map) {
+        latestIntersectionThemeMap = map;
+        latestIndexIntersections = Collections.emptyList();
+        latestIndexIntersectionMarks = Collections.emptyList();
+    }
+
     public static ResearchSemanticEngine.Profile researchProfile() {
         return researchProfile;
     }
@@ -404,6 +429,8 @@ public final class TopicMatcher {
         latestResearchTextMarks = Collections.emptyList();
         latestParagraphCartography = new ParagraphCartography.Map(Collections.emptyList(), "");
         latestParagraphMapMarks = Collections.emptyList();
+        latestIndexIntersections = Collections.emptyList();
+        latestIndexIntersectionMarks = Collections.emptyList();
     }
 
     private static void scheduleParagraphDetection(Text text) {
@@ -430,6 +457,7 @@ public final class TopicMatcher {
 
         final int researchGeneration = RESEARCH_GENERATION.get();
         final ResearchSemanticEngine.Profile profile = researchProfile;
+        final TopicMap intersectionMap = latestIntersectionThemeMap;
 
         PARAGRAPH_DETECTOR.execute(() -> {
             try {
@@ -452,6 +480,13 @@ public final class TopicMatcher {
                 latestParagraphCartography = cartography;
                 latestParagraphMapMarks = Collections.unmodifiableList(
                         new ArrayList<>(ParagraphMapMarker.build(text, cartography))
+                );
+
+                List<DeterministicIndexIntersectionEngine.Intersection> intersections =
+                        DeterministicIndexIntersectionEngine.detect(intersectionMap, semanticGraph);
+                latestIndexIntersections = Collections.unmodifiableList(new ArrayList<>(intersections));
+                latestIndexIntersectionMarks = Collections.unmodifiableList(
+                        new ArrayList<>(IndexIntersectionTextMarker.build(text, intersections))
                 );
 
                 // Persistence gets the already-computed graph/map on its own low-priority worker.
