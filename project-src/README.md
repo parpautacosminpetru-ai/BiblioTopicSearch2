@@ -59,7 +59,7 @@ Dicționarul și hărțile rămân local pe telefon.
 
 ## Confidențialitate
 
-Aplicația nu cere permisiunea `INTERNET`. Camera nu este înregistrată și nimic nu se salvează automat. Un cadru este salvat numai dacă utilizatorul îl îngheață și apasă explicit `SALVEAZĂ`.
+Aplicația nu cere permisiunea `INTERNET`. Camera nu este înregistrată, iar imaginile paginilor nu sunt păstrate de cartografiere. CAPTURĂ EXACTĂ, AUTO CAPTURĂ și importul PDF pot salva local numai rezultate de cercetare derivate (identități de unități, pagini, indici, fațete și relații), nu fotografia/randarea paginii. Orice export de fișă sau dosar este declanșat explicit de utilizator.
 
 ## Build
 
@@ -179,3 +179,43 @@ Peste cartografierea exhaustivă există acum un strat explicit de argumentație
 - **Export dosar reproductibil** — harta tematică, critica surselor, afirmațiile, dovezile și jurnalul pot fi exportate împreună.
 
 Aplicația nu deduce adevărul unei afirmații din numărul de dovezi și nu scrie argumentația în locul istoricului.
+
+
+## 1.9.0 — trusă de arhivă digitală
+
+### Import PDF offline
+
+O sursă PDF poate fi parcursă în lot fără server și fără permisiune INTERNET:
+
+`PDF → randare locală a paginii → OCR local → CAPTURĂ EXACTĂ → index persistent`
+
+Utilizatorul stabilește explicit maparea dintre paginile PDF și paginile tipărite. Pagina este marcată completă numai dacă OCR-ul produce material explicit; paginile ilizibile rămân deschise pentru control uman. Opțional, intervalul importat poate defini domeniul exhaustivității.
+
+Randările temporare ale paginilor sunt reciclate după OCR și nu sunt păstrate.
+
+### Cronologie și locuri navigabile
+
+Unitățile cartografiate păstrează fațete deterministe:
+
+- `YEAR` pentru ani expliciți;
+- `TIME` pentru expresii temporale detectate;
+- `PLACE` pentru expresii spațiale detectate.
+
+Index Core oferă navigare `CRONOLOGIE / TIMP / LOCURI` și revine la pagina, paragraful și clauza exactă.
+
+### Relații între surse
+
+Atelierul Istoric poate păstra relații declarate de cercetător între surse:
+
+`SAME_WORK`, `EDITION_OF`, `TRANSLATION_OF`, `MANUSCRIPT_OF`, `COPY_OF`, `DERIVED_FROM`, `CITES`, `RESPONDS_TO`, `CONTEMPORARY_WITH`.
+
+Aceste relații nu sunt inferate automat și apar în dosarul reproductibil.
+
+### Mod de arhivă cu pedală / telecomandă
+
+În LUPĂ, modul **PEDALĂ / TASTE** permite controlul fără atingerea ecranului:
+
+- `PageUp` sau `Vol−` → CAPTURĂ EXACTĂ;
+- `PageDown` sau `Vol+` → ÎNCHEIE PAGINA.
+
+O pedală Bluetooth sau o telecomandă configurată ca PageUp/PageDown poate deveni astfel control fizic de lucru în bibliotecă/arhivă.
