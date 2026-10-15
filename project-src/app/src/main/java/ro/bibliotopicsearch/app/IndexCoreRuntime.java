@@ -4,6 +4,7 @@ import android.content.Context;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -36,6 +37,7 @@ public final class IndexCoreRuntime {
             IndexCoreDatabase db = IndexCoreDatabase.get(appContext);
             db.ensureSource(sourceId);
             IndexCoreLegacyMigrator.migrate(db, legacyState);
+            Arrays.fill(lastOutlineByDepth, 0L);
             IndexCoreOutlineState.Restored restored = IndexCoreOutlineState.restore(db, sourceId, lastOutlineByDepth);
             currentOutlineId = restored.currentId;
             outlineOrder = restored.nextOrder;
@@ -54,7 +56,9 @@ public final class IndexCoreRuntime {
     ) {
         if (detections == null || detections.isEmpty() || candidates == null || candidates.isEmpty() || state == null) return;
         synchronized (LOCK) {
-            if (appContext == null || sourceId.isEmpty()) return;
+            if (appContext == null) return;
+            ensureStartedLocked(appContext);
+            if (sourceId.isEmpty()) return;
             IndexCoreDatabase db = IndexCoreDatabase.get(appContext);
             long previousOutline = currentOutlineId;
             Map<Integer, Long> outlineByParagraph = updateOutlines(db, detections, page);
@@ -152,13 +156,17 @@ public final class IndexCoreRuntime {
     }
 
     private static void ensureStartedLocked(Context context) {
-        if (appContext != null && !sourceId.isEmpty()) return;
-        if (context == null) return;
-        appContext = context.getApplicationContext();
-        sourceId = IndexCoreSourceRegistry.activeSourceId(appContext);
+        if (context == null && appContext == null) return;
+        Context target = context == null ? appContext : context.getApplicationContext();
+        String active = IndexCoreSourceRegistry.activeSourceId(target);
+        if (appContext != null && !sourceId.isEmpty() && sourceId.equals(active)) return;
+
+        appContext = target;
+        sourceId = active;
         sessionId = sessionId > 0 ? sessionId : System.currentTimeMillis();
         IndexCoreDatabase db = IndexCoreDatabase.get(appContext);
         db.ensureSource(sourceId);
+        Arrays.fill(lastOutlineByDepth, 0L);
         IndexCoreOutlineState.Restored restored =
                 IndexCoreOutlineState.restore(db, sourceId, lastOutlineByDepth);
         currentOutlineId = restored.currentId;
