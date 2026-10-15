@@ -161,6 +161,15 @@ public final class AppPrefs {
         prefs(context).edit().putString("source_index_focus", value == null ? "" : value.trim()).apply();
     }
 
+    /** Auto-capture a stable OCR page into the exact cartography ledger. */
+    public static boolean autoExactCapture(Context context) {
+        return prefs(context).getBoolean("auto_exact_capture", false);
+    }
+
+    public static void setAutoExactCapture(Context context, boolean value) {
+        prefs(context).edit().putBoolean("auto_exact_capture", value).apply();
+    }
+
     public static boolean floatingLabels(Context context) {
         return prefs(context).getBoolean("floating_labels", false);
     }
