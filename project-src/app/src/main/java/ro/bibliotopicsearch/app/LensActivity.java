@@ -55,6 +55,7 @@ public final class LensActivity extends AppCompatActivity {
     private PreviewView preview;
     private LensOverlayView overlay;
     private EditText search;
+    private EditText pageEdit;
     private TextView zoomLabel;
     private TextView status;
     private Button ocrButton;
@@ -201,6 +202,17 @@ public final class LensActivity extends AppCompatActivity {
         LinearLayout cartography = new LinearLayout(this);
         cartography.setGravity(Gravity.CENTER_VERTICAL);
 
+        pageEdit = new EditText(this);
+        pageEdit.setHint("pag.");
+        pageEdit.setSingleLine(true);
+        pageEdit.setInputType(InputType.TYPE_CLASS_NUMBER);
+        pageEdit.setTextColor(Color.WHITE);
+        pageEdit.setHintTextColor(Color.rgb(148, 166, 178));
+        pageEdit.setTextSize(11f);
+        pageEdit.setGravity(Gravity.CENTER);
+        pageEdit.setBackgroundTintList(ColorStateList.valueOf(Color.rgb(78, 117, 142)));
+        cartography.addView(pageEdit, new LinearLayout.LayoutParams(dp(62), dp(40)));
+
         Button capture = button("CAPTURĂ EXACTĂ");
         capture.setOnClickListener(v -> captureCurrentFrame(false));
         cartography.addView(capture, new LinearLayout.LayoutParams(0, dp(40), 1f));
@@ -288,6 +300,14 @@ public final class LensActivity extends AppCompatActivity {
                     }
 
                     latestOcrText = text;
+                    String detectedPage = ExactCartographyCapture.detectPage(text);
+                    if (!detectedPage.isEmpty()) {
+                        runOnUiThread(() -> {
+                            if (!destroyed && pageEdit != null && !pageEdit.hasFocus()) {
+                                pageEdit.setText(detectedPage);
+                            }
+                        });
+                    }
                     TopicMatcher.SearchPlan plan = searchPlan;
                     List<MatchHit> hits = plan == null
                             ? Collections.emptyList()
@@ -371,23 +391,28 @@ public final class LensActivity extends AppCompatActivity {
             return;
         }
 
-        String detectedPage = ExactCartographyCapture.detectPage(snapshot);
-        if (completePage && detectedPage.isEmpty()) {
+        String page = pageEdit == null ? "" : pageEdit.getText().toString().trim();
+        if (page.isEmpty()) page = ExactCartographyCapture.detectPage(snapshot);
+        if (page.isEmpty()) {
             EditText input = new EditText(this);
             input.setHint("Numărul paginii");
             input.setSingleLine(true);
             input.setInputType(InputType.TYPE_CLASS_NUMBER);
+            final boolean closing = completePage;
             new AlertDialog.Builder(this)
-                    .setTitle("Închide pagina în registrul exhaustivității")
-                    .setMessage("Pagina trebuie identificată explicit. Introdu numărul tipărit al paginii.")
+                    .setTitle(closing ? "Închide pagina în registrul exhaustivității" : "Identifică pagina")
+                    .setMessage("O captură de cercetare trebuie să rămână legată de pagina sursei. Introdu numărul tipărit.")
                     .setView(input)
-                    .setPositiveButton("CAPTUREAZĂ + ÎNCHIDE", (d, w) ->
-                            runExactCapture(snapshot, input.getText().toString().trim(), true))
+                    .setPositiveButton(closing ? "CAPTUREAZĂ + ÎNCHIDE" : "CAPTUREAZĂ", (d, w) -> {
+                        String entered = input.getText().toString().trim();
+                        if (pageEdit != null) pageEdit.setText(entered);
+                        runExactCapture(snapshot, entered, closing);
+                    })
                     .setNegativeButton("ANULEAZĂ", null)
                     .show();
             return;
         }
-        runExactCapture(snapshot, detectedPage, completePage);
+        runExactCapture(snapshot, page, completePage);
     }
 
     private void runExactCapture(Text snapshot, String page, boolean completePage) {
@@ -418,6 +443,13 @@ public final class LensActivity extends AppCompatActivity {
                         ? Color.rgb(230, 155, 72)
                         : Color.rgb(76, 190, 123);
                 setStatus("CAPTURĂ • " + report.compact(), color);
+                if (report.pageComplete && pageEdit != null && report.page.matches("\\d+")) {
+                    try {
+                        pageEdit.setText(String.valueOf(Integer.parseInt(report.page) + 1));
+                    } catch (NumberFormatException ignored) {
+                        // Keep the verified page label unchanged.
+                    }
+                }
             });
         });
     }
