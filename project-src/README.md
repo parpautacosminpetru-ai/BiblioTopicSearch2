@@ -165,3 +165,17 @@ Prin urmare, creșterea numărului de teme nu mai implică o recitire separată 
 `ÎNTOARCE PAGINA → STABILIZARE → AUTO CAPTURĂ → ÎNCHEIE ✓ → URMĂTOAREA PAGINĂ`
 
 Interpretarea și sinteza istorică rămân umane.
+
+
+## 1.8.0 — Atelierul istoricului
+
+Peste cartografierea exhaustivă există acum un strat explicit de argumentație controlată de cercetător:
+
+- **Critica sursei** — fișe pentru gen, datare, proveniență, transmitere, public, proximitate, perspectivă, autenticitate și ediție.
+- **Afirmații de cercetare** — formulate numai de utilizator, cu stare metodologică aleasă manual.
+- **Rețea de dovezi** — orice unitate cartografiată poate fi legată de o afirmație ca `SUSȚINE`, `CONTRAZICE`, `NUANȚEAZĂ`, `EXEMPLIFICĂ` sau `CONTEXTUALIZEAZĂ`.
+- **Proveniență reversibilă** — fiecare legătură păstrează ID-ul unității și adresa sursă/pagină/paragraf/propoziție/clauză.
+- **Jurnal de decizii** — modificările metodologice rămân auditabile.
+- **Export dosar reproductibil** — harta tematică, critica surselor, afirmațiile, dovezile și jurnalul pot fi exportate împreună.
+
+Aplicația nu deduce adevărul unei afirmații din numărul de dovezi și nu scrie argumentația în locul istoricului.
