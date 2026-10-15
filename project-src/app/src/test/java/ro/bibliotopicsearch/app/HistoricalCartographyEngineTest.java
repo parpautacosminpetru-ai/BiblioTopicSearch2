@@ -87,6 +87,29 @@ public final class HistoricalCartographyEngineTest {
         assertTrue(result.intersectionCount() >= 1);
     }
 
+    @Test
+    public void explicitYearsBecomeDeterministicUnitFacets() {
+        TopicMap map = map(node("Imperiu", "imperiu"));
+        List<UniversalParagraphDetector.Detection> detections = Arrays.asList(
+                UniversalParagraphDetector.detect(
+                        "În 1054 imperiul trece printr-o ruptură importantă.",
+                        0
+                )
+        );
+        HistoricalCartographyEngine.CaptureMap result =
+                HistoricalCartographyEngine.analyze(
+                        detections,
+                        SemanticGraphBuilder.build(detections),
+                        map
+                );
+
+        boolean year = false;
+        for (HistoricalCartographyEngine.Unit unit : result.units()) {
+            if (unit.facets().contains("YEAR=1054")) year = true;
+        }
+        assertTrue(year);
+    }
+
     private static TopicNode node(String title, String term) {
         TopicNode node = new TopicNode(title, title, 1);
         node.enabled = true;
