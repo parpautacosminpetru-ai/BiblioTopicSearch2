@@ -98,7 +98,7 @@ public final class DeterministicIndexIntersectionEngineTest {
         TopicNode arm = node("Armată", "armată");
         java.util.List<UniversalParagraphDetector.Detection> detections = java.util.Arrays.asList(
                 UniversalParagraphDetector.detect("Împăratul conduce statul.", 0),
-                UniversalParagraphDetector.detect("El controlează armata.", 1)
+                UniversalParagraphDetector.detect("El conduce armata.", 1)
         );
         SemanticGraph graph = SemanticGraphBuilder.build(detections);
 
