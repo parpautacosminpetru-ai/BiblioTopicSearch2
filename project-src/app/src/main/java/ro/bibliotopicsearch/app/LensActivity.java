@@ -438,12 +438,22 @@ public final class LensActivity extends AppCompatActivity {
                 return;
             }
 
+            IndexCoreDatabase core = IndexCoreDatabase.get(getApplicationContext());
+            String activeSource = IndexCoreSourceRegistry.activeSourceId(getApplicationContext());
+            IndexCoreCartographyReader.Stats coverage =
+                    IndexCoreCartographyReader.stats(core, activeSource);
+            String progress = coverage.scopeDefined()
+                    ? " • acoperire " + coverage.pagesComplete + "/" + coverage.expectedPages
+                        + " (" + coverage.coveragePercent() + "%)"
+                        + (coverage.exhaustive() ? " ✓" : "")
+                    : "";
+
             runOnUiThread(() -> {
                 if (destroyed) return;
                 int color = report.map != null && report.map.ambiguousCount() > 0
                         ? Color.rgb(230, 155, 72)
                         : Color.rgb(76, 190, 123);
-                setStatus("CAPTURĂ • " + report.compact(), color);
+                setStatus("CAPTURĂ • " + report.compact() + progress, color);
                 if (report.pageComplete && pageEdit != null && report.page.matches("\\d+")) {
                     try {
                         pageEdit.setText(String.valueOf(Integer.parseInt(report.page) + 1));
