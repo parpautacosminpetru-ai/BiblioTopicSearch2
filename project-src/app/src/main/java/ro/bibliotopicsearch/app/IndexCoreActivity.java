@@ -1,6 +1,8 @@
 package ro.bibliotopicsearch.app;
 
+import android.content.Intent;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
@@ -15,6 +17,8 @@ import android.widget.TextView;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -23,10 +27,13 @@ import java.util.Map;
 
 /** Scalable v7 workspace: stable sources, physical outline and facet intersections. */
 public final class IndexCoreActivity extends AppCompatActivity {
+    private static final int REQ_EXPORT_CARTOGRAPHY = 401;
+
     private IndexCoreDatabase db;
     private String sourceId;
     private FacetIntersectionQuery.Parsed query = FacetIntersectionQuery.parse("");
     private List<IndexCoreDatabase.SearchResult> rows = Collections.emptyList();
+    private String pendingExportText = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -95,6 +102,9 @@ public final class IndexCoreActivity extends AppCompatActivity {
         Button review = button("REVIZUIRE EXCEPȚII");
         review.setOnClickListener(v -> showReviewQueue());
         audit.addView(review, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        Button export = button("EXPORT FIȘĂ");
+        export.setOnClickListener(v -> exportCartography());
+        audit.addView(export, new LinearLayout.LayoutParams(0, dp(42), 1f));
         root.addView(audit);
 
         IndexCoreDatabase.SourceRecord source = db.source(sourceId);
@@ -479,6 +489,49 @@ public final class IndexCoreActivity extends AppCompatActivity {
                 .setTitle(row.canonical)
                 .setMessage(msg.toString())
                 .setPositiveButton("ÎNCHIDE", null).show();
+    }
+
+    private void exportCartography() {
+        pendingExportText = HistoricalCartographyExporter.buildSourceMap(db, sourceId);
+        if (pendingExportText.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("Export")
+                    .setMessage("Nu există încă o fișă de cartografiere de exportat.")
+                    .setPositiveButton("OK", null).show();
+            return;
+        }
+        IndexCoreDatabase.SourceRecord source = db.source(sourceId);
+        String base = source == null ? "sursa" : source.displayName();
+        base = base.replaceAll("[^\\p{L}\\p{N}._-]+", "_");
+        if (base.isEmpty()) base = "sursa";
+
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("text/plain");
+        intent.putExtra(Intent.EXTRA_TITLE, "cartografiere_" + base + ".txt");
+        startActivityForResult(intent, REQ_EXPORT_CARTOGRAPHY);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_EXPORT_CARTOGRAPHY || resultCode != RESULT_OK || data == null) return;
+        Uri uri = data.getData();
+        if (uri == null || pendingExportText.isEmpty()) return;
+        try {
+            OutputStream stream = getContentResolver().openOutputStream(uri, "wt");
+            if (stream == null) throw new IllegalStateException("Nu se poate deschide destinația.");
+            try (OutputStream out = stream) {
+                out.write(pendingExportText.getBytes(StandardCharsets.UTF_8));
+                out.flush();
+            }
+            new AlertDialog.Builder(this).setTitle("Export")
+                    .setMessage("Fișa deterministă de cartografiere a fost exportată.")
+                    .setPositiveButton("OK", null).show();
+        } catch (Exception failure) {
+            new AlertDialog.Builder(this).setTitle("Export nereușit")
+                    .setMessage(failure.getMessage() == null ? "Nu s-a putut scrie fișierul." : failure.getMessage())
+                    .setPositiveButton("OK", null).show();
+        }
     }
 
     private String compactPages(List<Integer> pages, int maxItems) {
