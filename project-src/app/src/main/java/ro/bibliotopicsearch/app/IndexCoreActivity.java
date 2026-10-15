@@ -99,9 +99,12 @@ public final class IndexCoreActivity extends AppCompatActivity {
 
         LinearLayout audit = new LinearLayout(this);
         audit.setGravity(Gravity.CENTER_VERTICAL);
-        Button review = button("REVIZUIRE EXCEPȚII");
+        Button review = button("REVIZUIRE");
         review.setOnClickListener(v -> showReviewQueue());
         audit.addView(review, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        Button extraction = button("EXTRACȚIE");
+        extraction.setOnClickListener(v -> showExtractionTopics());
+        audit.addView(extraction, new LinearLayout.LayoutParams(0, dp(42), 1f));
         Button export = button("EXPORT FIȘĂ");
         export.setOnClickListener(v -> exportCartography());
         audit.addView(export, new LinearLayout.LayoutParams(0, dp(42), 1f));
@@ -284,6 +287,57 @@ public final class IndexCoreActivity extends AppCompatActivity {
                     rebuild();
                 })
                 .setNegativeButton("ANULEAZĂ", null)
+                .show();
+    }
+
+    private void showExtractionTopics() {
+        List<IndexCoreCartographyReader.TopicSummary> topics =
+                IndexCoreCartographyReader.topicsForSource(db, sourceId, 300);
+        if (topics.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("Extracție țintită")
+                    .setMessage("Nu există încă indici proveniți din CAPTURĂ EXACTĂ.")
+                    .setPositiveButton("OK", null).show();
+            return;
+        }
+        String[] labels = new String[topics.size()];
+        for (int i = 0; i < topics.size(); i++) {
+            IndexCoreCartographyReader.TopicSummary topic = topics.get(i);
+            labels[i] = (topic.topicTitle.isEmpty() ? topic.topicPath : topic.topicTitle)
+                    + " • " + topic.units + " unități • " + topic.pages + " pagini";
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Alege indicele pentru extracție")
+                .setItems(labels, (d, which) -> showExtractionQueue(topics.get(which)))
+                .setNegativeButton("ÎNCHIDE", null)
+                .show();
+    }
+
+    private void showExtractionQueue(IndexCoreCartographyReader.TopicSummary topic) {
+        if (topic == null) return;
+        List<IndexCoreCartographyReader.ExtractionItem> items =
+                IndexCoreCartographyReader.extractionQueue(db, sourceId, topic.topicPath, 1200);
+        StringBuilder out = new StringBuilder();
+        int shown = 0;
+        for (IndexCoreCartographyReader.ExtractionItem item : items) {
+            if (shown++ >= 500) { out.append("\n…"); break; }
+            out.append("\n• ");
+            if (!item.page.isEmpty()) out.append("pag. ").append(item.page).append(" • ");
+            out.append("P").append(item.paragraphIndex + 1);
+            if (item.sentenceIndex >= 0) out.append(" S").append(item.sentenceIndex + 1);
+            if (item.clauseIndex >= 0) out.append(" C").append(item.clauseIndex + 1);
+            out.append(" • ").append(item.unitKind);
+            if (!item.outlineTitle.isEmpty()) out.append(" • ").append(item.outlineTitle);
+            if (!item.function.isEmpty()) out.append(" • F:").append(item.function);
+            if (!item.relation.isEmpty() && !"GENERIC".equals(item.relation)) {
+                out.append(" • R:").append(item.relation);
+            }
+            if (!item.surface.isEmpty()) out.append(" • „").append(trim(item.surface, 48)).append("”");
+            if (!item.crossings.isEmpty()) out.append(" • × ").append(trim(item.crossings, 90));
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Coada de extracție — " + (topic.topicTitle.isEmpty() ? topic.topicPath : topic.topicTitle))
+                .setMessage(out.length() == 0 ? "Nu există locații." : out.toString().trim())
+                .setPositiveButton("ÎNCHIDE", null)
                 .show();
     }
 
