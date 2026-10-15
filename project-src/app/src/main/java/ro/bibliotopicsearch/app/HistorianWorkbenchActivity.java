@@ -94,6 +94,10 @@ public final class HistorianWorkbenchActivity extends AppCompatActivity {
         activeSource.setOnClickListener(v -> editSourceCriticism(IndexCoreSourceRegistry.activeSourceId(this)));
         second.addView(activeSource, new LinearLayout.LayoutParams(0, dp(42), 1f));
 
+        Button relations = button("RELAȚII SURSE");
+        relations.setOnClickListener(v -> showSourceRelations());
+        second.addView(relations, new LinearLayout.LayoutParams(0, dp(42), 1f));
+
         Button export = button("EXPORT DOSAR");
         export.setOnClickListener(v -> exportDossier());
         second.addView(export, new LinearLayout.LayoutParams(0, dp(42), 1f));
@@ -623,6 +627,158 @@ public final class HistorianWorkbenchActivity extends AppCompatActivity {
                 })
                 .setNegativeButton("ANULEAZĂ", null)
                 .show();
+    }
+
+    private void showSourceRelations() {
+        List<HistorianSourceRelationsStore.Relation> values =
+                HistorianSourceRelationsStore.list(db);
+        String[] labels = new String[values.size() + 1];
+        for (int i = 0; i < values.size(); i++) {
+            HistorianSourceRelationsStore.Relation value = values.get(i);
+            labels[i] = sourceLabel(value.leftTitle, value.leftSourceId)
+                    + "  → " + relationRo(value.type) + " →  "
+                    + sourceLabel(value.rightTitle, value.rightSourceId)
+                    + (value.note.isEmpty() ? "" : "\n" + trim(value.note, 110));
+        }
+        labels[labels.length - 1] = "＋ RELAȚIE NOUĂ";
+
+        new AlertDialog.Builder(this)
+                .setTitle("Relații între surse / ediții / martori")
+                .setItems(labels, (d, which) -> {
+                    if (which == values.size()) chooseRelationLeftSource();
+                    else showSourceRelation(values.get(which));
+                })
+                .setNegativeButton("ÎNCHIDE", null)
+                .show();
+    }
+
+    private void showSourceRelation(HistorianSourceRelationsStore.Relation value) {
+        if (value == null) return;
+        new AlertDialog.Builder(this)
+                .setTitle(relationRo(value.type))
+                .setMessage(
+                        sourceLabel(value.leftTitle, value.leftSourceId)
+                                + "\n→ " + relationRo(value.type) + " →\n"
+                                + sourceLabel(value.rightTitle, value.rightSourceId)
+                                + (value.note.isEmpty() ? "" : "\n\nNOTĂ\n" + value.note)
+                )
+                .setPositiveButton("ȘTERGE RELAȚIA", (d, w) -> {
+                    HistorianSourceRelationsStore.remove(
+                            db, value.leftSourceId, value.rightSourceId, value.type
+                    );
+                    rebuild();
+                })
+                .setNegativeButton("ÎNCHIDE", null)
+                .show();
+    }
+
+    private void chooseRelationLeftSource() {
+        List<IndexCoreDatabase.SourceRecord> sources =
+                new ArrayList<>(db.listSources());
+        if (sources.size() < 2) {
+            message("Relații între surse", "Sunt necesare cel puțin două surse în registru.");
+            return;
+        }
+        String[] labels = new String[sources.size()];
+        for (int i = 0; i < sources.size(); i++) {
+            labels[i] = sources.get(i).displayName()
+                    + (sources.get(i).author.isEmpty() ? "" : "\n" + sources.get(i).author);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("1/3 — Sursa de plecare")
+                .setItems(labels, (d, which) -> chooseRelationType(sources.get(which), sources))
+                .setNegativeButton("ANULEAZĂ", null)
+                .show();
+    }
+
+    private void chooseRelationType(
+            IndexCoreDatabase.SourceRecord left,
+            List<IndexCoreDatabase.SourceRecord> allSources
+    ) {
+        HistorianSourceRelationsStore.RelationType[] types =
+                HistorianSourceRelationsStore.RelationType.values();
+        String[] labels = new String[types.length];
+        for (int i = 0; i < types.length; i++) labels[i] = relationRo(types[i]);
+
+        new AlertDialog.Builder(this)
+                .setTitle("2/3 — Tipul relației")
+                .setMessage(left.displayName())
+                .setItems(labels, (d, which) ->
+                        chooseRelationRightSource(left, types[which], allSources))
+                .setNegativeButton("ANULEAZĂ", null)
+                .show();
+    }
+
+    private void chooseRelationRightSource(
+            IndexCoreDatabase.SourceRecord left,
+            HistorianSourceRelationsStore.RelationType type,
+            List<IndexCoreDatabase.SourceRecord> allSources
+    ) {
+        List<IndexCoreDatabase.SourceRecord> candidates = new ArrayList<>();
+        for (IndexCoreDatabase.SourceRecord source : allSources) {
+            if (!source.id.equals(left.id)) candidates.add(source);
+        }
+        String[] labels = new String[candidates.size()];
+        for (int i = 0; i < candidates.size(); i++) {
+            labels[i] = candidates.get(i).displayName()
+                    + (candidates.get(i).author.isEmpty() ? "" : "\n" + candidates.get(i).author);
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("3/3 — Sursa legată")
+                .setMessage(left.displayName() + "\n→ " + relationRo(type) + " →")
+                .setItems(labels, (d, which) ->
+                        saveSourceRelation(left, candidates.get(which), type))
+                .setNegativeButton("ANULEAZĂ", null)
+                .show();
+    }
+
+    private void saveSourceRelation(
+            IndexCoreDatabase.SourceRecord left,
+            IndexCoreDatabase.SourceRecord right,
+            HistorianSourceRelationsStore.RelationType type
+    ) {
+        EditText note = multilineInput(
+                "",
+                "Notă opțională: ediție, filiație, dependență, motivul relației."
+        );
+        note.setMinLines(4);
+        new AlertDialog.Builder(this)
+                .setTitle(relationRo(type))
+                .setMessage(
+                        left.displayName() + "\n→ " + relationRo(type) + " →\n"
+                                + right.displayName()
+                )
+                .setView(note)
+                .setPositiveButton("SALVEAZĂ", (d, w) -> {
+                    HistorianSourceRelationsStore.save(
+                            db, left.id, right.id, type, note.getText().toString()
+                    );
+                    rebuild();
+                })
+                .setNegativeButton("ANULEAZĂ", null)
+                .show();
+    }
+
+    private String relationRo(HistorianSourceRelationsStore.RelationType type) {
+        if (type == null) return "ALTĂ RELAȚIE";
+        switch (type) {
+            case SAME_WORK: return "ACELEIAȘI OPERE";
+            case EDITION_OF: return "EDIȚIE A";
+            case TRANSLATION_OF: return "TRADUCERE A";
+            case MANUSCRIPT_OF: return "MARTOR / MANUSCRIS AL";
+            case COPY_OF: return "COPIE A";
+            case DERIVED_FROM: return "DERIVATĂ DIN";
+            case CITES: return "CITEAZĂ";
+            case RESPONDS_TO: return "RĂSPUNDE LA";
+            case CONTEMPORARY_WITH: return "CONTEMPORANĂ CU";
+            case OTHER:
+            default: return "ALTĂ RELAȚIE";
+        }
+    }
+
+    private String sourceLabel(String title, String id) {
+        return title == null || title.trim().isEmpty() ? id : title;
     }
 
     private void showAuditTrail() {
