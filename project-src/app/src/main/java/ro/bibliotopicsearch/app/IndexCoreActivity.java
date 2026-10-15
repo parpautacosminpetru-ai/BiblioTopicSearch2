@@ -113,6 +113,14 @@ public final class IndexCoreActivity extends AppCompatActivity {
         audit.addView(export, new LinearLayout.LayoutParams(0, dp(42), 1f));
         root.addView(audit);
 
+        LinearLayout method = new LinearLayout(this);
+        method.setGravity(Gravity.CENTER_VERTICAL);
+        Button workbench = button("ATELIER ISTORIC • AFIRMAȚII + DOVEZI + CRITICA SURSEI");
+        workbench.setOnClickListener(v ->
+                startActivity(new Intent(this, HistorianWorkbenchActivity.class)));
+        method.addView(workbench, new LinearLayout.LayoutParams(0, dp(44), 1f));
+        root.addView(method);
+
         IndexCoreDatabase.SourceRecord source = db.source(sourceId);
         IndexCoreDatabase.Stats stats = db.stats();
         IndexCoreCartographyReader.Stats cartography = IndexCoreCartographyReader.stats(db, sourceId);
