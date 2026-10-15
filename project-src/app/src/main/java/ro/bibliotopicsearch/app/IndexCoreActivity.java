@@ -105,6 +105,9 @@ public final class IndexCoreActivity extends AppCompatActivity {
         Button extraction = button("EXTRACȚIE");
         extraction.setOnClickListener(v -> showExtractionTopics());
         audit.addView(extraction, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        Button corpus = button("CORPUS");
+        corpus.setOnClickListener(v -> showCorpusTopics());
+        audit.addView(corpus, new LinearLayout.LayoutParams(0, dp(42), 1f));
         Button export = button("EXPORT FIȘĂ");
         export.setOnClickListener(v -> exportCartography());
         audit.addView(export, new LinearLayout.LayoutParams(0, dp(42), 1f));
@@ -287,6 +290,71 @@ public final class IndexCoreActivity extends AppCompatActivity {
                     rebuild();
                 })
                 .setNegativeButton("ANULEAZĂ", null)
+                .show();
+    }
+
+    private void showCorpusTopics() {
+        List<IndexCoreCartographyReader.MatrixRow> topics =
+                IndexCoreCartographyReader.matrix(db, 300);
+        if (topics.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("Corpus tematic")
+                    .setMessage("Nu există încă surse cartografiate exact.")
+                    .setPositiveButton("OK", null).show();
+            return;
+        }
+
+        String[] labels = new String[topics.size()];
+        for (int i = 0; i < topics.size(); i++) {
+            IndexCoreCartographyReader.MatrixRow row = topics.get(i);
+            int sources = 0;
+            int units = 0;
+            for (Integer count : row.countsBySource.values()) {
+                if (count != null && count > 0) sources++;
+                if (count != null) units += count;
+            }
+            labels[i] = (row.topicTitle.isEmpty() ? row.topicPath : row.topicTitle)
+                    + " • " + sources + " surse • " + units + " zone-paragraf";
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Alege tema transversală")
+                .setItems(labels, (d, which) -> showCorpusExtraction(topics.get(which)))
+                .setNegativeButton("ÎNCHIDE", null)
+                .show();
+    }
+
+    private void showCorpusExtraction(IndexCoreCartographyReader.MatrixRow topic) {
+        if (topic == null) return;
+        List<IndexCoreCartographyReader.CorpusExtractionItem> items =
+                IndexCoreCartographyReader.corpusExtractionQueue(db, topic.topicPath, 3000);
+        StringBuilder out = new StringBuilder();
+        String lastSource = null;
+        int shown = 0;
+        for (IndexCoreCartographyReader.CorpusExtractionItem item : items) {
+            if (shown++ >= 900) { out.append("\n…"); break; }
+            if (!item.sourceId.equals(lastSource)) {
+                if (out.length() > 0) out.append("\n");
+                out.append("\n[").append(item.sourceTitle.isEmpty() ? item.sourceId : item.sourceTitle).append("]");
+                lastSource = item.sourceId;
+            }
+            out.append("\n• ");
+            if (!item.page.isEmpty()) out.append("pag. ").append(item.page).append(" • ");
+            out.append("P").append(item.paragraphIndex + 1);
+            if (item.sentenceIndex >= 0) out.append(" S").append(item.sentenceIndex + 1);
+            if (item.clauseIndex >= 0) out.append(" C").append(item.clauseIndex + 1);
+            if (!item.outlineTitle.isEmpty()) out.append(" • ").append(item.outlineTitle);
+            if (!item.function.isEmpty()) out.append(" • F:").append(item.function);
+            if (!item.relation.isEmpty() && !"GENERIC".equals(item.relation)) {
+                out.append(" • R:").append(item.relation);
+            }
+            if (!item.surface.isEmpty()) out.append(" • „").append(trim(item.surface, 48)).append("”");
+            if (!item.crossings.isEmpty()) out.append(" • × ").append(trim(item.crossings, 90));
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Corpus — " + (topic.topicTitle.isEmpty() ? topic.topicPath : topic.topicTitle))
+                .setMessage(out.length() == 0 ? "Nu există locații." : out.toString().trim())
+                .setPositiveButton("ÎNCHIDE", null)
                 .show();
     }
 
