@@ -160,57 +160,133 @@ public final class DeterministicIndexIntersectionEngine {
     }
 
     public static List<Intersection> detect(TopicMap map, SemanticGraph graph) {
-        if (map == null || graph == null || graph.isEmpty() || map.nodes == null || map.nodes.isEmpty()) {
-            return Collections.emptyList();
+        if (map == null || graph == null || graph.isEmpty()) return Collections.emptyList();
+        List<Intersection> out = new ArrayList<>();
+        Set<String> dedupe = new HashSet<>();
+        for (SemanticGraph.Proposition proposition : graph.propositions()) {
+            for (Intersection intersection : detectProposition(map, proposition)) {
+                String key = intersection.unitKey() + "|" + intersection.left().node().path
+                        + "|" + intersection.right().node().path;
+                if (dedupe.add(key)) out.add(intersection);
+            }
         }
+        return Collections.unmodifiableList(out);
+    }
 
+    /** Deterministic crossings for one proposition only. */
+    public static List<Intersection> detectProposition(
+            TopicMap map,
+            SemanticGraph.Proposition proposition
+    ) {
+        if (proposition == null || safe(proposition.raw()).isEmpty()) return Collections.emptyList();
+        List<Anchor> anchors = anchorsFor(map, proposition);
+        if (anchors.size() < 2) return Collections.emptyList();
+
+        List<Intersection> out = new ArrayList<>();
+        for (int i = 0; i < anchors.size(); i++) {
+            Anchor a = anchors.get(i);
+            for (int j = i + 1; j < anchors.size(); j++) {
+                Anchor b = anchors.get(j);
+                if (sameOrHierarchical(a.node, b.node)) continue;
+                if (overlaps(a, b)) continue; // one lexical span cannot prove two indices.
+
+                Rule rule = ruleFor(a, b);
+                if (rule == null) continue; // co-presence is deliberately not a crossing.
+
+                Anchor left = a;
+                Anchor right = b;
+                if (safe(left.node.path).compareToIgnoreCase(safe(right.node.path)) > 0) {
+                    left = b;
+                    right = a;
+                }
+                out.add(new Intersection(proposition, left, right, rule));
+            }
+        }
+        return Collections.unmodifiableList(out);
+    }
+
+    /**
+     * Best independent anchor for every enabled thematic node in one proposition.
+     * Returned order is stable by topic path.
+     */
+    public static List<Anchor> anchorsFor(
+            TopicMap map,
+            SemanticGraph.Proposition proposition
+    ) {
+        if (proposition == null || safe(proposition.raw()).isEmpty()) return Collections.emptyList();
+        List<TopicNode> active = activeNodes(map);
+        if (active.isEmpty()) return Collections.emptyList();
+
+        Map<String, Anchor> byPath = new LinkedHashMap<>();
+        for (TopicNode node : active) {
+            Anchor anchor = bestAnchor(node, proposition);
+            if (anchor != null) byPath.put(node.path, anchor);
+        }
+        List<Anchor> anchors = new ArrayList<>(byPath.values());
+        anchors.sort(Comparator.comparing(a -> safe(a.node.path)));
+        return Collections.unmodifiableList(anchors);
+    }
+
+    /** Explicit/flexional anchors in arbitrary source text, without semantic-role inference. */
+    public static List<Anchor> anchorsForText(TopicMap map, String text) {
+        String raw = safe(text);
+        if (raw.isEmpty()) return Collections.emptyList();
+        List<TopicNode> active = activeNodes(map);
+        if (active.isEmpty()) return Collections.emptyList();
+
+        List<Anchor> out = new ArrayList<>();
+        for (TopicNode node : active) {
+            List<String> terms = node.terms == null || node.terms.isEmpty()
+                    ? Collections.singletonList(node.title)
+                    : node.terms;
+            Anchor best = null;
+            for (String term : terms) {
+                String clean = safe(term);
+                if (clean.isEmpty()) continue;
+                Span span = findBestSpan(raw, clean);
+                if (span == null) continue;
+                Anchor candidate = new Anchor(
+                        node, clean, span.surface, span.start, span.end, span.kind,
+                        AnchorRole.CONTEXT, "RAW", raw
+                );
+                if (best == null
+                        || (candidate.matchKind == MatchKind.EXACT && best.matchKind != MatchKind.EXACT)
+                        || (candidate.matchKind == best.matchKind && candidate.start < best.start)) {
+                    best = candidate;
+                }
+            }
+            if (best != null) out.add(best);
+        }
+        out.sort(Comparator.comparing(a -> safe(a.node.path)));
+        return Collections.unmodifiableList(out);
+    }
+
+    /**
+     * True when two distinct non-hierarchical topic nodes are supported by the
+     * exact same source span. Such a unit is retained but must be reviewed manually.
+     */
+    public static boolean hasSharedSpanAmbiguity(List<Anchor> anchors) {
+        if (anchors == null || anchors.size() < 2) return false;
+        for (int i = 0; i < anchors.size(); i++) {
+            Anchor a = anchors.get(i);
+            if (a == null) continue;
+            for (int j = i + 1; j < anchors.size(); j++) {
+                Anchor b = anchors.get(j);
+                if (b == null || sameOrHierarchical(a.node, b.node)) continue;
+                if (a.start == b.start && a.end == b.end) return true;
+            }
+        }
+        return false;
+    }
+
+    private static List<TopicNode> activeNodes(TopicMap map) {
+        if (map == null || map.nodes == null || map.nodes.isEmpty()) return Collections.emptyList();
         List<TopicNode> active = new ArrayList<>();
         for (TopicNode node : map.nodes) {
             if (node != null && node.enabled && !safe(node.path).isEmpty()) active.add(node);
         }
-        if (active.size() < 2) return Collections.emptyList();
-
-        List<Intersection> out = new ArrayList<>();
-        Set<String> dedupe = new HashSet<>();
-
-        for (SemanticGraph.Proposition proposition : graph.propositions()) {
-            if (proposition == null || safe(proposition.raw()).isEmpty()) continue;
-
-            Map<String, Anchor> byPath = new LinkedHashMap<>();
-            for (TopicNode node : active) {
-                Anchor anchor = bestAnchor(node, proposition);
-                if (anchor != null) byPath.put(node.path, anchor);
-            }
-            if (byPath.size() < 2) continue;
-
-            List<Anchor> anchors = new ArrayList<>(byPath.values());
-            anchors.sort(Comparator.comparing(a -> safe(a.node.path)));
-
-            for (int i = 0; i < anchors.size(); i++) {
-                Anchor a = anchors.get(i);
-                for (int j = i + 1; j < anchors.size(); j++) {
-                    Anchor b = anchors.get(j);
-                    if (sameOrHierarchical(a.node, b.node)) continue;
-                    if (overlaps(a, b)) continue; // one lexical span cannot prove two indices.
-
-                    Rule rule = ruleFor(a, b);
-                    if (rule == null) continue; // co-presence is deliberately not a crossing.
-
-                    Anchor left = a;
-                    Anchor right = b;
-                    if (safe(left.node.path).compareToIgnoreCase(safe(right.node.path)) > 0) {
-                        left = b;
-                        right = a;
-                    }
-
-                    String key = proposition.paragraphIndex() + "|" + proposition.sentenceIndex()
-                            + "|" + proposition.clauseIndex() + "|" + left.node.path + "|" + right.node.path;
-                    if (dedupe.add(key)) out.add(new Intersection(proposition, left, right, rule));
-                }
-            }
-        }
-
-        return Collections.unmodifiableList(out);
+        active.sort(Comparator.comparing(node -> safe(node.path)));
+        return active;
     }
 
     private static Rule ruleFor(Anchor a, Anchor b) {
