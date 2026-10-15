@@ -63,6 +63,7 @@ public final class LivingIndexRuntime {
         if (text == null || detections == null || detections.isEmpty()) return;
         synchronized (LOCK) {
             if (appContext == null) return;
+            refreshActiveSourceLocked();
             String page = detectPage(text);
             if (!page.isEmpty()) currentPage = page;
             process(text, detections, graph, cartography);
@@ -73,6 +74,7 @@ public final class LivingIndexRuntime {
         if (detections == null || detections.isEmpty()) return;
         synchronized (LOCK) {
             if (appContext == null) return;
+            refreshActiveSourceLocked();
             String page = detectPageFromDetections(detections);
             if (!page.isEmpty()) currentPage = page;
             SemanticGraph graph = SemanticGraphBuilder.build(detections);
@@ -138,6 +140,16 @@ public final class LivingIndexRuntime {
             latestMarks = Collections.unmodifiableList(new ArrayList<>(
                     LivingIndexTextMarker.build(text, latestCandidates, state)
             ));
+        }
+    }
+
+    private static void refreshActiveSourceLocked() {
+        if (appContext == null) return;
+        String stableSource = IndexCoreSourceRegistry.activeSourceId(appContext);
+        long next = IndexCoreSourceRegistry.legacyNumericId(stableSource);
+        if (next != sourceId) {
+            sourceId = next;
+            currentPage = "";
         }
     }
 
