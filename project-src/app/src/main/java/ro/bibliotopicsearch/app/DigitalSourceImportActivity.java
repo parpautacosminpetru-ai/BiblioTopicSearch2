@@ -317,11 +317,12 @@ public final class DigitalSourceImportActivity extends AppCompatActivity {
                         if (cancelled.get()) break;
                         int printedPage = plan.printedPageForPdfPage(pdfPage);
                         final int ordinal = pdfPage - plan.pdfPageFrom + 1;
+                        final int pdfPageForUi = pdfPage;
                         final int pageForUi = printedPage;
                         runOnUiThread(() -> {
                             progress.setProgress((int) Math.round((ordinal - 1) * 1000.0 / total));
                             setStatus(
-                                    "PDF " + pdfPage + "/" + plan.pdfPageTo
+                                    "PDF " + pdfPageForUi + "/" + plan.pdfPageTo
                                             + " → pag. " + pageForUi + " • OCR local…",
                                     Color.rgb(230, 190, 80)
                             );
