@@ -486,9 +486,13 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
         values.put("status", unit.status().name());
         values.put("confidence", unit.confidence());
         values.put("captured_at", capturedAt > 0 ? capturedAt : System.currentTimeMillis());
-        getWritableDatabase().insertWithOnConflict(
-                "idx_semantic_units", null, values, SQLiteDatabase.CONFLICT_REPLACE
+        SQLiteDatabase db = getWritableDatabase();
+        db.insertWithOnConflict(
+                "idx_semantic_units", null, values, SQLiteDatabase.CONFLICT_IGNORE
         );
+        ContentValues update = new ContentValues(values);
+        update.remove("unit_id");
+        db.update("idx_semantic_units", update, "unit_id=?", new String[]{id});
         return id;
     }
 
