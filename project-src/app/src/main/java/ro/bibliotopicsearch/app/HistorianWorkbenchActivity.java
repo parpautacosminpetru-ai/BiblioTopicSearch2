@@ -1,6 +1,8 @@
 package ro.bibliotopicsearch.app;
 
+import android.content.Intent;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
@@ -16,6 +18,8 @@ import android.widget.TextView;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -28,8 +32,11 @@ import java.util.List;
  * reversible source units and preserves source criticism + decision history.
  */
 public final class HistorianWorkbenchActivity extends AppCompatActivity {
+    private static final int REQ_EXPORT_DOSSIER = 501;
+
     private IndexCoreDatabase db;
     private List<HistorianWorkbenchStore.Claim> claims = new ArrayList<>();
+    private String pendingExportText = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -86,6 +93,10 @@ public final class HistorianWorkbenchActivity extends AppCompatActivity {
         Button activeSource = button("SURSA ACTIVĂ");
         activeSource.setOnClickListener(v -> editSourceCriticism(IndexCoreSourceRegistry.activeSourceId(this)));
         second.addView(activeSource, new LinearLayout.LayoutParams(0, dp(42), 1f));
+
+        Button export = button("EXPORT DOSAR");
+        export.setOnClickListener(v -> exportDossier());
+        second.addView(export, new LinearLayout.LayoutParams(0, dp(42), 1f));
         root.addView(second);
 
         IndexCoreDatabase.Stats coreStats = db.stats();
@@ -646,6 +657,44 @@ public final class HistorianWorkbenchActivity extends AppCompatActivity {
                 .setView(scroll)
                 .setPositiveButton("ÎNCHIDE", null)
                 .show();
+    }
+
+    private void exportDossier() {
+        pendingExportText = HistorianResearchExporter.build(this, db);
+        if (pendingExportText.isEmpty()) {
+            message("Export", "Nu există un dosar de cercetare de exportat.");
+            return;
+        }
+
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("text/plain");
+        intent.putExtra(Intent.EXTRA_TITLE, "dosar_cercetare_bibliotopicsearch.txt");
+        startActivityForResult(intent, REQ_EXPORT_DOSSIER);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_EXPORT_DOSSIER || resultCode != RESULT_OK
+                || data == null || pendingExportText.isEmpty()) return;
+        Uri uri = data.getData();
+        if (uri == null) return;
+
+        try {
+            OutputStream stream = getContentResolver().openOutputStream(uri, "wt");
+            if (stream == null) throw new IllegalStateException("Nu se poate deschide destinația.");
+            try (OutputStream out = stream) {
+                out.write(pendingExportText.getBytes(StandardCharsets.UTF_8));
+                out.flush();
+            }
+            message("Export", "Dosarul reproductibil de cercetare a fost exportat.");
+        } catch (Exception failure) {
+            message(
+                    "Export nereușit",
+                    failure.getMessage() == null ? "Nu s-a putut scrie fișierul." : failure.getMessage()
+            );
+        }
     }
 
     private String statusRo(HistorianWorkbenchStore.ClaimStatus status) {
