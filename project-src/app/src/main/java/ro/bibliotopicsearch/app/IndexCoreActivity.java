@@ -90,6 +90,13 @@ public final class IndexCoreActivity extends AppCompatActivity {
         research.addView(matrix, new LinearLayout.LayoutParams(0, dp(42), 1f));
         root.addView(research);
 
+        LinearLayout audit = new LinearLayout(this);
+        audit.setGravity(Gravity.CENTER_VERTICAL);
+        Button review = button("REVIZUIRE EXCEPȚII");
+        review.setOnClickListener(v -> showReviewQueue());
+        audit.addView(review, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        root.addView(audit);
+
         IndexCoreDatabase.SourceRecord source = db.source(sourceId);
         IndexCoreDatabase.Stats stats = db.stats();
         IndexCoreCartographyReader.Stats cartography = IndexCoreCartographyReader.stats(db, sourceId);
@@ -108,8 +115,8 @@ public final class IndexCoreActivity extends AppCompatActivity {
                                 + " pagini (" + cartography.coveragePercent() + "%)"
                                 + (cartography.exhaustive() ? " • EXHAUSTIVĂ ✓" : "")
                             : "\nACOPERIRE: definește intervalul sursei pentru măsurare exhaustivă")
-                        + (cartography.ambiguousUnits > 0
-                            ? "\nDE VERIFICAT: " + cartography.ambiguousUnits + " unități ambigue"
+                        + (cartography.unresolvedUnits > 0
+                            ? "\nDE VERIFICAT: " + cartography.unresolvedUnits + " unități excepționale"
                             : "")
         );
         summary.setPadding(0, dp(4), 0, dp(8));
@@ -227,6 +234,7 @@ public final class IndexCoreActivity extends AppCompatActivity {
                 .append("\nFĂRĂ INDICE TEMATIC: ").append(stats.noIndexUnits)
                 .append("\nAMBIGUE: ").append(stats.ambiguousUnits)
                 .append("\nNEPARSE: ").append(stats.unparsedUnits)
+                .append("\nEXCEPȚII NEREVIZUITE: ").append(stats.unresolvedUnits)
                 .append("\nÎNCRUCIȘĂRI DETERMINISTE: ").append(stats.intersections)
                 .append("\nINDICI DISTINCȚI: ").append(stats.distinctTopics)
                 .append("\n\nO pagină intră la «încheiată» numai prin comanda explicită ÎNCHEIE PAGINA ✓.");
@@ -266,6 +274,68 @@ public final class IndexCoreActivity extends AppCompatActivity {
                     rebuild();
                 })
                 .setNegativeButton("ANULEAZĂ", null)
+                .show();
+    }
+
+    private void showReviewQueue() {
+        List<IndexCoreCartographyReader.ReviewItem> items =
+                IndexCoreCartographyReader.reviewQueue(db, sourceId, 500);
+        if (items.isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Revizuire excepții")
+                    .setMessage("Nu există unități AMBIGUOUS/UNPARSED nerevizuite. Registrul nu are excepții deschise.")
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+
+        String[] labels = new String[items.size()];
+        for (int i = 0; i < items.size(); i++) {
+            IndexCoreCartographyReader.ReviewItem item = items.get(i);
+            StringBuilder label = new StringBuilder();
+            if (!item.page.isEmpty()) label.append("pag. ").append(item.page).append(" • ");
+            label.append("P").append(item.paragraphIndex + 1)
+                    .append(" • ").append(item.unitKind)
+                    .append(" • ").append(item.status);
+            if (!item.outlineTitle.isEmpty()) label.append(" • ").append(item.outlineTitle);
+            if (!item.evidence.isEmpty()) label.append("\n").append(trim(item.evidence, 110));
+            labels[i] = label.toString();
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Excepții nerevizuite: " + items.size())
+                .setItems(labels, (dialog, which) -> reviewUnit(items.get(which)))
+                .setNegativeButton("ÎNCHIDE", null)
+                .show();
+    }
+
+    private void reviewUnit(IndexCoreCartographyReader.ReviewItem item) {
+        if (item == null) return;
+        StringBuilder detail = new StringBuilder();
+        if (!item.page.isEmpty()) detail.append("Pagina: ").append(item.page).append("\n");
+        detail.append("Paragraf: ").append(item.paragraphIndex + 1)
+                .append("\nUnitate: ").append(item.unitKind)
+                .append("\nStare automată: ").append(item.status);
+        if (!item.function.isEmpty()) detail.append("\nFuncție: ").append(item.function);
+        if (!item.relation.isEmpty()) detail.append("\nRelație: ").append(item.relation);
+        if (!item.outlineTitle.isEmpty()) detail.append("\nSecțiune: ").append(item.outlineTitle);
+        if (!item.evidence.isEmpty()) detail.append("\nDovezi tematice: ").append(item.evidence);
+        detail.append("\n\nRevizuirea este umană și nu inventează conținut. Dacă clasificarea trebuie schimbată, modifică harta și recapturează pasajul.");
+
+        new AlertDialog.Builder(this)
+                .setTitle("Audit unitate")
+                .setMessage(detail.toString())
+                .setItems(new String[]{
+                        "REVIZUITĂ — păstrează starea explicită",
+                        "CONFIRMĂ FĂRĂ INDICE TEMATIC",
+                        "NON-CONȚINUT / ELEMENT EDITORIAL"
+                }, (d, which) -> {
+                    if (which == 0) db.reviewSemanticUnit(item.unitId, "ACKNOWLEDGED");
+                    else if (which == 1) db.reviewSemanticUnit(item.unitId, "CONFIRMED_NO_INDEX");
+                    else db.reviewSemanticUnit(item.unitId, "NON_CONTENT");
+                    rebuild();
+                })
+                .setNegativeButton("LASĂ NEREVIZUITĂ", null)
                 .show();
     }
 
