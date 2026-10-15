@@ -213,6 +213,7 @@ public final class IndexCoreCartographyReader {
                 String matchKind,
                 String crossings
         ) {
+            this.unitId = safe(unitId);
             this.page = safe(page);
             this.paragraphIndex = paragraphIndex;
             this.sentenceIndex = sentenceIndex;
