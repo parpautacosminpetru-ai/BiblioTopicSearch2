@@ -122,6 +122,13 @@ public final class PageStabilityTracker {
         capturedTokens = new ArrayList<>(candidateTokens);
     }
 
+    /** Mark the current stable page as captured without declaring it complete. */
+    public synchronized void markCurrentCaptured(String page) {
+        String clean = safe(page);
+        if (!clean.isEmpty()) capturedPage = clean;
+        if (!candidateTokens.isEmpty()) capturedTokens = new ArrayList<>(candidateTokens);
+    }
+
     /** Suppress re-capture of a page after the historian explicitly closes it. */
     public synchronized void markPageClosed(String page) {
         String clean = safe(page);
