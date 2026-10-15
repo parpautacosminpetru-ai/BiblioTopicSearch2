@@ -309,6 +309,7 @@ public final class LensActivity extends AppCompatActivity {
         queryExecutor.execute(() -> {
             try {
                 TopicMap aliases = TopicMapStore.load(getApplicationContext());
+                TopicMatcher.setIntersectionThemeMap(aliases);
                 TopicMap lensMap = LensQueryMap.build(
                         query,
                         aliases,
