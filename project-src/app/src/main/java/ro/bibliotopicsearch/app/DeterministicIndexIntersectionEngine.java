@@ -162,10 +162,12 @@ public final class DeterministicIndexIntersectionEngine {
 
     public static List<Intersection> detect(TopicMap map, SemanticGraph graph) {
         if (map == null || graph == null || graph.isEmpty()) return Collections.emptyList();
+        DeterministicMultiIndexMatcher.Plan plan = DeterministicMultiIndexMatcher.forMap(map);
         List<Intersection> out = new ArrayList<>();
         Set<String> dedupe = new HashSet<>();
         for (SemanticGraph.Proposition proposition : graph.propositions()) {
-            for (Intersection intersection : detectProposition(map, proposition)) {
+            List<Anchor> anchors = DeterministicMultiIndexMatcher.matchProposition(plan, proposition);
+            for (Intersection intersection : detectProposition(proposition, anchors)) {
                 String key = intersection.unitKey() + "|" + intersection.left().node().path
                         + "|" + intersection.right().node().path;
                 if (dedupe.add(key)) out.add(intersection);
@@ -180,8 +182,21 @@ public final class DeterministicIndexIntersectionEngine {
             SemanticGraph.Proposition proposition
     ) {
         if (proposition == null || safe(proposition.raw()).isEmpty()) return Collections.emptyList();
-        List<Anchor> anchors = anchorsFor(map, proposition);
-        if (anchors.size() < 2) return Collections.emptyList();
+        List<Anchor> anchors = DeterministicMultiIndexMatcher.matchProposition(
+                DeterministicMultiIndexMatcher.forMap(map),
+                proposition
+        );
+        return detectProposition(proposition, anchors);
+    }
+
+    /** Build proven crossings from an already-computed one-pass anchor set. */
+    public static List<Intersection> detectProposition(
+            SemanticGraph.Proposition proposition,
+            List<Anchor> anchors
+    ) {
+        if (proposition == null || anchors == null || anchors.size() < 2) {
+            return Collections.emptyList();
+        }
 
         List<Intersection> out = new ArrayList<>();
         for (int i = 0; i < anchors.size(); i++) {
@@ -214,52 +229,18 @@ public final class DeterministicIndexIntersectionEngine {
             TopicMap map,
             SemanticGraph.Proposition proposition
     ) {
-        if (proposition == null || safe(proposition.raw()).isEmpty()) return Collections.emptyList();
-        List<TopicNode> active = activeNodes(map);
-        if (active.isEmpty()) return Collections.emptyList();
-
-        Map<String, Anchor> byPath = new LinkedHashMap<>();
-        for (TopicNode node : active) {
-            Anchor anchor = bestAnchor(node, proposition);
-            if (anchor != null) byPath.put(node.path, anchor);
-        }
-        List<Anchor> anchors = new ArrayList<>(byPath.values());
-        anchors.sort(Comparator.comparing(a -> safe(a.node.path)));
-        return Collections.unmodifiableList(anchors);
+        return DeterministicMultiIndexMatcher.matchProposition(
+                DeterministicMultiIndexMatcher.forMap(map),
+                proposition
+        );
     }
 
     /** Explicit/flexional anchors in arbitrary source text, without semantic-role inference. */
     public static List<Anchor> anchorsForText(TopicMap map, String text) {
-        String raw = safe(text);
-        if (raw.isEmpty()) return Collections.emptyList();
-        List<TopicNode> active = activeNodes(map);
-        if (active.isEmpty()) return Collections.emptyList();
-
-        List<Anchor> out = new ArrayList<>();
-        for (TopicNode node : active) {
-            List<String> terms = node.terms == null || node.terms.isEmpty()
-                    ? Collections.singletonList(node.title)
-                    : node.terms;
-            Anchor best = null;
-            for (String term : terms) {
-                String clean = safe(term);
-                if (clean.isEmpty()) continue;
-                Span span = findBestSpan(raw, clean);
-                if (span == null) continue;
-                Anchor candidate = new Anchor(
-                        node, clean, span.surface, span.start, span.end, span.kind,
-                        AnchorRole.CONTEXT, "RAW", raw
-                );
-                if (best == null
-                        || (candidate.matchKind == MatchKind.EXACT && best.matchKind != MatchKind.EXACT)
-                        || (candidate.matchKind == best.matchKind && candidate.start < best.start)) {
-                    best = candidate;
-                }
-            }
-            if (best != null) out.add(best);
-        }
-        out.sort(Comparator.comparing(a -> safe(a.node.path)));
-        return Collections.unmodifiableList(out);
+        return DeterministicMultiIndexMatcher.matchText(
+                DeterministicMultiIndexMatcher.forMap(map),
+                text
+        );
     }
 
     /**
