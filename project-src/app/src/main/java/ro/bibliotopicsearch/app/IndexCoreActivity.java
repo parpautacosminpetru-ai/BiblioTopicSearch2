@@ -128,10 +128,15 @@ public final class IndexCoreActivity extends AppCompatActivity {
 
         LinearLayout method = new LinearLayout(this);
         method.setGravity(Gravity.CENTER_VERTICAL);
-        Button workbench = button("ATELIER ISTORIC • AFIRMAȚII + DOVEZI + CRITICA SURSEI");
+        Button workbench = button("ATELIER ISTORIC");
         workbench.setOnClickListener(v ->
                 startActivity(new Intent(this, HistorianWorkbenchActivity.class)));
         method.addView(workbench, new LinearLayout.LayoutParams(0, dp(44), 1f));
+
+        Button digital = button("IMPORT PDF");
+        digital.setOnClickListener(v ->
+                startActivity(new Intent(this, DigitalSourceImportActivity.class)));
+        method.addView(digital, new LinearLayout.LayoutParams(0, dp(44), 1f));
         root.addView(method);
 
         IndexCoreDatabase.SourceRecord source = db.source(sourceId);
