@@ -84,6 +84,55 @@ public final class IndexCoreRuntime {
         }
     }
 
+    /**
+     * Explicit exhaustive capture. Unlike the sampled live sidecar, this path never
+     * drops a unit from the accepted frame: every OCR paragraph is ledgered, including
+     * NO_INDEX and AMBIGUOUS units.
+     */
+    public static HistoricalCartographyEngine.CaptureMap captureExhaustive(
+            Context context,
+            List<UniversalParagraphDetector.Detection> detections,
+            SemanticGraph graph,
+            TopicMap thematicMap,
+            String page,
+            boolean markPageComplete
+    ) {
+        if (detections == null || detections.isEmpty()) {
+            return HistoricalCartographyEngine.analyze(detections, graph, thematicMap);
+        }
+        synchronized (LOCK) {
+            ensureStartedLocked(context);
+            HistoricalCartographyEngine.CaptureMap mapped =
+                    HistoricalCartographyEngine.analyze(detections, graph, thematicMap);
+            if (appContext == null || sourceId.isEmpty()) return mapped;
+
+            IndexCoreDatabase db = IndexCoreDatabase.get(appContext);
+            long previousOutline = currentOutlineId;
+            Map<Integer, Long> outlineByParagraph = updateOutlines(db, detections, page);
+            long capturedAt = System.currentTimeMillis();
+
+            for (HistoricalCartographyEngine.Unit unit : mapped.units()) {
+                if (unit == null) continue;
+                long outlineId = outlineForParagraph(
+                        unit.paragraphIndex(), outlineByParagraph, previousOutline
+                );
+                String unitId = db.upsertSemanticUnit(
+                        sourceId,
+                        sessionId,
+                        page,
+                        unit,
+                        outlineId,
+                        capturedAt
+                );
+                if (unitId.isEmpty()) continue;
+                db.replaceUnitTopics(unitId, unit.anchors());
+                db.replaceUnitIntersections(unitId, unit.intersections());
+            }
+            db.recordPageCapture(sourceId, sessionId, page, markPageComplete);
+            return mapped;
+        }
+    }
+
     public static void syncEntry(LivingIndexStore.Entry entry) {
         synchronized (LOCK) {
             if (appContext != null && entry != null) IndexCoreEntryWriter.upsert(IndexCoreDatabase.get(appContext), entry);
@@ -100,6 +149,20 @@ public final class IndexCoreRuntime {
 
     public static long sessionId() {
         synchronized (LOCK) { return sessionId; }
+    }
+
+    private static void ensureStartedLocked(Context context) {
+        if (appContext != null && !sourceId.isEmpty()) return;
+        if (context == null) return;
+        appContext = context.getApplicationContext();
+        sourceId = IndexCoreSourceRegistry.activeSourceId(appContext);
+        sessionId = sessionId > 0 ? sessionId : System.currentTimeMillis();
+        IndexCoreDatabase db = IndexCoreDatabase.get(appContext);
+        db.ensureSource(sourceId);
+        IndexCoreOutlineState.Restored restored =
+                IndexCoreOutlineState.restore(db, sourceId, lastOutlineByDepth);
+        currentOutlineId = restored.currentId;
+        outlineOrder = restored.nextOrder;
     }
 
     private static Map<Integer, Long> updateOutlines(
