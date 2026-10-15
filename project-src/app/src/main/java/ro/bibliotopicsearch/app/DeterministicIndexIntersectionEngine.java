@@ -33,7 +33,8 @@ public final class DeterministicIndexIntersectionEngine {
 
     public enum MatchKind {
         EXACT,
-        INFLECTIONAL_FAMILY
+        INFLECTIONAL_FAMILY,
+        INHERITED_COREFERENCE
     }
 
     public enum AnchorRole {
@@ -324,15 +325,32 @@ public final class DeterministicIndexIntersectionEngine {
             String clean = safe(term);
             if (clean.isEmpty()) continue;
             Span raw = findBestSpan(proposition.raw(), clean);
-            if (raw == null) continue;
 
             Field field = locateField(proposition, clean);
             AnchorRole role = field == null ? AnchorRole.CONTEXT : field.role;
             String fieldKey = field == null ? "RAW" : field.key;
             String fieldText = field == null ? proposition.raw() : field.text;
 
+            if (raw == null && proposition.inheritedSubject()) {
+                Span canonical = findBestSpan(proposition.subject(), clean);
+                Span coreference = canonical == null ? null : findCoreferenceSpan(proposition.raw());
+                if (coreference != null) {
+                    raw = new Span(
+                            coreference.surface,
+                            coreference.start,
+                            coreference.end,
+                            MatchKind.INHERITED_COREFERENCE
+                    );
+                    role = AnchorRole.SUBJECT;
+                    fieldKey = "SUBJECT:COREFERENCE";
+                    fieldText = proposition.subject();
+                }
+            }
+            if (raw == null) continue;
+
             int score = roleScore(role) * 100;
             if (raw.kind == MatchKind.EXACT) score += 20;
+            else if (raw.kind == MatchKind.INHERITED_COREFERENCE) score += 6;
             score += Math.min(18, tokenCount(clean) * 3);
             score -= Math.min(12, raw.start / 80);
 
@@ -447,6 +465,17 @@ public final class DeterministicIndexIntersectionEngine {
             }
         }
         return best;
+    }
+
+    private static Span findCoreferenceSpan(String value) {
+        Matcher matcher = TOKEN.matcher(value == null ? "" : value);
+        while (matcher.find()) {
+            String token = matcher.group();
+            if (RomanianLanguagePack.isCoreference(token)) {
+                return new Span(token, matcher.start(), matcher.end(), MatchKind.INHERITED_COREFERENCE);
+            }
+        }
+        return null;
     }
 
     private static List<LexToken> tokenize(String value) {
