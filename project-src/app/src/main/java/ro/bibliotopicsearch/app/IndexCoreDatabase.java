@@ -175,6 +175,12 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
                 "PRIMARY KEY(source_id,page))");
         db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_page_coverage_complete ON idx_page_coverage(source_id,is_complete,page)");
 
+        db.execSQL("CREATE TABLE IF NOT EXISTS idx_unit_reviews (" +
+                "unit_id TEXT PRIMARY KEY REFERENCES idx_semantic_units(unit_id) ON DELETE CASCADE," +
+                "resolution TEXT NOT NULL," +
+                "reviewed_at INTEGER NOT NULL)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_unit_reviews_resolution ON idx_unit_reviews(resolution,reviewed_at)");
+
         db.execSQL("CREATE TABLE IF NOT EXISTS idx_source_scope (" +
                 "source_id TEXT PRIMARY KEY REFERENCES idx_sources(source_id) ON DELETE CASCADE," +
                 "page_from INTEGER," +
@@ -586,6 +592,25 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
                     "idx_page_coverage", null, values, SQLiteDatabase.CONFLICT_REPLACE
             );
         }
+    }
+
+    public void reviewSemanticUnit(String unitId, String resolution) {
+        String id = safe(unitId);
+        String value = upper(resolution);
+        if (id.isEmpty() || value.isEmpty()) return;
+        ContentValues row = new ContentValues();
+        row.put("unit_id", id);
+        row.put("resolution", value);
+        row.put("reviewed_at", System.currentTimeMillis());
+        getWritableDatabase().insertWithOnConflict(
+                "idx_unit_reviews", null, row, SQLiteDatabase.CONFLICT_REPLACE
+        );
+    }
+
+    public void clearSemanticUnitReview(String unitId) {
+        String id = safe(unitId);
+        if (id.isEmpty()) return;
+        getWritableDatabase().delete("idx_unit_reviews", "unit_id=?", new String[]{id});
     }
 
     public void setPageComplete(String sourceId, String page, boolean complete) {
