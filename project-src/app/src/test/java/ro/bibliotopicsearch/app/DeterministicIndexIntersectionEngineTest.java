@@ -93,6 +93,30 @@ public final class DeterministicIndexIntersectionEngineTest {
     }
 
     @Test
+    public void explicitCoreferenceCanContinueAValidatedTopicAcrossParagraphs() {
+        TopicNode imp = node("Împărat", "împărat");
+        TopicNode arm = node("Armată", "armată");
+        java.util.List<UniversalParagraphDetector.Detection> detections = java.util.Arrays.asList(
+                UniversalParagraphDetector.detect("Împăratul conduce statul.", 0),
+                UniversalParagraphDetector.detect("El controlează armata.", 1)
+        );
+        SemanticGraph graph = SemanticGraphBuilder.build(detections);
+
+        java.util.List<DeterministicIndexIntersectionEngine.Intersection> values =
+                DeterministicIndexIntersectionEngine.detect(map(imp, arm), graph);
+
+        boolean inherited = false;
+        for (DeterministicIndexIntersectionEngine.Intersection value : values) {
+            if (value.paragraphIndex() != 1) continue;
+            if (value.left().matchKind() == DeterministicIndexIntersectionEngine.MatchKind.INHERITED_COREFERENCE
+                    || value.right().matchKind() == DeterministicIndexIntersectionEngine.MatchKind.INHERITED_COREFERENCE) {
+                inherited = true;
+            }
+        }
+        assertTrue(inherited);
+    }
+
+    @Test
     public void narrowRomanianInflectionCountsAsExplicitAnchor() {
         TopicNode imp = node("Împărat", "împărat");
         TopicNode arm = node("Armată", "armată");
