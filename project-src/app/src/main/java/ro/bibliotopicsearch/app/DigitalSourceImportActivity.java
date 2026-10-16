@@ -267,6 +267,7 @@ public final class DigitalSourceImportActivity extends AppCompatActivity {
     }
 
     private void materializeAndInspect(Uri uri) {
+        cancelled.set(false);
         chooseButton.setEnabled(false);
         importButton.setEnabled(false);
         progress.setProgress(0);
