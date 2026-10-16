@@ -117,4 +117,18 @@ public final class SemanticGraphBuilderTest {
         assertTrue(profile.intents().contains(ResearchSemanticEngine.Intent.EFFECT));
         assertEquals(1, profile.directTerms().size());
     }
+
+    @Test
+    public void repeatedIdenticalClausesKeepDistinctPositions() {
+        UniversalParagraphDetector.Detection detection = UniversalParagraphDetector.detect(
+                "Împăratul conduce, Împăratul conduce, Împăratul se retrage.", 0
+        );
+        SemanticGraph graph = SemanticGraphBuilder.build(detection);
+
+        assertEquals(3, graph.propositionsForParagraph(0).size());
+        assertEquals(graph.propositions().get(0).raw(), graph.propositions().get(1).raw());
+        assertEquals(0, graph.propositions().get(0).clauseIndex());
+        assertEquals(1, graph.propositions().get(1).clauseIndex());
+        assertEquals(2, graph.propositions().get(2).clauseIndex());
+    }
 }
