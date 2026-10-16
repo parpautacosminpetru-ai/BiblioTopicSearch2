@@ -24,9 +24,13 @@ public final class VerifiedCaptureCoordinator {
     public static final class Result {
         public final boolean newlyIndexed;
         public final int paragraphs;
-        Result(boolean newlyIndexed, int paragraphs) {
+        public final int units;
+        public final int ambiguous;
+        Result(boolean newlyIndexed, int paragraphs, int units, int ambiguous) {
             this.newlyIndexed = newlyIndexed;
             this.paragraphs = paragraphs;
+            this.units = units;
+            this.ambiguous = ambiguous;
         }
     }
 
@@ -77,6 +81,17 @@ public final class VerifiedCaptureCoordinator {
         sql.insertWithOnConflict("idx_page_processing", null, value, SQLiteDatabase.CONFLICT_ABORT);
     }
 
+    private static void rejectUnprovenLegacyIndex(SQLiteDatabase sql,
+                                                   String sourceId, String page) throws IOException {
+        if (currentDigest(sql, sourceId, page).isEmpty()
+                && count(sql, "SELECT COUNT(*) FROM idx_semantic_units WHERE "
+                        + "source_id=? AND page=?", key(sourceId, page)) > 0) {
+            throw new IOException("Există o cartografiere veche fără legătură verificabilă "
+                    + "cu OCR-ul arhivat. Pentru a nu amesteca dovezi incompatibile, "
+                    + "creează o sursă nouă pentru această captură.");
+        }
+    }
+
     private static boolean indexed(SQLiteDatabase sql, String sourceId, String page) {
         String digest = currentDigest(sql, sourceId, page);
         return !digest.isEmpty() && digest.equals(indexedDigest(sql, sourceId, page))
@@ -117,11 +132,12 @@ public final class VerifiedCaptureCoordinator {
         SQLiteDatabase sql = IndexCoreDatabase.get(context).getWritableDatabase();
         sql.beginTransaction();
         try {
+            rejectUnprovenLegacyIndex(sql, sourceId, page);
             SourceArchiveStore.saveOcr(context, sourceId, page, recognized, width, height);
             ensureDigest(context, sql, sourceId, page);
             if (indexed(sql, sourceId, page)) {
                 sql.setTransactionSuccessful();
-                return new Result(false, 0);
+                return new Result(false, 0, 0, 0);
             }
             ExactCartographyCapture.Report report = ExactCartographyCapture.capture(
                     context, recognized, thematicMap, page, false, sourceId);
@@ -130,7 +146,8 @@ public final class VerifiedCaptureCoordinator {
             }
             setIndexed(sql, sourceId, page);
             sql.setTransactionSuccessful();
-            return new Result(true, report.map.paragraphCount());
+            return new Result(true, report.map.paragraphCount(),
+                    report.map.totalUnits(), report.map.ambiguousCount());
         } finally {
             sql.endTransaction();
         }
@@ -148,6 +165,7 @@ public final class VerifiedCaptureCoordinator {
         SQLiteDatabase sql = IndexCoreDatabase.get(context).getWritableDatabase();
         sql.beginTransaction();
         try {
+            rejectUnprovenLegacyIndex(sql, sourceId, page);
             List<String> blocks = SourceArchiveStore.blocks(context, sourceId, page);
             if (blocks.isEmpty()) {
                 // Old captures had only OCR lines. Preserve their exact text and
@@ -172,7 +190,7 @@ public final class VerifiedCaptureCoordinator {
             ensureDigest(context, sql, sourceId, page);
             if (indexed(sql, sourceId, page)) {
                 sql.setTransactionSuccessful();
-                return new Result(false, 0);
+                return new Result(false, 0, 0, 0);
             }
             List<UniversalParagraphDetector.Detection> detections = new ArrayList<>();
             for (String block : blocks) {
@@ -189,7 +207,8 @@ public final class VerifiedCaptureCoordinator {
             }
             setIndexed(sql, sourceId, page);
             sql.setTransactionSuccessful();
-            return new Result(true, mapped.paragraphCount());
+            return new Result(true, mapped.paragraphCount(),
+                    mapped.totalUnits(), mapped.ambiguousCount());
         } finally {
             sql.endTransaction();
         }
