@@ -65,19 +65,14 @@ public final class ExactCartographyCapture {
                     HistoricalCartographyEngine.analyze(Collections.emptyList(), null, thematicMap));
         }
 
-        List<UniversalParagraphDetector.Detection> detections = new ArrayList<>();
+        List<String> blockTexts = new ArrayList<>();
         List<Text.TextBlock> blocks = text.getTextBlocks();
         if (blocks != null) {
-            int paragraphIndex = 0;
             for (Text.TextBlock block : blocks) {
-                if (block == null || block.getText() == null) continue;
-                // ML Kit text blocks can contain several paragraphs. Preserve each
-                // explicit blank-line-separated paragraph with its own stable index.
-                for (String paragraph : UniversalParagraphDetector.splitParagraphs(block.getText())) {
-                    detections.add(UniversalParagraphDetector.detect(paragraph, paragraphIndex++));
-                }
+                if (block != null && block.getText() != null) blockTexts.add(block.getText());
             }
         }
+        List<UniversalParagraphDetector.Detection> detections = detectParagraphs(blockTexts);
 
         SemanticGraph graph = SemanticGraphBuilder.build(detections);
         String page = safe(pageOverride);
@@ -95,6 +90,19 @@ public final class ExactCartographyCapture {
                 complete
         );
         return new Report(page, complete, markPageComplete, map);
+    }
+
+    // Package-visible for regression tests. OCR text blocks are not guaranteed
+    // to be single paragraphs; preserve every explicitly separated paragraph.
+    static List<UniversalParagraphDetector.Detection> detectParagraphs(List<String> blocks) {
+        List<UniversalParagraphDetector.Detection> detections = new ArrayList<>();
+        if (blocks == null) return detections;
+        for (String text : blocks) {
+            for (String paragraph : UniversalParagraphDetector.splitParagraphs(text)) {
+                detections.add(UniversalParagraphDetector.detect(paragraph, detections.size()));
+            }
+        }
+        return detections;
     }
 
     public static String detectPage(Text text) {
