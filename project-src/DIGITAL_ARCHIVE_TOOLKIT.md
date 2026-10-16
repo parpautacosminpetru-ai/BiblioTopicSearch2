@@ -4,7 +4,7 @@ BiblioTopicSearch 1.9.0 extinde aceeași metodă deterministă la surse digitale
 
 ## PDF offline
 
-Importul PDF folosește numai componente locale ale dispozitivului. Fiecare pagină este randată temporar, recunoscută OCR și trimisă prin același motor de CAPTURĂ EXACTĂ folosit de cameră. Randarea este eliberată imediat după procesare.
+Importul PDF folosește numai componente locale ale dispozitivului. Fiecare pagină este randată temporar, recunoscută OCR și trimisă prin același motor de CAPTURĂ EXACTĂ folosit de cameră. Randarea temporară este eliberată după procesare; PDF-ul original este păstrat separat, intact și verificabil prin SHA-256 în arhiva locală a sursei (începând cu 1.11). Încheierea paginii necesită confirmare umană după verificarea facsimilului și OCR-ului.
 
 Maparea paginilor este explicită:
 
