@@ -10,8 +10,8 @@ android {
         applicationId = "ro.bibliotopicsearch.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 16
-        versionName = "1.9.1"
+        versionCode = 17
+        versionName = "1.10.0"
     }
 
     compileOptions {

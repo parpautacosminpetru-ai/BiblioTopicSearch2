@@ -78,6 +78,11 @@
         <activity
             android:name=".LensActivity"
             android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
+            android:name=".ResearchHomeActivity"
+            android:screenOrientation="portrait"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

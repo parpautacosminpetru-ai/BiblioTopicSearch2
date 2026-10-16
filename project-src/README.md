@@ -219,3 +219,25 @@ Aceste relații nu sunt inferate automat și apar în dosarul reproductibil.
 - `PageDown` sau `Vol+` → ÎNCHEIE PAGINA.
 
 O pedală Bluetooth sau o telecomandă configurată ca PageUp/PageDown poate deveni astfel control fizic de lucru în bibliotecă/arhivă.
+
+
+## 1.10.0 — flux simplificat pentru cercetător
+
+Aplicația pornește acum într-un ecran principal orientat după pașii reali ai cercetării, nu după modulele tehnice:
+
+`TEME → SURSĂ → CARTOGRAFIERE → REZULTATE → ATELIER`
+
+Ecranul principal arată imediat:
+- harta tematică activă și numărul de noduri/termeni;
+- sursa activă;
+- starea acoperirii;
+- următorul pas recomandat.
+
+Butonul principal **CONTINUĂ** duce automat la primul pas lipsă:
+- fără hartă → biblioteca de teme;
+- fără sursă definită → editorul sursei;
+- hartă + sursă pregătite → LUPĂ.
+
+LUPĂ păstrează comenzile de cercetare frecvente vizibile, iar comenzile tehnice mai rare (zoom semantic, index viu, culori, OCR manual, lumină) sunt ascunse implicit sub **AVANSAT**.
+
+Scopul este ca utilizarea zilnică să poată fi făcută fără memorarea structurii interne a aplicației.
