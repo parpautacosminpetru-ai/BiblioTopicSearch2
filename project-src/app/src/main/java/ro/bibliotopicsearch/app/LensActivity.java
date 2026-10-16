@@ -15,6 +15,7 @@ import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
@@ -178,7 +179,10 @@ public final class LensActivity extends AppCompatActivity {
         badge.setTextSize(9);
         badge.setGravity(Gravity.CENTER);
         badge.setBackgroundColor(Color.rgb(67, 88, 104));
-        title.addView(badge, new LinearLayout.LayoutParams(dp(68), dp(28)));
+        title.addView(badge, new LinearLayout.LayoutParams(dp(58), dp(28)));
+
+        Button advancedToggle = button("AVANSAT ▾");
+        title.addView(advancedToggle, new LinearLayout.LayoutParams(dp(92), dp(30)));
         top.addView(title);
 
         LinearLayout controls = new LinearLayout(this);
@@ -212,6 +216,12 @@ public final class LensActivity extends AppCompatActivity {
         torchButton = button("LUMINĂ");
         torchButton.setOnClickListener(v -> toggleTorch());
         controls.addView(torchButton, controlLp());
+        controls.setVisibility(View.GONE);
+        advancedToggle.setOnClickListener(v -> {
+            boolean opening = controls.getVisibility() != View.VISIBLE;
+            controls.setVisibility(opening ? View.VISIBLE : View.GONE);
+            advancedToggle.setText(opening ? "AVANSAT ▴" : "AVANSAT ▾");
+        });
         top.addView(controls);
 
         LinearLayout cartography = new LinearLayout(this);
