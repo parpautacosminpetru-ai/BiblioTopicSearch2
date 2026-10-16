@@ -16,6 +16,16 @@
         android:theme="@style/Theme.BiblioTopicSearch">
 
         <activity
+            android:name=".OriginalPageActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
+            android:name=".CameraScanActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
             android:name=".DigitalSourceImportActivity"
             android:screenOrientation="portrait"
             android:exported="false" />
