@@ -60,6 +60,19 @@ public final class ExactCartographyCapture {
             String pageOverride,
             boolean markPageComplete
     ) {
+        String pinnedSource = context == null ? "" :
+                IndexCoreSourceRegistry.activeSourceId(context.getApplicationContext());
+        return capture(context, text, thematicMap, pageOverride, markPageComplete, pinnedSource);
+    }
+
+    public static Report capture(
+            Context context,
+            Text text,
+            TopicMap thematicMap,
+            String pageOverride,
+            boolean markPageComplete,
+            String expectedSourceId
+    ) {
         if (context == null || text == null) {
             return new Report("", false, markPageComplete,
                     HistoricalCartographyEngine.analyze(Collections.emptyList(), null, thematicMap));
@@ -81,7 +94,7 @@ public final class ExactCartographyCapture {
         // certified complete. Old live OCR frames remain provisional evidence.
         boolean originalPresent = !page.isEmpty() && SourceArchiveStore.page(
                 context.getApplicationContext(),
-                IndexCoreSourceRegistry.activeSourceId(context.getApplicationContext()),
+                expectedSourceId,
                 page) != null;
         boolean complete = markPageComplete && originalPresent && !detections.isEmpty();
 
@@ -91,7 +104,8 @@ public final class ExactCartographyCapture {
                 graph,
                 thematicMap,
                 page,
-                complete
+                complete,
+                expectedSourceId
         );
         return new Report(page, complete, markPageComplete, map);
     }
