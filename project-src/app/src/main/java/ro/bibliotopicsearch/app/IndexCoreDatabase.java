@@ -22,7 +22,7 @@ import java.util.Set;
  */
 public final class IndexCoreDatabase extends SQLiteOpenHelper {
     private static final String DB_NAME = "index_core_v7.db";
-    private static final int DB_VERSION = 6;
+    private static final int DB_VERSION = 7;
     private static volatile IndexCoreDatabase INSTANCE;
 
     public static IndexCoreDatabase get(Context context) {
@@ -110,6 +110,7 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
         createHistorianWorkbenchSchema(db);
         createDigitalArchiveSchema(db);
         createFacsimileSchema(db);
+        createVerifiedCaptureSchema(db);
     }
 
     @Override
@@ -119,6 +120,7 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
         if (oldVersion < 4) createHistorianWorkbenchSchema(db);
         if (oldVersion < 5) createDigitalArchiveSchema(db);
         if (oldVersion < 6) createFacsimileSchema(db);
+        if (oldVersion < 7) createVerifiedCaptureSchema(db);
     }
 
     private static void createCartographySchema(SQLiteDatabase db) {
@@ -298,6 +300,33 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
                 "FOREIGN KEY(source_id,page) REFERENCES idx_original_pages(source_id,page) ON DELETE CASCADE)");
         db.execSQL("CREATE INDEX IF NOT EXISTS ix_original_ocr_source_page "
                 + "ON idx_original_ocr_lines(source_id,page,line_index)");
+    }
+
+    /**
+     * A page can be trusted as processed only when its frozen OCR snapshot,
+     * deterministic index and human verification agree on the SAME digest.
+     * Existing v6 captures intentionally require re-verification.
+     */
+    private static void createVerifiedCaptureSchema(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS idx_ocr_blocks (" +
+                "source_id TEXT NOT NULL," +
+                "page TEXT NOT NULL," +
+                "block_index INTEGER NOT NULL," +
+                "raw_text TEXT NOT NULL," +
+                "PRIMARY KEY(source_id,page,block_index)," +
+                "FOREIGN KEY(source_id,page) REFERENCES idx_original_pages(source_id,page) ON DELETE CASCADE)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS idx_page_processing (" +
+                "source_id TEXT NOT NULL," +
+                "page TEXT NOT NULL," +
+                "ocr_digest TEXT NOT NULL," +
+                "indexed_digest TEXT NOT NULL DEFAULT ''," +
+                "verified_digest TEXT NOT NULL DEFAULT ''," +
+                "indexed_at INTEGER NOT NULL DEFAULT 0," +
+                "verified_at INTEGER NOT NULL DEFAULT 0," +
+                "PRIMARY KEY(source_id,page)," +
+                "FOREIGN KEY(source_id,page) REFERENCES idx_original_pages(source_id,page) ON DELETE CASCADE)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS ix_page_processing_proofs " +
+                "ON idx_page_processing(source_id,page,indexed_digest,verified_digest)");
     }
 
     public static final class SourceRecord {
