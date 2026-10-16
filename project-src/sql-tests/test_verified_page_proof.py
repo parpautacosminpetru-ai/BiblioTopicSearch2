@@ -20,6 +20,9 @@ class PageProofTests(unittest.TestCase):
         db = sqlite3.connect(":memory:")
         db.executescript("""
             CREATE TABLE idx_original_pages (source_id TEXT, page TEXT, PRIMARY KEY(source_id,page));
+            CREATE TABLE idx_semantic_units (
+                source_id TEXT, page TEXT, unit_kind TEXT
+            );
             CREATE TABLE idx_page_coverage (source_id TEXT,page TEXT,is_complete INTEGER,PRIMARY KEY(source_id,page));
         """)
         fragment = DB.split("private static void createVerifiedCaptureSchema(SQLiteDatabase db)", 1)[1]
@@ -30,6 +33,7 @@ class PageProofTests(unittest.TestCase):
             if "REFERENCES idx_original_pages" not in sql or True:
                 db.execute(sql)
         db.execute("INSERT INTO idx_original_pages VALUES ('book','1')")
+        db.execute("INSERT INTO idx_semantic_units VALUES ('book','1','PARAGRAPH')")
         db.execute("INSERT INTO idx_page_coverage VALUES ('book','1',1)")
         return db
 
