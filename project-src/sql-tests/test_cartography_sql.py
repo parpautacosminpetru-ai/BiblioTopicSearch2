@@ -30,15 +30,22 @@ def method_sql(name, limit=1000):
 
 
 def scoped_complete_sql():
-    start = SOURCE.index('"SELECT COUNT(DISTINCT CAST(page AS INTEGER))')
+    join = SOURCE.split("final String completeProofJoin =", 1)[1].split(";", 1)[0]
+    start = SOURCE.index('"SELECT COUNT(DISTINCT CAST(c.page AS INTEGER))"')
     end = SOURCE.index("new String[]{sourceId", start)
-    return literals(SOURCE[start:end])
+    return ("SELECT COUNT(DISTINCT CAST(c.page AS INTEGER))"
+            + literals(join) + literals(SOURCE[start:end])[len("SELECT COUNT(DISTINCT CAST(c.page AS INTEGER))"):])
 
 
 def connect():
     db = sqlite3.connect(":memory:")
     db.executescript("""
         CREATE TABLE idx_page_coverage(source_id TEXT, page TEXT, is_complete INTEGER);
+        CREATE TABLE idx_original_pages(source_id TEXT, page TEXT);
+        CREATE TABLE idx_page_processing(
+            source_id TEXT, page TEXT,
+            ocr_digest TEXT, indexed_digest TEXT, verified_digest TEXT
+        );
         CREATE TABLE idx_semantic_units(
             unit_id TEXT PRIMARY KEY,
             source_id TEXT, page TEXT, page_key TEXT, paragraph_index INTEGER, unit_kind TEXT
@@ -59,6 +66,11 @@ class CartographySqlRegressionTest(unittest.TestCase):
             [("src", str(p), 1) for p in list(range(1, 6)) + list(range(11, 16))]
             + [("src", "001", 1), ("src", "6alpha", 1), ("src", "7", 0)],
         )
+        # Only completed pages with archived, indexed and human-verified
+        # evidence may count toward the exhaustivity percentage.
+        for page in [str(p) for p in list(range(1, 6)) + list(range(11, 16))] + ["001"]:
+            db.execute("INSERT INTO idx_original_pages VALUES ('src',?)", (page,))
+            db.execute("INSERT INTO idx_page_processing VALUES ('src',?,'h','h','h')", (page,))
         completed = db.execute(scoped_complete_sql(), ("src", "1", "10")).fetchone()[0]
         self.assertEqual(5, completed)
         db.close()
