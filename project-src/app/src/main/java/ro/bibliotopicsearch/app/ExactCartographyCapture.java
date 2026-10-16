@@ -68,10 +68,14 @@ public final class ExactCartographyCapture {
         List<UniversalParagraphDetector.Detection> detections = new ArrayList<>();
         List<Text.TextBlock> blocks = text.getTextBlocks();
         if (blocks != null) {
-            for (int i = 0; i < blocks.size(); i++) {
-                Text.TextBlock block = blocks.get(i);
-                if (block == null || block.getText() == null || block.getText().trim().isEmpty()) continue;
-                detections.add(UniversalParagraphDetector.detect(block.getText().trim(), i));
+            int paragraphIndex = 0;
+            for (Text.TextBlock block : blocks) {
+                if (block == null || block.getText() == null) continue;
+                // ML Kit text blocks can contain several paragraphs. Preserve each
+                // explicit blank-line-separated paragraph with its own stable index.
+                for (String paragraph : UniversalParagraphDetector.splitParagraphs(block.getText())) {
+                    detections.add(UniversalParagraphDetector.detect(paragraph, paragraphIndex++));
+                }
             }
         }
 
