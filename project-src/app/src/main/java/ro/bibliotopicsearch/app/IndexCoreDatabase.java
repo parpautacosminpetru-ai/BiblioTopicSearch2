@@ -22,7 +22,7 @@ import java.util.Set;
  */
 public final class IndexCoreDatabase extends SQLiteOpenHelper {
     private static final String DB_NAME = "index_core_v7.db";
-    private static final int DB_VERSION = 5;
+    private static final int DB_VERSION = 6;
     private static volatile IndexCoreDatabase INSTANCE;
 
     public static IndexCoreDatabase get(Context context) {
@@ -109,6 +109,7 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
         createCartographySchema(db);
         createHistorianWorkbenchSchema(db);
         createDigitalArchiveSchema(db);
+        createFacsimileSchema(db);
     }
 
     @Override
@@ -117,6 +118,7 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
         if (oldVersion < 3) createCartographySchema(db);
         if (oldVersion < 4) createHistorianWorkbenchSchema(db);
         if (oldVersion < 5) createDigitalArchiveSchema(db);
+        if (oldVersion < 6) createFacsimileSchema(db);
     }
 
     private static void createCartographySchema(SQLiteDatabase db) {
@@ -260,6 +262,42 @@ public final class IndexCoreDatabase extends SQLiteOpenHelper {
                 "PRIMARY KEY(left_source_id,right_source_id,relation))");
         db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_source_rel_left ON idx_source_relations(left_source_id,relation)");
         db.execSQL("CREATE INDEX IF NOT EXISTS ix_idx_source_rel_right ON idx_source_relations(right_source_id,relation)");
+    }
+
+    /**
+     * Source originals and OCR are independent of the thematic index. Schema
+     * migrations are additive: old research remains readable.
+     */
+    private static void createFacsimileSchema(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS idx_original_documents (" +
+                "source_id TEXT PRIMARY KEY REFERENCES idx_sources(source_id) ON DELETE CASCADE," +
+                "file_hash TEXT NOT NULL," +
+                "relative_path TEXT NOT NULL," +
+                "display_name TEXT NOT NULL DEFAULT ''," +
+                "pdf_page_count INTEGER NOT NULL," +
+                "created_at INTEGER NOT NULL)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS idx_original_pages (" +
+                "source_id TEXT NOT NULL REFERENCES idx_sources(source_id) ON DELETE CASCADE," +
+                "page TEXT NOT NULL," +
+                "media_kind TEXT NOT NULL," +
+                "file_hash TEXT NOT NULL," +
+                "relative_path TEXT NOT NULL," +
+                "pdf_page_index INTEGER NOT NULL DEFAULT -1," +
+                "saved_at INTEGER NOT NULL," +
+                "PRIMARY KEY(source_id,page))");
+        db.execSQL("CREATE TABLE IF NOT EXISTS idx_original_ocr_lines (" +
+                "source_id TEXT NOT NULL," +
+                "page TEXT NOT NULL," +
+                "line_index INTEGER NOT NULL," +
+                "raw_text TEXT NOT NULL," +
+                "left_frac REAL NOT NULL," +
+                "top_frac REAL NOT NULL," +
+                "right_frac REAL NOT NULL," +
+                "bottom_frac REAL NOT NULL," +
+                "PRIMARY KEY(source_id,page,line_index)," +
+                "FOREIGN KEY(source_id,page) REFERENCES idx_original_pages(source_id,page) ON DELETE CASCADE)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS ix_original_ocr_source_page "
+                + "ON idx_original_ocr_lines(source_id,page,line_index)");
     }
 
     public static final class SourceRecord {

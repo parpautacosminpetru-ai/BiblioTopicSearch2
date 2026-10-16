@@ -17,7 +17,7 @@ Schema persistentă este:
 
 `SURSĂ → OUTLINE → PAGINĂ → PARAGRAF → PROPOZIȚIE/CLAUZĂ → INDICE/INDICI`
 
-Pentru fiecare unitate se păstrează identitatea stabilă, pagina, poziția, funcția/relația deterministă, starea de cartografiere și dovezile tematice. Corpul complet al paginii și imaginea nu sunt necesare pentru index; se păstrează amprenta textului și suprafețele explicite care justifică indicii.
+Pentru fiecare unitate se păstrează identitatea stabilă, pagina, poziția, funcția/relația deterministă, starea de cartografiere și dovezile tematice. Indexul tematic păstrează amprenta textului și dovezile explicite, însă din 1.11 originalul PDF/JPEG și textul OCR poziționat sunt arhivate în straturi separate. Originalul nu este rescris; istoricul poate verifica pasajele direct în facsimil.
 
 ## Stări exhaustive
 

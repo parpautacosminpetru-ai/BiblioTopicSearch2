@@ -152,6 +152,15 @@ public final class IndexCoreActivity extends AppCompatActivity {
         method.addView(digital, new LinearLayout.LayoutParams(0, dp(44), 1f));
         root.addView(method);
 
+        Button original = button("DESCHIDE FACSIMILUL • OCR ORIGINAL");
+        original.setOnClickListener(v -> {
+            Intent intent = new Intent(this, OriginalPageActivity.class);
+            intent.putExtra(OriginalPageActivity.EXTRA_SOURCE_ID, sourceId);
+            startActivity(intent);
+        });
+        root.addView(original, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+
         IndexCoreDatabase.SourceRecord source = db.source(sourceId);
         IndexCoreDatabase.Stats stats = db.stats();
         IndexCoreCartographyReader.Stats cartography = IndexCoreCartographyReader.stats(db, sourceId);

@@ -59,7 +59,7 @@ Dicționarul și hărțile rămân local pe telefon.
 
 ## Confidențialitate
 
-Aplicația nu cere permisiunea `INTERNET`. Camera nu este înregistrată, iar imaginile paginilor nu sunt păstrate de cartografiere. CAPTURĂ EXACTĂ, AUTO CAPTURĂ și importul PDF pot salva local numai rezultate de cercetare derivate (identități de unități, pagini, indici, fațete și relații), nu fotografia/randarea paginii. Orice export de fișă sau dosar este declanșat explicit de utilizator.
+Aplicația nu cere permisiunea `INTERNET`. În fluxurile noi **IMPORT PDF** și **SCANARE ORIGINALĂ**, fișierul PDF sau fotografia JPEG originală sunt păstrate **integral, local, fără modificarea octeților**, separat de OCR și de cartografiere, pentru verificarea dovezilor. Fiecare original are amprentă SHA-256; nu este suprascris în aceeași sursă/pagină. OCR-ul și pozițiile sale sunt derivate și stocate separat. Fluxul vechi **LUPĂ LIVE** rămâne orientativ și nu poate încheia o pagină fără facsimil păstrat. Exportul originalului este explicit. Fișierele private pot ocupa spațiu considerabil; nu dezinstala fără backup.
 
 ## Build
 
@@ -191,7 +191,7 @@ O sursă PDF poate fi parcursă în lot fără server și fără permisiune INTE
 
 Utilizatorul stabilește explicit maparea dintre paginile PDF și paginile tipărite. Pagina este marcată completă numai dacă OCR-ul produce material explicit; paginile ilizibile rămân deschise pentru control uman. Opțional, intervalul importat poate defini domeniul exhaustivității.
 
-Randările temporare ale paginilor sunt reciclate după OCR și nu sunt păstrate.
+Randările temporare ale paginilor sunt reciclate după OCR și nu sunt păstrate; din versiunea 1.11 originalul PDF este însă păstrat separat, integral și neschimbat.
 
 ### Cronologie și locuri navigabile
 
@@ -256,4 +256,4 @@ Importul PDF a fost întărit pentru furnizori Android diferiți și documente m
 - mesajele disting mai clar PDF protejat, lipsă spațiu și alte erori;
 - titlul sursei este cerut înainte de import, pentru proveniență corectă.
 
-PDF-ul temporar și bitmap-urile paginilor sunt șterse/eliberate după utilizare și nu devin parte din dosarul de cercetare.
+PDF-ul temporar și bitmap-urile paginilor sunt șterse/eliberate după utilizare. Din versiunea 1.11 o copie octet-cu-octet a PDF-ului original rămâne arhivată local, separat de OCR.

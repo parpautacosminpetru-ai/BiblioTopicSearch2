@@ -46,8 +46,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * The selected document is first copied into app cache. This guarantees a seekable
  * local file descriptor for PdfRenderer even when the source document comes from a
  * cloud/provider URI. Every page is then rendered locally, OCR-ed locally and sent
- * through CAPTURĂ EXACTĂ. Temporary page bitmaps and the cached PDF are not persisted
- * as research data.
+ * through CAPTURĂ EXACTĂ. The untouched original PDF is separately archived,
+ * and page bitmaps remain temporary; OCR is stored only as an independent overlay.
  */
 public final class DigitalSourceImportActivity extends AppCompatActivity {
     private static final int REQ_OPEN_PDF = 601;
@@ -118,8 +118,8 @@ public final class DigitalSourceImportActivity extends AppCompatActivity {
 
         TextView principle = text(11.8f, Color.rgb(135, 207, 176));
         principle.setText(
-                "PDF-ul este copiat temporar local → paginile sunt randate → OCR local → CAPTURĂ EXACTĂ. "
-                        + "Nu depindem de un descriptor cloud și nu păstrăm imaginile paginilor."
+                "PDF-ul ORIGINAL este arhivat fără modificări (SHA-256). OCR-ul și cartografierea sunt straturi separate. "
+                        + "Paginile sunt marcate complete numai după verificarea explicită de către istoric."
         );
         principle.setPadding(0, 0, 0, dp(8));
         root.addView(principle);
@@ -139,6 +139,15 @@ public final class DigitalSourceImportActivity extends AppCompatActivity {
         chooseButton = button("ALEGE PDF");
         chooseButton.setOnClickListener(v -> choosePdf());
         root.addView(chooseButton, full(dp(48)));
+
+        Button originals = button("DESCHIDE PAGINILE ORIGINALE / OCR");
+        originals.setOnClickListener(v -> {
+            Intent open = new Intent(this, OriginalPageActivity.class);
+            open.putExtra(OriginalPageActivity.EXTRA_SOURCE_ID,
+                    IndexCoreSourceRegistry.activeSourceId(this));
+            startActivity(open);
+        });
+        root.addView(originals, full(dp(44)));
 
         TextView mapping = text(13f, Color.WHITE);
         mapping.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
@@ -411,7 +420,8 @@ public final class DigitalSourceImportActivity extends AppCompatActivity {
                                 + (plan.defineScope
                                     ? "\n\nAcest interval va defini domeniul exhaustivității."
                                     : "\n\nDomeniul exhaustivității rămâne neschimbat.")
-                                + "\n\nImportul continuă chiar dacă o pagină individuală eșuează."
+                                + "\n\nOriginalul PDF rămâne intact. OCR nu confirmă singur o pagină completă."
+                        + "\nImportul continuă chiar dacă o pagină individuală eșuează."
                 )
                 .setPositiveButton("PORNEȘTE", (d, w) -> runImport(plan))
                 .setNegativeButton("ANULEAZĂ", null)
@@ -438,7 +448,7 @@ public final class DigitalSourceImportActivity extends AppCompatActivity {
                     TextRecognizerOptions.DEFAULT_OPTIONS
             );
 
-            int complete = 0;
+            int cartographed = 0;
             int unreadable = 0;
             int failed = 0;
             int ambiguous = 0;
@@ -457,6 +467,10 @@ public final class DigitalSourceImportActivity extends AppCompatActivity {
                 TopicMap map = TopicMapStore.load(getApplicationContext());
                 IndexCoreDatabase core = IndexCoreDatabase.get(getApplicationContext());
                 int total = plan.pageCount();
+                // Persist the selected PDF byte-for-byte BEFORE processing pages.
+                // A different PDF cannot replace the original of an existing source.
+                SourceArchiveStore.preservePdf(
+                        getApplicationContext(), sourceId, file, selectedName, renderer.getPageCount());
 
                 for (int pdfPage = plan.pdfPageFrom; pdfPage <= plan.pdfPageTo; pdfPage++) {
                     if (cancelled.get()) break;
@@ -479,6 +493,11 @@ public final class DigitalSourceImportActivity extends AppCompatActivity {
                     PdfRenderer.Page page = null;
                     Bitmap bitmap = null;
                     try {
+                        if (!sourceId.equals(IndexCoreSourceRegistry.activeSourceId(getApplicationContext()))) {
+                            throw new IllegalStateException("Sursa activă s-a schimbat în timpul importului.");
+                        }
+                        SourceArchiveStore.linkPdfPage(
+                                getApplicationContext(), sourceId, String.valueOf(printedPage), pdfPage - 1);
                         page = renderer.openPage(pdfPage - 1);
                         bitmap = render(page, false);
                         Text recognized = recognizeBlocking(recognizer, bitmap);
@@ -500,16 +519,21 @@ public final class DigitalSourceImportActivity extends AppCompatActivity {
                             continue;
                         }
 
+                        // The OCR coordinates refer to the exact bitmap used in recognition.
+                        // Save them independently of the unmodified source PDF.
+                        SourceArchiveStore.saveOcr(getApplicationContext(), sourceId,
+                                String.valueOf(printedPage), recognized,
+                                bitmap.getWidth(), bitmap.getHeight());
                         ExactCartographyCapture.Report report =
                                 ExactCartographyCapture.capture(
                                         getApplicationContext(),
                                         recognized,
                                         map,
                                         String.valueOf(printedPage),
-                                        true
+                                        false
                                 );
-
-                        if (report.pageComplete) complete++;
+                        // OCR is not automatically equivalent to full visual verification.
+                        if (report.map != null && report.map.paragraphCount() > 0) cartographed++;
                         else unreadable++;
                         if (report.map != null) {
                             ambiguous += report.map.ambiguousCount();
@@ -554,7 +578,7 @@ public final class DigitalSourceImportActivity extends AppCompatActivity {
 
             closeRecognizer(recognizer);
 
-            final int completeCount = complete;
+            final int cartographedCount = cartographed;
             final int unreadableCount = unreadable;
             final int failedCount = failed;
             final int ambiguousCount = ambiguous;
@@ -571,7 +595,8 @@ public final class DigitalSourceImportActivity extends AppCompatActivity {
                 StringBuilder message = new StringBuilder(
                         wasCancelled ? "IMPORT OPRIT" : "IMPORT TERMINAT"
                 );
-                message.append(" • ").append(completeCount).append(" pagini închise");
+                message.append(" • ").append(cartographedCount).append(" pagini OCR cartografiate");
+                message.append(" • de verificat în ORIGINAL înainte de încheiere");
                 if (unreadableCount > 0) {
                     message.append(" • ").append(unreadableCount).append(" fără text OCR");
                 }

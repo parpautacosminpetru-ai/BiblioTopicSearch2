@@ -128,7 +128,7 @@ public final class ResearchHomeActivity extends AppCompatActivity {
         root.addView(capture);
 
         LinearLayout captureRow = row();
-        Button camera = actionButton("CARTE FIZICĂ", "Camera • AUTO • ÎNCHEIE ✓");
+        Button camera = actionButton("LUPĂ LIVE", "OCR orientativ • fără original");
         camera.setOnClickListener(v ->
                 startActivity(new Intent(this, LensActivity.class)));
         captureRow.addView(camera, weighted(dp(72)));
@@ -138,6 +138,21 @@ public final class ResearchHomeActivity extends AppCompatActivity {
                 startActivity(new Intent(this, DigitalSourceImportActivity.class)));
         captureRow.addView(pdf, weighted(dp(72)));
         root.addView(captureRow);
+
+        LinearLayout originalsRow = row();
+        Button scan = actionButton("SCANARE ORIGINALĂ", "JPEG intact + OCR separat");
+        scan.setOnClickListener(v ->
+                startActivity(new Intent(this, CameraScanActivity.class)));
+        originalsRow.addView(scan, weighted(dp(72)));
+        Button original = actionButton("SURSA ORIGINALĂ", "PDF/JPEG • pagini și căutare OCR");
+        original.setOnClickListener(v -> {
+            Intent open = new Intent(this, OriginalPageActivity.class);
+            open.putExtra(OriginalPageActivity.EXTRA_SOURCE_ID,
+                    IndexCoreSourceRegistry.activeSourceId(this));
+            startActivity(open);
+        });
+        originalsRow.addView(original, weighted(dp(72)));
+        root.addView(originalsRow);
 
         TextView research = section("LUCRU ISTORIC");
         root.addView(research);
