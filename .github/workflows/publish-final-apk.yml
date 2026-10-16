@@ -40,6 +40,9 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-36" "build-tools;35.0.0"
 
+      - name: Test cartography SQL against SQLite
+        run: python3 -m unittest discover -s project-src/sql-tests -p 'test_*.py'
+
       - name: Run unit tests
         run: gradle --no-daemon -p project-src :app:testDebugUnitTest
 
