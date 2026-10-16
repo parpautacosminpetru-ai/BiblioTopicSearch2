@@ -137,6 +137,11 @@ public final class OriginalPageActivity extends AppCompatActivity {
         find.addView(go, new LinearLayout.LayoutParams(dp(91), dp(52)));
         root.addView(find);
 
+        Button recover = button("RECUPEREAZĂ INDEXAREA DIN OCR ARHIVAT");
+        recover.setOnClickListener(v -> recoverMissingIndex());
+        root.addView(recover, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(45)));
+
         Button confirm = button("AM VERIFICAT PAGINA • ÎNCHEIE ✓");
         confirm.setOnClickListener(v -> confirmVerifiedPage());
         root.addView(confirm, new LinearLayout.LayoutParams(
@@ -365,6 +370,28 @@ public final class OriginalPageActivity extends AppCompatActivity {
         });
     }
 
+    private void recoverMissingIndex() {
+        if (printedPage == null || printedPage.isEmpty()) return;
+        final String target = printedPage;
+        status.setText("Verific originalul și reiau indexarea fără a schimba OCR-ul…");
+        worker.execute(() -> {
+            String outcome;
+            try {
+                VerifiedCaptureCoordinator.Result result = VerifiedCaptureCoordinator.recover(
+                        this, sourceId, target, TopicMapStore.load(this));
+                outcome = result.newlyIndexed
+                        ? "Index recuperat: " + result.paragraphs + " paragrafe. Verifică pagina."
+                        : "Indexul era deja salvat și corespunde OCR-ului arhivat.";
+            } catch (Exception failure) {
+                outcome = "Indexare nereușită: " + failure.getMessage();
+            }
+            String reply = outcome;
+            runOnUiThread(() -> {
+                if (!stopped) status.setText(reply);
+            });
+        });
+    }
+
     private void confirmVerifiedPage() {
         if (printedPage == null || printedPage.isEmpty()) return;
         if (ocrLines.isEmpty()) {
@@ -377,10 +404,18 @@ public final class OriginalPageActivity extends AppCompatActivity {
                 .setMessage("Ai comparat textul OCR cu pagina originală și ai verificat că nu lipsesc zone? "
                         + "Această confirmare este a cercetătorului, nu o presupunere automată.")
                 .setPositiveButton("AM VERIFICAT • ÎNCHEIE", (d, w) -> worker.execute(() -> {
-                    IndexCoreDatabase db = IndexCoreDatabase.get(this);
-                    db.recordPageCapture(sourceId, System.currentTimeMillis(), pageToConfirm, true);
+                    String outcome;
+                    try {
+                        VerifiedCaptureCoordinator.verifyAndComplete(
+                                this, sourceId, pageToConfirm);
+                        outcome = "Pagina " + pageToConfirm
+                                + " este verificată: original + OCR + index semantic.";
+                    } catch (Exception failure) {
+                        outcome = "Pagina nu poate fi încheiată: " + failure.getMessage();
+                    }
+                    final String result = outcome;
                     runOnUiThread(() -> {
-                        if (!stopped) status.setText("Pagina " + pageToConfirm + " a fost încheiată prin confirmare umană.");
+                        if (!stopped) status.setText(result);
                     });
                 }))
                 .setNegativeButton("ANULEAZĂ", null).show();

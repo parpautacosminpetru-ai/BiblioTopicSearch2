@@ -160,48 +160,138 @@ public final class SourceArchiveStore {
      * Recognizer coordinates must refer to exactly the raster used for OCR.
      * A transaction prevents half-written overlays if the scan is interrupted.
      */
+    /**
+     * Persist the first accepted OCR reading. An existing OCR is immutable:
+     * a different recognition result MUST NOT silently erase audited evidence.
+     * All block and line writes are atomic and idempotent.
+     */
     public static void saveOcr(Context context, String sourceId, String printedPage,
                                Text recognized, int imageWidth, int imageHeight) throws IOException {
         if (recognized == null || imageWidth < 1 || imageHeight < 1
                 || page(context, sourceId, printedPage) == null) {
             throw new IOException("OCR fără pagină originală sau coordonate valide.");
         }
-        List<OcrLine> lines = new ArrayList<>();
-        for (Text.TextBlock block : recognized.getTextBlocks()) {
-            if (block == null) continue;
-            List<Text.Line> blockLines = block.getLines();
-            if (blockLines == null || blockLines.isEmpty()) {
-                addLine(lines, printedPage, block.getText(), block.getBoundingBox(), imageWidth, imageHeight);
-            } else {
-                for (Text.Line line : blockLines) {
-                    if (line != null) addLine(lines, printedPage, line.getText(),
-                            line.getBoundingBox(), imageWidth, imageHeight);
+        List<OcrLine> detectedLines = new ArrayList<>();
+        List<String> detectedBlocks = new ArrayList<>();
+        if (recognized.getTextBlocks() != null) {
+            for (Text.TextBlock block : recognized.getTextBlocks()) {
+                if (block == null || block.getText() == null || block.getText().trim().isEmpty()) continue;
+                detectedBlocks.add(block.getText());
+                List<Text.Line> blockLines = block.getLines();
+                if (blockLines == null || blockLines.isEmpty()) {
+                    addLine(detectedLines, printedPage, block.getText(), block.getBoundingBox(),
+                            imageWidth, imageHeight);
+                } else {
+                    for (Text.Line line : blockLines) {
+                        if (line != null) addLine(detectedLines, printedPage, line.getText(),
+                                line.getBoundingBox(), imageWidth, imageHeight);
+                    }
                 }
             }
         }
-        if (lines.isEmpty()) throw new IOException("Nu există text OCR de păstrat; pagina rămâne de verificat.");
+        if (detectedLines.isEmpty() || detectedBlocks.isEmpty()) {
+            throw new IOException("OCR fără text poziționat; pagina rămâne neverificată.");
+        }
         SQLiteDatabase sql = IndexCoreDatabase.get(context).getWritableDatabase();
         sql.beginTransaction();
         try {
-            sql.delete("idx_original_ocr_lines", "source_id=? AND page=?",
-                    new String[]{sourceId, printedPage});
-            for (OcrLine line : lines) {
-                ContentValues values = new ContentValues();
-                values.put("source_id", sourceId);
-                values.put("page", printedPage);
-                values.put("line_index", line.index);
-                values.put("raw_text", line.text);
-                values.put("left_frac", line.left);
-                values.put("top_frac", line.top);
-                values.put("right_frac", line.right);
-                values.put("bottom_frac", line.bottom);
-                sql.insertWithOnConflict("idx_original_ocr_lines", null, values,
-                        SQLiteDatabase.CONFLICT_ABORT);
+            List<OcrLine> previousLines = lines(context, sourceId, printedPage);
+            List<String> previousBlocks = blocks(context, sourceId, printedPage);
+            if (!previousLines.isEmpty() && !identicalLines(previousLines, detectedLines)) {
+                throw new IOException("OCR diferit de cel deja arhivat. Refuz suprascrierea; "
+                        + "originalul și indexul existent rămân intacte.");
+            }
+            if (!previousBlocks.isEmpty() && !previousBlocks.equals(detectedBlocks)) {
+                throw new IOException("Structura OCR diferă de captura arhivată. "
+                        + "Nu modific dovezi fără o revizie explicită.");
+            }
+            if (previousLines.isEmpty()) {
+                for (OcrLine line : detectedLines) {
+                    ContentValues values = new ContentValues();
+                    values.put("source_id", sourceId);
+                    values.put("page", printedPage);
+                    values.put("line_index", line.index);
+                    values.put("raw_text", line.text);
+                    values.put("left_frac", line.left);
+                    values.put("top_frac", line.top);
+                    values.put("right_frac", line.right);
+                    values.put("bottom_frac", line.bottom);
+                    sql.insertWithOnConflict("idx_original_ocr_lines", null, values,
+                            SQLiteDatabase.CONFLICT_ABORT);
+                }
+            }
+            if (previousBlocks.isEmpty()) {
+                for (int i = 0; i < detectedBlocks.size(); i++) {
+                    ContentValues values = new ContentValues();
+                    values.put("source_id", sourceId);
+                    values.put("page", printedPage);
+                    values.put("block_index", i);
+                    values.put("raw_text", detectedBlocks.get(i));
+                    sql.insertWithOnConflict("idx_ocr_blocks", null, values,
+                            SQLiteDatabase.CONFLICT_ABORT);
+                }
             }
             sql.setTransactionSuccessful();
         } finally {
             sql.endTransaction();
         }
+    }
+
+    private static boolean identicalLines(List<OcrLine> one, List<OcrLine> other) {
+        if (one.size() != other.size()) return false;
+        for (int i = 0; i < one.size(); i++) {
+            OcrLine a = one.get(i), b = other.get(i);
+            if (a.index != b.index || !a.text.equals(b.text)
+                    || Float.compare(a.left,b.left) != 0 || Float.compare(a.top,b.top) != 0
+                    || Float.compare(a.right,b.right) != 0
+                    || Float.compare(a.bottom,b.bottom) != 0) return false;
+        }
+        return true;
+    }
+
+    /** Paragraph-bearing ML Kit blocks, preserved in original OCR order. */
+    public static List<String> blocks(Context context, String sourceId, String printedPage) {
+        List<String> out = new ArrayList<>();
+        try (Cursor c = IndexCoreDatabase.get(context).getReadableDatabase().rawQuery(
+                "SELECT raw_text FROM idx_ocr_blocks WHERE source_id=? AND page=? "
+                        + "ORDER BY block_index",
+                new String[]{sourceId, printedPage})) {
+            while (c.moveToNext()) out.add(c.getString(0));
+        }
+        return Collections.unmodifiableList(out);
+    }
+
+    /** Digest is over the stored OCR lines AND paragraph blocks, never original bytes. */
+    public static String persistedOcrDigest(Context context, String sourceId, String printedPage)
+            throws IOException {
+        List<OcrLine> pageLines = lines(context, sourceId, printedPage);
+        List<String> pageBlocks = blocks(context, sourceId, printedPage);
+        if (pageLines.isEmpty() || pageBlocks.isEmpty()) {
+            throw new IOException("Lipsesc linii sau blocuri OCR; nu pot certifica indexarea.");
+        }
+        try {
+            MessageDigest sha = MessageDigest.getInstance("SHA-256");
+            for (OcrLine line : pageLines) {
+                digestField(sha, line.text);
+                digestField(sha, String.valueOf(line.index));
+                digestField(sha, String.valueOf(Float.floatToIntBits(line.left)));
+                digestField(sha, String.valueOf(Float.floatToIntBits(line.top)));
+                digestField(sha, String.valueOf(Float.floatToIntBits(line.right)));
+                digestField(sha, String.valueOf(Float.floatToIntBits(line.bottom)));
+            }
+            digestField(sha, "#BLOCKS#");
+            for (String block : pageBlocks) digestField(sha, block);
+            return hex(sha.digest());
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
+    }
+
+    private static void digestField(MessageDigest sha, String value) {
+        byte[] data = value.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        sha.update(String.valueOf(data.length).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        sha.update((byte)':');
+        sha.update(data);
     }
 
     private static void addLine(List<OcrLine> lines, String page, String text, Rect rect,

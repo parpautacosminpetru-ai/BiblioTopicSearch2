@@ -102,11 +102,31 @@ public final class IndexCoreRuntime {
             String page,
             boolean markPageComplete
     ) {
+        return captureExhaustive(context, detections, graph, thematicMap,
+                page, markPageComplete, null);
+    }
+
+    public static HistoricalCartographyEngine.CaptureMap captureExhaustive(
+            Context context,
+            List<UniversalParagraphDetector.Detection> detections,
+            SemanticGraph graph,
+            TopicMap thematicMap,
+            String page,
+            boolean markPageComplete,
+            String expectedSourceId
+    ) {
         if (detections == null || detections.isEmpty()) {
             return HistoricalCartographyEngine.analyze(detections, graph, thematicMap);
         }
         synchronized (LOCK) {
             ensureStartedLocked(context);
+            // The operator may change the active source while a PDF page is OCR-ed.
+            // Never silently assign that page to the newly selected source.
+            if (expectedSourceId != null && !expectedSourceId.isEmpty()
+                    && !expectedSourceId.equals(sourceId)) {
+                throw new IllegalStateException(
+                        "Sursa activă nu corespunde sursei capturii; indexarea este anulată.");
+            }
             HistoricalCartographyEngine.CaptureMap mapped =
                     HistoricalCartographyEngine.analyze(detections, graph, thematicMap);
             if (appContext == null || sourceId.isEmpty()) return mapped;

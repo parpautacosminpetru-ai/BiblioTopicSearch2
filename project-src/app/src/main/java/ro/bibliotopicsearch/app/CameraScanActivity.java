@@ -137,15 +137,33 @@ public final class CameraScanActivity extends AppCompatActivity {
         }
         SourceArchiveStore.Page existing = SourceArchiveStore.page(this, sourceId, page);
         if (existing != null) {
-            if (!"IMAGE".equals(existing.mediaKind)
-                    || !SourceArchiveStore.lines(this, sourceId, page).isEmpty()) {
-                status.setText("Originalul și OCR-ul există deja. Nu le suprascriu.");
+            if (!"IMAGE".equals(existing.mediaKind)) {
+                status.setText("Această pagină este legată de un PDF, nu de o fotografie.");
+                return;
+            }
+            if (VerifiedCaptureCoordinator.isIndexed(this, sourceId, page)) {
+                status.setText("Pagina este deja indexată; originalul și OCR-ul nu se suprascriu.");
                 return;
             }
             busy = true;
             capture.setEnabled(false);
-            status.setText("Originalul există; reiau doar OCR-ul fără o nouă fotografie…");
-            worker.execute(() -> recoverExistingOcr(existing));
+            if (!SourceArchiveStore.lines(this, sourceId, page).isEmpty()) {
+                status.setText("Recuperez indexul din OCR-ul deja arhivat…");
+                worker.execute(() -> {
+                    try {
+                        VerifiedCaptureCoordinator.Result result =
+                                VerifiedCaptureCoordinator.recover(getApplicationContext(),
+                                        sourceId, page, TopicMapStore.load(getApplicationContext()));
+                        finishCapture("Index recuperat: " + result.paragraphs
+                                + " paragrafe • pagina rămâne de verificat.");
+                    } catch (Exception problem) {
+                        finishCapture("Indexul nu a putut fi recuperat: " + problem.getMessage());
+                    }
+                });
+            } else {
+                status.setText("Originalul există; reiau numai OCR-ul, fără o nouă fotografie…");
+                worker.execute(() -> recoverExistingOcr(existing));
+            }
             return;
         }
         busy = true;
@@ -235,13 +253,12 @@ public final class CameraScanActivity extends AppCompatActivity {
             if (!sourceId.equals(IndexCoreSourceRegistry.activeSourceId(getApplicationContext()))) {
                 throw new IllegalStateException("Sursa activă a fost schimbată. Originalul rămâne păstrat, fără cartografiere greșită.");
             }
-            SourceArchiveStore.saveOcr(getApplicationContext(), sourceId, page, recognized,
-                    upright.getWidth(), upright.getHeight());
-            TopicMap thematic = TopicMapStore.load(getApplicationContext());
-            ExactCartographyCapture.Report result = ExactCartographyCapture.capture(
-                    getApplicationContext(), recognized, thematic, page, false);
-            finishCapture("Original JPEG păstrat intact. "
-                    + result.compact() + " • verifică înainte de ÎNCHEIE ✓.");
+            VerifiedCaptureCoordinator.Result result =
+                    VerifiedCaptureCoordinator.capture(getApplicationContext(), sourceId, page,
+                            recognized, upright.getWidth(), upright.getHeight(),
+                            TopicMapStore.load(getApplicationContext()));
+            finishCapture("Original JPEG intact • " + result.paragraphs
+                    + " paragrafe indexate • verifică facsimilul înainte de ÎNCHEIE ✓.");
         } catch (Exception failure) {
             finishCapture("Originalul este păstrat, dar cartografierea necesită reluare: "
                     + failure.getMessage());

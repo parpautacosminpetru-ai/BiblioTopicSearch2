@@ -337,16 +337,22 @@ public final class IndexCoreCartographyReader {
                 new String[]{sourceId});
         // Completeness is defined by the declared scope, not by unrelated pages.
         // COUNT(DISTINCT ...) also treats "7" and "007" as the same physical page.
+        // A historical is_complete flag alone is NOT sufficient: it might have
+        // been set by a pre-v7 OCR-only scan or without a committed semantic index.
+        final String completeProofJoin = " FROM idx_page_coverage c "
+                + "JOIN idx_page_processing p ON p.source_id=c.source_id AND p.page=c.page "
+                + "JOIN idx_original_pages o ON o.source_id=c.source_id AND o.page=c.page "
+                + "WHERE c.source_id=? AND c.is_complete=1 AND p.ocr_digest<>'' "
+                + "AND p.ocr_digest=p.indexed_digest "
+                + "AND p.ocr_digest=p.verified_digest "
+                + "AND EXISTS (SELECT 1 FROM idx_semantic_units u "
+                + "WHERE u.source_id=c.source_id AND u.page=c.page AND u.unit_kind='PARAGRAPH') ";
         int pagesComplete = scope.defined()
-                ? scalar(db,
-                        "SELECT COUNT(DISTINCT CAST(page AS INTEGER)) FROM idx_page_coverage "
-                                + "WHERE source_id=? AND is_complete=1 AND page<>'' "
-                                + "AND page NOT GLOB '*[^0-9]*' "
-                                + "AND CAST(page AS INTEGER) BETWEEN ? AND ?",
+                ? scalar(db, "SELECT COUNT(DISTINCT CAST(c.page AS INTEGER))" + completeProofJoin
+                        + "AND c.page<>'' AND c.page NOT GLOB '*[^0-9]*' "
+                        + "AND CAST(c.page AS INTEGER) BETWEEN ? AND ?",
                         new String[]{sourceId, String.valueOf(scope.pageFrom), String.valueOf(scope.pageTo)})
-                : scalar(db,
-                        "SELECT COUNT(*) FROM idx_page_coverage WHERE source_id=? AND is_complete=1",
-                        new String[]{sourceId});
+                : scalar(db, "SELECT COUNT(*)" + completeProofJoin, new String[]{sourceId});
         int paragraphs = scalar(db,
                 "SELECT COUNT(*) FROM idx_semantic_units WHERE source_id=? AND unit_kind='PARAGRAPH'",
                 new String[]{sourceId});
@@ -703,9 +709,16 @@ public final class IndexCoreCartographyReader {
         if (scope == null || !scope.defined()) return Collections.emptyList();
         Set<Integer> complete = new LinkedHashSet<>();
         try (Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT page FROM idx_page_coverage WHERE source_id=? AND is_complete=1 "
-                        + "AND page<>'' AND page NOT GLOB '*[^0-9]*' "
-                        + "AND CAST(page AS INTEGER) BETWEEN ? AND ?",
+                "SELECT c.page FROM idx_page_coverage c "
+                        + "JOIN idx_page_processing p ON p.source_id=c.source_id AND p.page=c.page "
+                        + "JOIN idx_original_pages o ON o.source_id=c.source_id AND o.page=c.page "
+                        + "WHERE c.source_id=? AND c.is_complete=1 "
+                        + "AND p.ocr_digest<>'' AND p.ocr_digest=p.indexed_digest "
+                        + "AND p.ocr_digest=p.verified_digest "
+                        + "AND EXISTS (SELECT 1 FROM idx_semantic_units u "
+                        + "WHERE u.source_id=c.source_id AND u.page=c.page AND u.unit_kind='PARAGRAPH') "
+                        + "AND c.page<>'' AND c.page NOT GLOB '*[^0-9]*' "
+                        + "AND CAST(c.page AS INTEGER) BETWEEN ? AND ?",
                 new String[]{sourceId, String.valueOf(scope.pageFrom), String.valueOf(scope.pageTo)}
         )) {
             while (c.moveToNext()) complete.add(c.getInt(0));

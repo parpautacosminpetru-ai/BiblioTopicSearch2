@@ -101,7 +101,10 @@ public final class LensActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         ocrEnabled = AppPrefs.ocrEnabled(this);
-        autoCaptureEnabled = AppPrefs.autoExactCapture(this);
+        // LIVE OCR is a preview, never an immutable original. Historic auto-save
+        // from transient frames cannot meet the source integrity contract.
+        autoCaptureEnabled = false;
+        AppPrefs.setAutoExactCapture(this, false);
         archiveKeysEnabled = AppPrefs.archiveKeys(this);
         stabilitySourceId = IndexCoreSourceRegistry.activeSourceId(this);
         buildUi();
@@ -245,15 +248,15 @@ public final class LensActivity extends AppCompatActivity {
         });
         cartography.addView(pageEdit, new LinearLayout.LayoutParams(dp(58), dp(40)));
 
-        Button capture = button("CAPTURĂ");
+        Button capture = button("SCAN ORIGINAL");
         capture.setOnClickListener(v -> captureCurrentFrame(false));
         cartography.addView(capture, new LinearLayout.LayoutParams(0, dp(40), 1f));
 
-        Button completePage = button("ÎNCHEIE ✓");
+        Button completePage = button("VERIFICĂ ✓");
         completePage.setOnClickListener(v -> captureCurrentFrame(true));
         cartography.addView(completePage, new LinearLayout.LayoutParams(0, dp(40), 1f));
 
-        autoCaptureButton = button(autoCaptureEnabled ? "AUTO ●" : "AUTO ○");
+        autoCaptureButton = button("AUTO?");
         autoCaptureButton.setOnClickListener(v -> toggleAutoCapture());
         cartography.addView(autoCaptureButton, new LinearLayout.LayoutParams(0, dp(40), 1f));
 
@@ -455,35 +458,20 @@ public final class LensActivity extends AppCompatActivity {
         }
     }
 
-    private void captureCurrentFrame(boolean completePage) {
-        Text snapshot = latestOcrText;
-        if (snapshot == null || snapshot.getTextBlocks() == null || snapshot.getTextBlocks().isEmpty()) {
-            setStatus("CAPTURĂ • nu există încă un cadru OCR valid", Color.rgb(230, 155, 72));
-            return;
+    private void captureCurrentFrame(boolean verifyPage) {
+        // OCR LIVE carries no immutable image, and may describe a previous frame.
+        // All durable captures come from CameraScanActivity's real CameraX JPEG.
+        Intent intent = new Intent(this,
+                verifyPage ? OriginalPageActivity.class : CameraScanActivity.class);
+        if (verifyPage) {
+            intent.putExtra(OriginalPageActivity.EXTRA_SOURCE_ID,
+                    IndexCoreSourceRegistry.activeSourceId(this));
+            if (pageEdit != null) {
+                intent.putExtra(OriginalPageActivity.EXTRA_PAGE,
+                        pageEdit.getText().toString().trim());
+            }
         }
-
-        String page = pageEdit == null ? "" : pageEdit.getText().toString().trim();
-        if (page.isEmpty()) page = ExactCartographyCapture.detectPage(snapshot);
-        if (page.isEmpty()) {
-            EditText input = new EditText(this);
-            input.setHint("Numărul paginii");
-            input.setSingleLine(true);
-            input.setInputType(InputType.TYPE_CLASS_NUMBER);
-            final boolean closing = completePage;
-            new AlertDialog.Builder(this)
-                    .setTitle(closing ? "Închide pagina în registrul exhaustivității" : "Identifică pagina")
-                    .setMessage("O captură de cercetare trebuie să rămână legată de pagina sursei. Introdu numărul tipărit.")
-                    .setView(input)
-                    .setPositiveButton(closing ? "CAPTUREAZĂ + ÎNCHIDE" : "CAPTUREAZĂ", (d, w) -> {
-                        String entered = input.getText().toString().trim();
-                        if (pageEdit != null) pageEdit.setText(entered);
-                        runExactCapture(snapshot, entered, closing);
-                    })
-                    .setNegativeButton("ANULEAZĂ", null)
-                    .show();
-            return;
-        }
-        runExactCapture(snapshot, page, completePage);
+        startActivity(intent);
     }
 
     private void runAutoExactCapture(Text snapshot, PageStabilityTracker.Observation stability) {
@@ -590,19 +578,14 @@ public final class LensActivity extends AppCompatActivity {
     }
 
     private void toggleAutoCapture() {
-        autoCaptureEnabled = !autoCaptureEnabled;
-        AppPrefs.setAutoExactCapture(this, autoCaptureEnabled);
-        if (autoCaptureButton != null) {
-            autoCaptureButton.setText(autoCaptureEnabled ? "AUTO ●" : "AUTO ○");
-            autoCaptureButton.setBackgroundTintList(ColorStateList.valueOf(
-                    autoCaptureEnabled ? Color.rgb(42, 128, 94) : Color.rgb(53, 92, 125)
-            ));
-        }
-        if (!autoCaptureEnabled) autoCaptureBusy.set(false);
-        setStatus(autoCaptureEnabled
-                        ? "AUTO CAPTURĂ • aștept pagină stabilă; închiderea rămâne manuală"
-                        : "AUTO CAPTURĂ oprită",
-                autoCaptureEnabled ? Color.rgb(76, 190, 123) : Color.rgb(155, 164, 171));
+        new AlertDialog.Builder(this)
+                .setTitle("AUTO OCR este doar orientativ")
+                .setMessage("Nu se poate certifica o pagină dintr-un cadru OCR LIVE "
+                        + "fără fotografia originală. Folosește SCANARE ORIGINALĂ "
+                        + "pentru a păstra imaginea nemodificată și a indexa verificabil.")
+                .setPositiveButton("SCANARE ORIGINALĂ",
+                        (d, w) -> startActivity(new Intent(this, CameraScanActivity.class)))
+                .setNegativeButton("ÎNCHIDE", null).show();
     }
 
     private void refreshStabilitySource() {
@@ -629,7 +612,7 @@ public final class LensActivity extends AppCompatActivity {
         }
         setStatus(
                 archiveKeysEnabled
-                        ? "MOD ARHIVĂ • PageUp/Vol− = captură • PageDown/Vol+ = încheie pagina"
+                        ? "MOD ARHIVĂ • PageUp/Vol− = scanare originală • PageDown/Vol+ = verificare original"
                         : "Modul de pedală/taste este oprit",
                 archiveKeysEnabled ? Color.rgb(76, 190, 123) : Color.rgb(155, 164, 171)
         );
