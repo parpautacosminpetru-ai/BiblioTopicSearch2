@@ -1,6 +1,7 @@
 package ro.bibliotopicsearch.app;
 
 import android.content.Intent;
+import android.net.Uri;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -28,7 +29,9 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.exifinterface.media.ExifInterface;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -41,6 +44,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * NEVER composited into or saved back to the original PDF/JPEG.
  */
 public final class OriginalPageActivity extends AppCompatActivity {
+    private static final int REQ_EXPORT_ORIGINAL = 971;
     public static final String EXTRA_SOURCE_ID = "source_id";
     public static final String EXTRA_PAGE = "printed_page";
     public static final String EXTRA_LINE_INDEX = "ocr_line_index";
@@ -57,6 +61,7 @@ public final class OriginalPageActivity extends AppCompatActivity {
     private List<SourceArchiveStore.OcrLine> ocrLines = new ArrayList<>();
     private float zoom = 1f;
     private boolean stopped;
+    private SourceArchiveStore.Page exportSelection;
 
     private FacsimileView facsimile;
     private EditText search;
@@ -135,6 +140,11 @@ public final class OriginalPageActivity extends AppCompatActivity {
         Button confirm = button("AM VERIFICAT PAGINA • ÎNCHEIE ✓");
         confirm.setOnClickListener(v -> confirmVerifiedPage());
         root.addView(confirm, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+
+        Button export = button("EXPORTĂ ORIGINALUL NEMODIFICAT");
+        export.setOnClickListener(v -> exportOriginal());
+        root.addView(export, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
 
         TextView disclaimer = text(
@@ -303,6 +313,54 @@ public final class OriginalPageActivity extends AppCompatActivity {
                             loadPage();
                         })
                         .setNegativeButton("ÎNCHIDE", null).show();
+            });
+        });
+    }
+
+    private void exportOriginal() {
+        SourceArchiveStore.Page chosen = SourceArchiveStore.page(this, sourceId, printedPage);
+        if (chosen == null) {
+            status.setText("Nu există un original asociat paginii.");
+            return;
+        }
+        exportSelection = chosen;
+        Intent destination = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        destination.addCategory(Intent.CATEGORY_OPENABLE);
+        destination.setType(chosen.isPdf() ? "application/pdf" : "image/jpeg");
+        String name = chosen.isPdf() ? "sursa_originala.pdf"
+                : "scanare_originala_pagina_" + chosen.number + ".jpg";
+        destination.putExtra(Intent.EXTRA_TITLE, name);
+        startActivityForResult(destination, REQ_EXPORT_ORIGINAL);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_EXPORT_ORIGINAL || resultCode != RESULT_OK
+                || data == null || data.getData() == null || exportSelection == null) return;
+        final Uri destination = data.getData();
+        final SourceArchiveStore.Page selected = exportSelection;
+        exportSelection = null;
+        status.setText("Exportez copia octet-cu-octet a originalului…");
+        worker.execute(() -> {
+            String message;
+            try {
+                File original = SourceArchiveStore.originalFile(this, selected);
+                try (FileInputStream input = new FileInputStream(original);
+                     OutputStream output = getContentResolver().openOutputStream(destination, "wt")) {
+                    if (output == null) throw new IOException("Destinația nu poate fi scrisă.");
+                    byte[] buffer = new byte[64 * 1024];
+                    int count;
+                    while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                    output.flush();
+                }
+                message = "Original exportat fără modificarea conținutului.";
+            } catch (Exception failure) {
+                message = "Exportul originalului a eșuat: " + failure.getMessage();
+            }
+            final String outcome = message;
+            runOnUiThread(() -> {
+                if (!stopped) status.setText(outcome);
             });
         });
     }
