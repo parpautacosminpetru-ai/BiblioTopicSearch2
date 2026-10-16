@@ -10,8 +10,8 @@ android {
         applicationId = "ro.bibliotopicsearch.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 18
-        versionName = "1.10.1"
+        versionCode = 19
+        versionName = "1.11.0"
     }
 
     compileOptions {
@@ -42,6 +42,7 @@ dependencies {
     implementation("androidx.camera:camera-mlkit-vision:$cameraX")
 
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("androidx.exifinterface:exifinterface:1.4.1")
 
     testImplementation("junit:junit:4.13.2")
 }
