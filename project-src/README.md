@@ -241,3 +241,19 @@ Butonul principal **CONTINUĂ** duce automat la primul pas lipsă:
 LUPĂ păstrează comenzile de cercetare frecvente vizibile, iar comenzile tehnice mai rare (zoom semantic, index viu, culori, OCR manual, lumină) sunt ascunse implicit sub **AVANSAT**.
 
 Scopul este ca utilizarea zilnică să poată fi făcută fără memorarea structurii interne a aplicației.
+
+
+## 1.10.1 — reparare import PDF pe dispozitive reale
+
+Importul PDF a fost întărit pentru furnizori Android diferiți și documente mari:
+
+- fișierul ales este copiat temporar în cache-ul local înainte de `PdfRenderer`, astfel încât importul nu mai depinde de un descriptor seekable oferit de Google Drive / Files / alte document providers;
+- interfața PDF este scrollabilă pe ecrane mici;
+- randarea paginii are buget de memorie și nu mai creează bitmap-uri necontrolat de mari;
+- dacă primul OCR nu citește pagina, există o a doua randare cu rezoluție mai mare;
+- o eroare pe o singură pagină nu mai oprește întregul PDF;
+- paginile nereușite rămân neînchise în registrul exhaustivității;
+- mesajele disting mai clar PDF protejat, lipsă spațiu și alte erori;
+- titlul sursei este cerut înainte de import, pentru proveniență corectă.
+
+PDF-ul temporar și bitmap-urile paginilor sunt șterse/eliberate după utilizare și nu devin parte din dosarul de cercetare.
