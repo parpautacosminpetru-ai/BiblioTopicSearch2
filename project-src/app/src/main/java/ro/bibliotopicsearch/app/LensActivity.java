@@ -527,6 +527,18 @@ public final class LensActivity extends AppCompatActivity {
     }
 
     private void runExactCapture(Text snapshot, String page, boolean completePage) {
+        if (completePage && SourceArchiveStore.page(this,
+                IndexCoreSourceRegistry.activeSourceId(this), page) == null) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Originalul paginii lipsește")
+                    .setMessage("OCR-ul live nu conține fotografia/PDF-ul original. "
+                            + "Pentru a încheia riguros pagina, fotografiază mai întâi originalul "
+                            + "în SCANARE ORIGINALĂ și verifică OCR-ul în vizualizator.")
+                    .setPositiveButton("SCANARE ORIGINALĂ", (d, w) ->
+                            startActivity(new Intent(this, CameraScanActivity.class)))
+                    .setNegativeButton("ANULEAZĂ", null).show();
+            return;
+        }
         setStatus(completePage ? "CAPTURĂ EXACTĂ • închid pagina…" : "CAPTURĂ EXACTĂ • procesez cadrul…",
                 Color.rgb(230, 190, 80));
         captureExecutor.execute(() -> {
