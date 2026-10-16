@@ -200,6 +200,9 @@ public final class CameraScanActivity extends AppCompatActivity {
 
     private void finishOcr(String page, Bitmap upright, Text recognized) {
         try {
+            if (!sourceId.equals(IndexCoreSourceRegistry.activeSourceId(getApplicationContext()))) {
+                throw new IllegalStateException("Sursa activă a fost schimbată. Originalul rămâne păstrat, fără cartografiere greșită.");
+            }
             SourceArchiveStore.saveOcr(getApplicationContext(), sourceId, page, recognized,
                     upright.getWidth(), upright.getHeight());
             TopicMap thematic = TopicMapStore.load(getApplicationContext());
