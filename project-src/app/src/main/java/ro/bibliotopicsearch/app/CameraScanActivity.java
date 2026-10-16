@@ -135,8 +135,17 @@ public final class CameraScanActivity extends AppCompatActivity {
             status.setText("Introdu pagina înainte să fotografiezi, pentru proveniență sigură.");
             return;
         }
-        if (SourceArchiveStore.page(this, sourceId, page) != null) {
-            status.setText("Pagina are deja un original păstrat. Nu îl suprascriu.");
+        SourceArchiveStore.Page existing = SourceArchiveStore.page(this, sourceId, page);
+        if (existing != null) {
+            if (!"IMAGE".equals(existing.mediaKind)
+                    || !SourceArchiveStore.lines(this, sourceId, page).isEmpty()) {
+                status.setText("Originalul și OCR-ul există deja. Nu le suprascriu.");
+                return;
+            }
+            busy = true;
+            capture.setEnabled(false);
+            status.setText("Originalul există; reiau doar OCR-ul fără o nouă fotografie…");
+            worker.execute(() -> recoverExistingOcr(existing));
             return;
         }
         busy = true;
