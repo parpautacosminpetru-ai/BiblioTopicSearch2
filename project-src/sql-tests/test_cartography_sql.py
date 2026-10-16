@@ -71,6 +71,8 @@ class CartographySqlRegressionTest(unittest.TestCase):
         for page in [str(p) for p in list(range(1, 6)) + list(range(11, 16))] + ["001"]:
             db.execute("INSERT INTO idx_original_pages VALUES ('src',?)", (page,))
             db.execute("INSERT INTO idx_page_processing VALUES ('src',?,'h','h','h')", (page,))
+            db.execute("INSERT INTO idx_semantic_units VALUES (?,?,?,?,?,?)",
+                       ("proof-"+page,"src",page,"page:"+page,0,"PARAGRAPH"))
         completed = db.execute(scoped_complete_sql(), ("src", "1", "10")).fetchone()[0]
         self.assertEqual(5, completed)
         db.close()
