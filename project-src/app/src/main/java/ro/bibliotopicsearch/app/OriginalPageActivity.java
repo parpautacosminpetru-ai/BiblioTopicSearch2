@@ -163,6 +163,10 @@ public final class OriginalPageActivity extends AppCompatActivity {
         int stamp = generation.incrementAndGet();
         status.setText("Verific amprenta și deschid originalul paginii " + requested + "…");
         pageTitle.setText("Pagina " + requested);
+        // Prevent confirming the NEW page with OCR left from the previous page.
+        ocrLines = Collections.emptyList();
+        facsimile.setContent(null, ocrLines, -1);
+        ocrText.setText("");
         worker.execute(() -> {
             Bitmap bitmap = null;
             try {
