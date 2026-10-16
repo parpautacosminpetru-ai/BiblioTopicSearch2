@@ -120,4 +120,21 @@ public final class HistoricalCartographyEngineTest {
     private static TopicMap map(TopicNode... nodes) {
         return new TopicMap("test", "", Arrays.asList(nodes));
     }
+
+    @Test
+    public void matchedButUnparsedParagraphIsSentToReviewNotMarkedAsMapped() {
+        TopicMap map = map(node("Împărat", "împărat"));
+        List<UniversalParagraphDetector.Detection> detections = Arrays.asList(
+                UniversalParagraphDetector.detect("Împărat", 0)
+        );
+        HistoricalCartographyEngine.CaptureMap result =
+                HistoricalCartographyEngine.analyze(detections, SemanticGraphBuilder.build(detections), map);
+
+        assertEquals(1, result.paragraphCount());
+        assertEquals(0, result.clauseCount());
+        assertEquals(HistoricalCartographyEngine.Status.UNPARSED, result.units().get(0).status());
+        assertFalse(result.units().get(0).anchors().isEmpty());
+        assertEquals(0, result.mappedCount());
+        assertEquals(1, result.unparsedCount());
+    }
 }
