@@ -498,6 +498,26 @@ public final class DigitalSourceImportActivity extends AppCompatActivity {
                         }
                         SourceArchiveStore.linkPdfPage(
                                 getApplicationContext(), sourceId, String.valueOf(printedPage), pdfPage - 1);
+                        String pageLabel = String.valueOf(printedPage);
+                        // Resume an interrupted run from the preserved original and
+                        // immutable OCR. No second OCR can replace prior evidence.
+                        if (VerifiedCaptureCoordinator.isIndexed(getApplicationContext(),
+                                sourceId, pageLabel)) {
+                            cartographed++;
+                            continue;
+                        }
+                        if (!SourceArchiveStore.lines(getApplicationContext(), sourceId,
+                                pageLabel).isEmpty()) {
+                            VerifiedCaptureCoordinator.Result recovered =
+                                    VerifiedCaptureCoordinator.recover(getApplicationContext(),
+                                            sourceId, pageLabel, map);
+                            if (recovered.newlyIndexed) {
+                                units += recovered.units;
+                                ambiguous += recovered.ambiguous;
+                            }
+                            cartographed++;
+                            continue;
+                        }
                         page = renderer.openPage(pdfPage - 1);
                         bitmap = render(page, false);
                         Text recognized = recognizeBlocking(recognizer, bitmap);
@@ -521,24 +541,14 @@ public final class DigitalSourceImportActivity extends AppCompatActivity {
 
                         // The OCR coordinates refer to the exact bitmap used in recognition.
                         // Save them independently of the unmodified source PDF.
-                        SourceArchiveStore.saveOcr(getApplicationContext(), sourceId,
-                                String.valueOf(printedPage), recognized,
-                                bitmap.getWidth(), bitmap.getHeight());
-                        ExactCartographyCapture.Report report =
-                                ExactCartographyCapture.capture(
-                                        getApplicationContext(),
-                                        recognized,
-                                        map,
-                                        String.valueOf(printedPage),
-                                        false
-                                );
-                        // OCR is not automatically equivalent to full visual verification.
-                        if (report.map != null && report.map.paragraphCount() > 0) cartographed++;
-                        else unreadable++;
-                        if (report.map != null) {
-                            ambiguous += report.map.ambiguousCount();
-                            units += report.map.totalUnits();
-                        }
+                        VerifiedCaptureCoordinator.Result result =
+                                VerifiedCaptureCoordinator.capture(getApplicationContext(),
+                                        sourceId, String.valueOf(printedPage), recognized,
+                                        bitmap.getWidth(), bitmap.getHeight(), map);
+                        // Still unverified until the historian inspects the facsimile.
+                        cartographed++;
+                        ambiguous += result.ambiguous;
+                        units += result.units;
                     } catch (Exception pageFailure) {
                         failed++;
                         lastFailure = explainPdfFailure(pageFailure);
