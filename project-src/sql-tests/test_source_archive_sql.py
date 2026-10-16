@@ -57,6 +57,7 @@ class FacsimileSchemaTests(unittest.TestCase):
                    VALUES ('book','1','IMAGE','sha','x/1.jpg',-1,1)""")
         db.execute("""INSERT INTO idx_original_ocr_lines
                    VALUES ('book','1',0,'verified',0,0,1,1)""")
+        db.commit()  # baseline verified rows must survive a failed replacement
         try:
             with db:
                 db.execute("DELETE FROM idx_original_ocr_lines WHERE source_id='book'")
