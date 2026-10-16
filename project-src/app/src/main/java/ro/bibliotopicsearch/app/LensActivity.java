@@ -255,7 +255,15 @@ public final class LensActivity extends AppCompatActivity {
 
         LinearLayout archive = new LinearLayout(this);
         archive.setGravity(Gravity.CENTER_VERTICAL);
-        archiveKeysButton = button(archiveKeysEnabled ? "PEDALĂ / TASTE ●" : "PEDALĂ / TASTE ○");
+        Button themes = button("TEME");
+        themes.setOnClickListener(v -> startActivity(new Intent(this, TopicLibraryActivity.class)));
+        archive.addView(themes, new LinearLayout.LayoutParams(0, dp(38), 1f));
+
+        Button settings = button("SETĂRI");
+        settings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
+        archive.addView(settings, new LinearLayout.LayoutParams(0, dp(38), 1f));
+
+        archiveKeysButton = button(archiveKeysEnabled ? "PEDALĂ ●" : "PEDALĂ ○");
         archiveKeysButton.setOnClickListener(v -> toggleArchiveKeys());
         archive.addView(archiveKeysButton, new LinearLayout.LayoutParams(0, dp(38), 1f));
         top.addView(archive);
