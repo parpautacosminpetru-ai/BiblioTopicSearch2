@@ -27,6 +27,9 @@ import java.util.Map;
 
 /** Scalable v7 workspace: stable sources, physical outline and facet intersections. */
 public final class IndexCoreActivity extends AppCompatActivity {
+    public static final String EXTRA_OPEN_PANEL = "index_core_open_panel";
+    public static final String PANEL_SOURCES = "sources";
+
     private static final int REQ_EXPORT_CARTOGRAPHY = 401;
 
     private IndexCoreDatabase db;
@@ -40,6 +43,13 @@ public final class IndexCoreActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         db = IndexCoreDatabase.get(this);
         rebuild();
+        String requestedPanel = getIntent() == null
+                ? ""
+                : getIntent().getStringExtra(EXTRA_OPEN_PANEL);
+        if (PANEL_SOURCES.equals(requestedPanel)) {
+            android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+            handler.post(this::showSources);
+        }
     }
 
     @Override
