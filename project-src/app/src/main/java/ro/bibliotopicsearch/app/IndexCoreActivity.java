@@ -352,7 +352,7 @@ public final class IndexCoreActivity extends AppCompatActivity {
                 if (count != null) units += count;
             }
             labels[i] = (row.topicTitle.isEmpty() ? row.topicPath : row.topicTitle)
-                    + " • " + sources + " surse • " + units + " zone-paragraf";
+                    + " • " + sources + " surse • " + units + " unități cartografiate";
         }
 
         new AlertDialog.Builder(this)
