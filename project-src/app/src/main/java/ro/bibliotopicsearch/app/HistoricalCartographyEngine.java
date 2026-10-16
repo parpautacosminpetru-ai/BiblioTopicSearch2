@@ -299,7 +299,8 @@ public final class HistoricalCartographyEngine {
             List<DeterministicIndexIntersectionEngine.Anchor> anchors,
             boolean parsed
     ) {
-        if (anchors == null || anchors.isEmpty()) return parsed ? Status.NO_INDEX : Status.UNPARSED;
+        if (!parsed) return Status.UNPARSED;
+        if (anchors == null || anchors.isEmpty()) return Status.NO_INDEX;
         if (DeterministicIndexIntersectionEngine.hasSharedSpanAmbiguity(anchors)) return Status.AMBIGUOUS;
         return Status.MAPPED;
     }
