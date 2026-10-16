@@ -344,7 +344,9 @@ public final class IndexCoreCartographyReader {
                 + "JOIN idx_original_pages o ON o.source_id=c.source_id AND o.page=c.page "
                 + "WHERE c.source_id=? AND c.is_complete=1 AND p.ocr_digest<>'' "
                 + "AND p.ocr_digest=p.indexed_digest "
-                + "AND p.ocr_digest=p.verified_digest ";
+                + "AND p.ocr_digest=p.verified_digest "
+                + "AND EXISTS (SELECT 1 FROM idx_semantic_units u "
+                + "WHERE u.source_id=c.source_id AND u.page=c.page AND u.unit_kind='PARAGRAPH') ";
         int pagesComplete = scope.defined()
                 ? scalar(db, "SELECT COUNT(DISTINCT CAST(c.page AS INTEGER))" + completeProofJoin
                         + "AND c.page<>'' AND c.page NOT GLOB '*[^0-9]*' "
@@ -713,6 +715,8 @@ public final class IndexCoreCartographyReader {
                         + "WHERE c.source_id=? AND c.is_complete=1 "
                         + "AND p.ocr_digest<>'' AND p.ocr_digest=p.indexed_digest "
                         + "AND p.ocr_digest=p.verified_digest "
+                        + "AND EXISTS (SELECT 1 FROM idx_semantic_units u "
+                        + "WHERE u.source_id=c.source_id AND u.page=c.page AND u.unit_kind='PARAGRAPH') "
                         + "AND c.page<>'' AND c.page NOT GLOB '*[^0-9]*' "
                         + "AND CAST(c.page AS INTEGER) BETWEEN ? AND ?",
                 new String[]{sourceId, String.valueOf(scope.pageFrom), String.valueOf(scope.pageTo)}
