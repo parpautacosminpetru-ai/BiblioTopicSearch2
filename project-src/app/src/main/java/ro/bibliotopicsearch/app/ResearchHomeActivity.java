@@ -128,7 +128,7 @@ public final class ResearchHomeActivity extends AppCompatActivity {
         root.addView(capture);
 
         LinearLayout captureRow = row();
-        Button camera = actionButton("CARTE FIZICĂ", "Camera • AUTO • ÎNCHEIE ✓");
+        Button camera = actionButton("LUPĂ LIVE", "OCR orientativ • fără original");
         camera.setOnClickListener(v ->
                 startActivity(new Intent(this, LensActivity.class)));
         captureRow.addView(camera, weighted(dp(72)));
