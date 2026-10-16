@@ -335,9 +335,18 @@ public final class IndexCoreCartographyReader {
 
         int pagesSeen = scalar(db, "SELECT COUNT(*) FROM idx_page_coverage WHERE source_id=?",
                 new String[]{sourceId});
-        int pagesComplete = scalar(db,
-                "SELECT COUNT(*) FROM idx_page_coverage WHERE source_id=? AND is_complete=1",
-                new String[]{sourceId});
+        // Completeness is defined by the declared scope, not by unrelated pages.
+        // COUNT(DISTINCT ...) also treats "7" and "007" as the same physical page.
+        int pagesComplete = scope.defined()
+                ? scalar(db,
+                        "SELECT COUNT(DISTINCT CAST(page AS INTEGER)) FROM idx_page_coverage "
+                                + "WHERE source_id=? AND is_complete=1 AND page<>'' "
+                                + "AND page NOT GLOB '*[^0-9]*' "
+                                + "AND CAST(page AS INTEGER) BETWEEN ? AND ?",
+                        new String[]{sourceId, String.valueOf(scope.pageFrom), String.valueOf(scope.pageTo)})
+                : scalar(db,
+                        "SELECT COUNT(*) FROM idx_page_coverage WHERE source_id=? AND is_complete=1",
+                        new String[]{sourceId});
         int paragraphs = scalar(db,
                 "SELECT COUNT(*) FROM idx_semantic_units WHERE source_id=? AND unit_kind='PARAGRAPH'",
                 new String[]{sourceId});
@@ -414,7 +423,7 @@ public final class IndexCoreCartographyReader {
 
         List<Point> points = new ArrayList<>();
         String sql = "SELECT t.topic_path,t.topic_title,CAST(u.page AS INTEGER),"
-                + "COUNT(DISTINCT u.page_key || ':' || u.paragraph_index) "
+                + "COUNT(DISTINCT u.unit_id) "
                 + "FROM idx_unit_topics t JOIN idx_semantic_units u ON u.unit_id=t.unit_id "
                 + "WHERE u.source_id=? AND u.page GLOB '[0-9]*' "
                 + "GROUP BY t.topic_path,t.topic_title,u.page "
@@ -460,7 +469,9 @@ public final class IndexCoreCartographyReader {
                 + "AND b.topic_path NOT LIKE a.topic_path || ' > %' "
                 + "AND a.topic_path NOT LIKE b.topic_path || ' > %' "
                 + "AND NOT EXISTS (SELECT 1 FROM idx_intersections x "
-                + "WHERE x.unit_id=a.unit_id AND x.left_topic_path=a.topic_path AND x.right_topic_path=b.topic_path) "
+                + "WHERE x.unit_id=a.unit_id AND ("
+                + "(x.left_topic_path=a.topic_path AND x.right_topic_path=b.topic_path) OR "
+                + "(x.left_topic_path=b.topic_path AND x.right_topic_path=a.topic_path))) "
                 + "GROUP BY a.topic_path,a.topic_title,b.topic_path,b.topic_title "
                 + "ORDER BY COUNT(DISTINCT a.unit_id) DESC,a.topic_title COLLATE NOCASE LIMIT "
                 + Math.max(1, Math.min(1000, limit));
@@ -502,7 +513,7 @@ public final class IndexCoreCartographyReader {
     public static List<TopicSummary> topicsForSource(IndexCoreDatabase db, String sourceId, int limit) {
         if (db == null || safe(sourceId).isEmpty()) return Collections.emptyList();
         String sql = "SELECT t.topic_path,MAX(t.topic_title),"
-                + "COUNT(DISTINCT u.page_key || ':' || u.paragraph_index),"
+                + "COUNT(DISTINCT u.unit_id),"
                 + "COUNT(DISTINCT CASE WHEN u.page GLOB '[0-9]*' THEN u.page ELSE NULL END) "
                 + "FROM idx_unit_topics t JOIN idx_semantic_units u ON u.unit_id=t.unit_id "
                 + "WHERE u.source_id=? GROUP BY t.topic_path "
@@ -660,7 +671,7 @@ public final class IndexCoreCartographyReader {
     public static List<MatrixRow> matrix(IndexCoreDatabase db, int limitTopics) {
         if (db == null) return Collections.emptyList();
         String sql = "SELECT t.topic_path,t.topic_title,u.source_id,"
-                + "COUNT(DISTINCT u.page_key || ':' || u.paragraph_index) "
+                + "COUNT(DISTINCT u.unit_id) "
                 + "FROM idx_unit_topics t JOIN idx_semantic_units u ON u.unit_id=t.unit_id "
                 + "GROUP BY t.topic_path,t.topic_title,u.source_id "
                 + "ORDER BY t.topic_path COLLATE NOCASE,u.source_id";
@@ -692,8 +703,10 @@ public final class IndexCoreCartographyReader {
         if (scope == null || !scope.defined()) return Collections.emptyList();
         Set<Integer> complete = new LinkedHashSet<>();
         try (Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT page FROM idx_page_coverage WHERE source_id=? AND is_complete=1 AND page GLOB '[0-9]*'",
-                new String[]{sourceId}
+                "SELECT page FROM idx_page_coverage WHERE source_id=? AND is_complete=1 "
+                        + "AND page<>'' AND page NOT GLOB '*[^0-9]*' "
+                        + "AND CAST(page AS INTEGER) BETWEEN ? AND ?",
+                new String[]{sourceId, String.valueOf(scope.pageFrom), String.valueOf(scope.pageTo)}
         )) {
             while (c.moveToNext()) complete.add(c.getInt(0));
         }

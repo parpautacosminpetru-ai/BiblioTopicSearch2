@@ -85,4 +85,15 @@ public final class IndexCoreV7Test {
         assertTrue(a.startsWith("e-"));
         assertTrue(a.length() >= 30);
     }
+
+    @Test
+    public void samePageAndLocalParagraphIndexWithDifferentOcrTextStayDistinct() {
+        String a = IndexCoreDatabase.semanticUnitId(
+                "src-a", 100L, "42", "PARAGRAPH", "fingerprint-one", 0, -1, -1
+        );
+        String b = IndexCoreDatabase.semanticUnitId(
+                "src-a", 100L, "42", "PARAGRAPH", "fingerprint-two", 0, -1, -1
+        );
+        assertNotEquals(a, b);
+    }
 }

@@ -1,6 +1,7 @@
 package ro.bibliotopicsearch.app;
 
 import android.content.Context;
+import android.database.sqlite.SQLiteDatabase;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -111,30 +112,48 @@ public final class IndexCoreRuntime {
             if (appContext == null || sourceId.isEmpty()) return mapped;
 
             IndexCoreDatabase db = IndexCoreDatabase.get(appContext);
-            long previousOutline = currentOutlineId;
-            Map<Integer, Long> outlineByParagraph = updateOutlines(db, detections, page);
-            long capturedAt = System.currentTimeMillis();
+            SQLiteDatabase sql = db.getWritableDatabase();
+            // A capture must never leave half its semantic units on disk if a
+            // downstream write fails. Nested unit writes share this transaction.
+            long savedOutlineId = currentOutlineId;
+            int savedOutlineOrder = outlineOrder;
+            long[] savedOutlines = lastOutlineByDepth.clone();
+            sql.beginTransaction();
+            try {
+                long previousOutline = currentOutlineId;
+                Map<Integer, Long> outlineByParagraph = updateOutlines(db, detections, page);
+                long capturedAt = System.currentTimeMillis();
 
-            for (HistoricalCartographyEngine.Unit unit : mapped.units()) {
-                if (unit == null) continue;
-                long outlineId = outlineForParagraph(
-                        unit.paragraphIndex(), outlineByParagraph, previousOutline
-                );
-                String unitId = db.upsertSemanticUnit(
-                        sourceId,
-                        sessionId,
-                        page,
-                        unit,
-                        outlineId,
-                        capturedAt
-                );
-                if (unitId.isEmpty()) continue;
-                db.replaceUnitTopics(unitId, unit.anchors());
-                db.replaceUnitFacets(unitId, unit.facets());
-                db.replaceUnitIntersections(unitId, unit.intersections());
+                for (HistoricalCartographyEngine.Unit unit : mapped.units()) {
+                    if (unit == null) continue;
+                    long outlineId = outlineForParagraph(
+                            unit.paragraphIndex(), outlineByParagraph, previousOutline
+                    );
+                    String unitId = db.upsertSemanticUnit(
+                            sourceId,
+                            sessionId,
+                            page,
+                            unit,
+                            outlineId,
+                            capturedAt
+                    );
+                    if (unitId.isEmpty()) continue;
+                    db.replaceUnitTopics(unitId, unit.anchors());
+                    db.replaceUnitFacets(unitId, unit.facets());
+                    db.replaceUnitIntersections(unitId, unit.intersections());
+                }
+                db.recordPageCapture(sourceId, sessionId, page, markPageComplete);
+                sql.setTransactionSuccessful();
+                return mapped;
+            } catch (RuntimeException | Error failure) {
+                // Rolled-back outlines must not survive as in-memory parent ids.
+                currentOutlineId = savedOutlineId;
+                outlineOrder = savedOutlineOrder;
+                System.arraycopy(savedOutlines, 0, lastOutlineByDepth, 0, lastOutlineByDepth.length);
+                throw failure;
+            } finally {
+                sql.endTransaction();
             }
-            db.recordPageCapture(sourceId, sessionId, page, markPageComplete);
-            return mapped;
         }
     }
 
