@@ -184,7 +184,7 @@ public final class SemanticGraphBuilder {
     }
 
     private static List<String> splitClauses(String sentence) {
-        LinkedHashSet<String> parts = new LinkedHashSet<>();
+        List<String> parts = new ArrayList<>();
         List<String> stage = new ArrayList<>();
         stage.add(sentence);
 
