@@ -1,5 +1,6 @@
 package ro.bibliotopicsearch.app;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -8,6 +9,10 @@ import static org.junit.Assert.fail;
 
 import android.content.ContentValues;
 import android.content.Context;
+import android.graphics.Paint;
+import android.graphics.pdf.PdfDocument;
+import android.graphics.pdf.PdfRenderer;
+import android.os.ParcelFileDescriptor;
 import android.database.sqlite.SQLiteDatabase;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -20,6 +25,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -152,4 +158,41 @@ public final class VerifiedCaptureAndroidTest {
         assertEquals(first.getAbsolutePath(),
                 SourceArchiveStore.originalFile(app(), page).getAbsolutePath());
     }
+    @Test
+    public void actualPdfRendererCanOpenByteIdenticalArchivedDocument() throws Exception {
+        String source = newSource();
+        File pdfFile = File.createTempFile("source-real-", ".pdf", app().getCacheDir());
+        PdfDocument pdf = new PdfDocument();
+        PdfDocument.PageInfo info = new PdfDocument.PageInfo.Builder(420, 600, 1).create();
+        PdfDocument.Page printed = pdf.startPage(info);
+        Paint ink = new Paint();
+        ink.setTextSize(24f);
+        printed.getCanvas().drawText("Anul 1054 in sursa originala", 18f, 80f, ink);
+        pdf.finishPage(printed);
+        try (FileOutputStream out = new FileOutputStream(pdfFile)) {
+            pdf.writeTo(out);
+        } finally {
+            pdf.close();
+        }
+        byte[] inputBytes = Files.readAllBytes(pdfFile.toPath());
+        SourceArchiveStore.Document document = SourceArchiveStore.preservePdf(
+                app(), source, pdfFile, "Test PDF", 1);
+        SourceArchiveStore.Page linked = SourceArchiveStore.linkPdfPage(
+                app(), source, "19", 0);
+        File stored = SourceArchiveStore.originalFile(app(), linked);
+        assertArrayEquals(inputBytes, Files.readAllBytes(stored.toPath()));
+        assertEquals(document.sha256, linked.sha256);
+        SourceArchiveStore.linkPdfPage(app(), source, "19", 0);
+
+        try (ParcelFileDescriptor fd = ParcelFileDescriptor.open(
+                stored, ParcelFileDescriptor.MODE_READ_ONLY);
+             PdfRenderer renderer = new PdfRenderer(fd)) {
+            assertEquals(1, renderer.getPageCount());
+        }
+        // Reopening the same original cannot alter the archived bytes.
+        SourceArchiveStore.preservePdf(app(), source, pdfFile, "Repeated import", 1);
+        assertArrayEquals(inputBytes, Files.readAllBytes(stored.toPath()));
+        pdfFile.delete();
+    }
+
 }
