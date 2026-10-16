@@ -176,6 +176,29 @@ public final class CameraScanActivity extends AppCompatActivity {
                 });
     }
 
+    private void recoverExistingOcr(SourceArchiveStore.Page archived) {
+        Bitmap upright = null;
+        try {
+            File original = SourceArchiveStore.originalFile(getApplicationContext(), archived);
+            upright = OriginalPageActivity.decodeImage(original);
+            final Bitmap image = upright;
+            recognizer.process(InputImage.fromBitmap(image, 0))
+                    .addOnSuccessListener(result -> {
+                        if (stopped) { image.recycle(); return; }
+                        worker.execute(() -> finishOcr(archived.number, image, result));
+                    })
+                    .addOnFailureListener(failure -> {
+                        image.recycle();
+                        finishCapture("Original păstrat; OCR nereușit: " + failure.getMessage());
+                    });
+            upright = null;
+        } catch (Exception failure) {
+            finishCapture("Nu am putut relua OCR din original: " + failure.getMessage());
+        } finally {
+            if (upright != null && !upright.isRecycled()) upright.recycle();
+        }
+    }
+
     private void processPicture(String number, File temp) {
         Bitmap upright = null;
         try {
