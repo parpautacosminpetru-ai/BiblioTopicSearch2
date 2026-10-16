@@ -103,7 +103,7 @@ public final class ResearchHomeActivity extends AppCompatActivity {
             if (!mapReady) {
                 startActivity(new Intent(this, TopicLibraryActivity.class));
             } else if (!sourceReady) {
-                openSourceSetup();
+                editActiveSource();
             } else {
                 startActivity(new Intent(this, LensActivity.class));
             }
@@ -120,7 +120,7 @@ public final class ResearchHomeActivity extends AppCompatActivity {
         setupRow.addView(themes, weighted(dp(66)));
 
         Button sourceButton = actionButton("SURSĂ", "Titlu, autor, ediție, domeniu");
-        sourceButton.setOnClickListener(v -> openSourceSetup());
+        sourceButton.setOnClickListener(v -> openSourceRegistry());
         setupRow.addView(sourceButton, weighted(dp(66)));
         root.addView(setupRow);
 
@@ -180,9 +180,15 @@ public final class ResearchHomeActivity extends AppCompatActivity {
         setContentView(scroll);
     }
 
-    private void openSourceSetup() {
+    private void openSourceRegistry() {
         Intent intent = new Intent(this, IndexCoreActivity.class);
         intent.putExtra(IndexCoreActivity.EXTRA_OPEN_PANEL, IndexCoreActivity.PANEL_SOURCES);
+        startActivity(intent);
+    }
+
+    private void editActiveSource() {
+        Intent intent = new Intent(this, IndexCoreActivity.class);
+        intent.putExtra(IndexCoreActivity.EXTRA_OPEN_PANEL, IndexCoreActivity.PANEL_SOURCE_EDIT);
         startActivity(intent);
     }
 
