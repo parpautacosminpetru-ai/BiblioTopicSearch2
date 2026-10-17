@@ -1,5 +1,6 @@
 package ro.bibliotopicsearch.app;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -165,4 +166,79 @@ public final class QuestionEvidenceSearchTest {
             assertFalse(QuestionEvidenceSearch.isDirectCandidate(query, withoutNumber));
         }
     }
+    @Test
+    public void compoundQuestionLabelsEachExplicitFacetSeparately() {
+        ResearchSemanticEngine.Profile query = ResearchSemanticEngine.compile(
+                "De ce și când crește inflația?", null);
+        assertTrue(query.intents().contains(ResearchSemanticEngine.Intent.WHY));
+        assertTrue(query.intents().contains(ResearchSemanticEngine.Intent.WHEN));
+
+        List<UniversalParagraphDetector.Detection> text = Arrays.asList(
+                UniversalParagraphDetector.detect(
+                        "Inflația crește deoarece cererea depășește oferta.", 0),
+                UniversalParagraphDetector.detect(
+                        "Inflația crește în 2020.", 1));
+        List<ResearchSemanticEngine.Answer> answers = ResearchSemanticEngine.findAll(
+                query, text, null, Integer.MAX_VALUE);
+        boolean cause = false, date = false;
+        for (ResearchSemanticEngine.Answer answer : answers) {
+            if (!QuestionEvidenceSearch.isDirectCandidate(query, answer)) continue;
+            if (answer.intent() == ResearchSemanticEngine.Intent.WHY
+                    && answer.segment().contains("deoarece")) cause = true;
+            if (answer.intent() == ResearchSemanticEngine.Intent.WHEN
+                    && answer.segment().contains("2020")) date = true;
+        }
+        assertTrue("The explicit WHY component must be retrievable", cause);
+        assertTrue("The explicit WHEN component must be retrievable", date);
+    }
+
+    @Test
+    public void additionalSpecificConstraintCannotSilentlyDisappear() {
+        UniversalParagraphDetector.Detection source = UniversalParagraphDetector.detect(
+                "Inflația crește deoarece cererea depășește oferta.", 0);
+        ResearchSemanticEngine.Profile broad = ResearchSemanticEngine.compile(
+                "De ce crește inflația?", null);
+        ResearchSemanticEngine.Profile narrow = ResearchSemanticEngine.compile(
+                "De ce crește inflația în România în 2022?", null);
+
+        ResearchSemanticEngine.Answer original = ResearchSemanticEngine.findBest(
+                broad, Collections.singletonList(source));
+        assertNotNull(original);
+        assertTrue(QuestionEvidenceSearch.isDirectCandidate(broad, original));
+        ResearchSemanticEngine.Answer partial = ResearchSemanticEngine.findBest(
+                narrow, Collections.singletonList(source));
+        if (partial != null) {
+            assertFalse("A specific missing location or date must not become explicit",
+                    QuestionEvidenceSearch.isDirectCandidate(narrow, partial));
+        }
+    }
+
+    @Test
+    public void marksTwoOriginalOcrLinesForOneLiteralSourceSentence() {
+        List<SourceArchiveStore.OcrLine> lines = Arrays.asList(
+                new SourceArchiveStore.OcrLine("18", 0,
+                        "Inflația crește deoarece", .1f, .1f, .85f, .16f),
+                new SourceArchiveStore.OcrLine("18", 1,
+                        "cererea depășește oferta.", .1f, .17f, .85f, .23f),
+                new SourceArchiveStore.OcrLine("18", 2,
+                        "Alte date nu privesc cauza.", .1f, .3f, .85f, .36f));
+        assertArrayEquals(new int[]{0, 1}, QuestionEvidenceSearch.matchingLineIndices(
+                lines, "Inflația crește deoarece cererea depășește oferta."));
+        assertArrayEquals(new int[0], QuestionEvidenceSearch.matchingLineIndices(
+                Collections.emptyList(), "Inflația crește."));
+    }
+
+    @Test
+    public void generatedWordsNeverReplaceTheLiteralSentence() {
+        String original = "Inflația crește deoarece cererea depășește oferta.";
+        ResearchSemanticEngine.Profile question = ResearchSemanticEngine.compile(
+                "De ce crește inflația?", null);
+        ResearchSemanticEngine.Answer answer = ResearchSemanticEngine.findBest(
+                question, Collections.singletonList(
+                        UniversalParagraphDetector.detect(original, 0)));
+        assertNotNull(answer);
+        assertEquals("The returned span must be the literal source sentence",
+                original, answer.segment());
+    }
+
 }
