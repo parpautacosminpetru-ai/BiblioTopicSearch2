@@ -5,8 +5,10 @@ import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.view.inputmethod.EditorInfo;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -62,6 +64,32 @@ public final class ResearchHomeActivity extends AppCompatActivity {
         );
         subtitle.setPadding(0, 0, 0, dp(12));
         root.addView(subtitle);
+
+        root.addView(section("ÎNTREABĂ TOATE SURSELE ARHIVATE"));
+        LinearLayout questionRow = row();
+        EditText question = new EditText(this);
+        question.setSingleLine(true);
+        question.setTextColor(Color.WHITE);
+        question.setHintTextColor(Color.LTGRAY);
+        question.setHint("Ex.: De ce a început evenimentul?");
+        question.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        question.setOnEditorActionListener((v, action, event) -> {
+            if (action == EditorInfo.IME_ACTION_SEARCH) {
+                openQuestionSearch(question.getText().toString());
+                return true;
+            }
+            return false;
+        });
+        questionRow.addView(question, new LinearLayout.LayoutParams(0, dp(55), 1f));
+        Button ask = bigButton("CAUTĂ", true);
+        ask.setOnClickListener(v -> openQuestionSearch(question.getText().toString()));
+        questionRow.addView(ask, new LinearLayout.LayoutParams(dp(104), dp(55)));
+        root.addView(questionRow);
+
+        TextView evidenceHint = text("Întrebare țintită → facsimilele originale PDF/JPEG, fără transcriere afișată.", 11.3f,
+                Color.rgb(162, 188, 205));
+        evidenceHint.setPadding(0, dp(3), 0, dp(9));
+        root.addView(evidenceHint);
 
         TopicMap map = TopicMapStore.load(this);
         MapProfile profile = TopicLibraryStore.getActive(this);
@@ -193,6 +221,12 @@ public final class ResearchHomeActivity extends AppCompatActivity {
         root.addView(principle);
 
         setContentView(scroll);
+    }
+
+    private void openQuestionSearch(String question) {
+        Intent intent = new Intent(this, QuestionSearchActivity.class);
+        intent.putExtra(QuestionSearchActivity.EXTRA_QUESTION, question == null ? "" : question.trim());
+        startActivity(intent);
     }
 
     private void openSourceRegistry() {

@@ -26,7 +26,7 @@ public final class SemanticGraphBuilder {
 
     private static final Pattern TOKEN = Pattern.compile("[\\p{L}\\p{N}][\\p{L}\\p{N}'’\\-]*");
     private static final Pattern SENTENCE_SPLIT = Pattern.compile("(?<=[.!?;])\\s+|\\n+");
-    private static final Pattern YEAR = Pattern.compile("\\b(?:18|19|20)\\d{2}\\b");
+    private static final Pattern YEAR = Pattern.compile("\\b(?:1[0-9]{3}|20[0-9]{2})\\b");
 
     /** All values are folded because matching also uses folded OCR text. */
     private static final Set<String> COREFERENCE_START = new HashSet<>(Arrays.asList(

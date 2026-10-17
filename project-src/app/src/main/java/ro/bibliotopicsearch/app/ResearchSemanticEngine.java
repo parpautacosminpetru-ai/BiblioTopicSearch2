@@ -194,7 +194,8 @@ public final class ResearchSemanticEngine {
             "a", "ai", "al", "ale", "aici", "acest", "aceasta", "acesta", "acele", "aceea",
             "ca", "care", "cat", "cât", "ce", "cel", "cea", "cei", "cele", "cine", "cu",
             "cum", "cand", "când", "catre", "către", "de", "despre", "din", "dintre", "dupa", "după",
-            "este", "sunt", "era", "erau", "fi", "fie", "in", "în", "intre", "între", "la",
+            "este", "sunt", "era", "erau", "fi", "fie", "fost", "fiind", "au", "avea", "avut",
+             "an", "anul", "perioada", "data", "in", "în", "intre", "între", "la",
             "mai", "o", "pe", "pentru", "prin", "privind", "sa", "să", "se", "si", "și", "sau",
             "un", "una", "unei", "unui", "unde", "the", "of", "and", "or", "to", "for", "with",
             "what", "why", "how", "where", "when", "who", "which", "is", "are"
@@ -435,9 +436,24 @@ public final class ResearchSemanticEngine {
 
     private static Answer toAnswer(Candidate candidate) {
         SemanticGraph.Proposition proposition = candidate.proposition;
+        // Return the whole SOURCE sentence rather than an orphan clause.
+        // "X happened because Y" may be parsed as two grammatical clauses;
+        // the original sentence is the smallest faithful excerpt that retains
+        // the explicit subject, predicate, causal connector and its scope.
+        // No source content is generated, joined from elsewhere, or rephrased.
+        String literal = proposition.raw();
+        if (candidate.detection != null && candidate.detection.paragraph() != null) {
+            String[] sentences = candidate.detection.paragraph().trim()
+                    .split("(?<=[.!?;])\\s+|\\n+");
+            int sentenceIndex = proposition.sentenceIndex();
+            if (sentenceIndex >= 0 && sentenceIndex < sentences.length
+                    && !sentences[sentenceIndex].trim().isEmpty()) {
+                literal = sentences[sentenceIndex].trim();
+            }
+        }
         return new Answer(
                 proposition.paragraphIndex(),
-                proposition.raw(),
+                literal,
                 candidate.score,
                 candidate.directCoverage,
                 candidate.relationEvidence,

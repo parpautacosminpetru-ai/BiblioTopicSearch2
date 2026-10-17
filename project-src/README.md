@@ -257,3 +257,17 @@ Importul PDF a fost întărit pentru furnizori Android diferiți și documente m
 - titlul sursei este cerut înainte de import, pentru proveniență corectă.
 
 PDF-ul temporar și bitmap-urile paginilor sunt șterse/eliberate după utilizare. Din versiunea 1.11 o copie octet-cu-octet a PDF-ului original rămâne arhivată local, separat de OCR.
+
+
+## Căutare deterministă prin întrebare — funcționalitate propusă
+
+În pagina de pornire apare bara **ÎNTREABĂ TOATE SURSELE ARHIVATE**. Scrie o întrebare precisă, de exemplu \`De ce a crescut inflația?\` sau \`Când a fost publicată lucrarea?\`, apoi apasă **CAUTĂ**.
+
+Interogarea:
+1. Extrage determinist termenii-țintă și tipul explicit al întrebării (de ce, când, unde, cine, cum etc.) din \`ResearchSemanticEngine\`. Nu folosește LLM sau server.
+2. Caută **în toate** sursele locale pentru care s-a arhivat un PDF/JPEG și există OCR (nu doar în sursa activă sau harta tematică). Folosește paragrafele OCR stocate în \`idx_ocr_blocks\`; pentru arhivele vechi fără blocuri reunește liniile OCR ale paginii.
+3. Folosește **OCR numai intern** pentru localizarea indiciilor directe și a pasajelor conexe. În interfața de rezultate afișează **imagini decupate din PDF/JPEG-ul original**, nu transcrierea OCR sau răspunsuri inventate.
+4. Afișează titlul sursei, pagina și dacă pagina a fost verificată manual. Atingerea unei imagini deschide **întreaga pagină originală**, derulată spre linia corespunzătoare. Marcajul galben este desenat doar în memorie, fără modificarea originalului, iar transcrierea OCR rămâne ascunsă în acest flux.
+5. Păstrează căutarea lexicală veche numai în sursa curentă ca opțiune distinctă în ecranul originalului.
+
+**Limite:** analiza depinde de OCR, de lexicul și relațiile deterministe recunoscute. O formulare cu sinonime neconfigurate ori cu răspuns distribuit în surse fără o legătură textuală explicită poate să nu producă un indiciu direct. Faptul că nu s-a găsit un rezultat nu certifică absența din document. \`INDICIU DIRECT\` nu înlocuiește confirmarea umană a sensului și a paginii originale. O pagină fără facsimil arhivat nu apare ca dovadă verificabilă în acest flux.

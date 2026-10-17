@@ -1,0 +1,426 @@
+package ro.bibliotopicsearch.app;
+
+import android.content.Context;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * Searches the immutable OCR evidence of EVERY archived source, not just the
+ * active book or the terms of the active topic map. No generated answer is made.
+ * Each hit is a source clause, linked to an original PDF/JPEG page.
+ */
+public final class QuestionEvidenceSearch {
+    private QuestionEvidenceSearch() {}
+
+    public static final class Passage {
+        public final String sourceId;
+        public final String sourceTitle;
+        public final String page;
+        public final int blockIndex;
+        public final String excerpt;
+        public final boolean manuallyVerified;
+        public final boolean directCandidate;
+        public final double score;
+        public final double lexicalCoverage;
+        public final ResearchSemanticEngine.Intent intent;
+        // A source sentence may explicitly support several separate facets
+        // (e.g. WHY + WHEN); that does not certify the whole question.
+        public final Set<ResearchSemanticEngine.Intent> explicitFacets;
+
+        Passage(String sourceId, String sourceTitle, String page, int blockIndex,
+                String excerpt, boolean manuallyVerified, boolean directCandidate,
+                double score, double lexicalCoverage, ResearchSemanticEngine.Intent intent,
+                Set<ResearchSemanticEngine.Intent> explicitFacets) {
+            this.sourceId = sourceId;
+            this.sourceTitle = sourceTitle;
+            this.page = page;
+            this.blockIndex = blockIndex;
+            this.excerpt = excerpt;
+            this.manuallyVerified = manuallyVerified;
+            this.directCandidate = directCandidate;
+            this.score = score;
+            this.lexicalCoverage = lexicalCoverage;
+            this.intent = intent;
+            EnumSet<ResearchSemanticEngine.Intent> facets =
+                    EnumSet.noneOf(ResearchSemanticEngine.Intent.class);
+            if (explicitFacets != null) facets.addAll(explicitFacets);
+            this.explicitFacets = Collections.unmodifiableSet(facets);
+        }
+    }
+
+    public static final class Report {
+        public final List<Passage> passages;
+        public final int sourcesSearched;
+        public final int blocksSearched;
+        public final int directCandidates;
+        public final ResearchSemanticEngine.Intent questionType;
+        public final boolean queryUsable;
+
+        Report(List<Passage> passages, int sourcesSearched, int blocksSearched,
+               int directCandidates, ResearchSemanticEngine.Intent questionType,
+               boolean queryUsable) {
+            this.passages = Collections.unmodifiableList(new ArrayList<>(passages));
+            this.sourcesSearched = sourcesSearched;
+            this.blocksSearched = blocksSearched;
+            this.directCandidates = directCandidates;
+            this.questionType = questionType;
+            this.queryUsable = queryUsable;
+        }
+    }
+
+    private static final String PROOF =
+            "CASE WHEN COALESCE(c.is_complete,0)=1 AND COALESCE(p.ocr_digest,'')<>'' "
+                    + "AND p.ocr_digest=p.indexed_digest "
+                    + "AND p.ocr_digest=p.verified_digest THEN 1 ELSE 0 END";
+
+    private static final String JOINS =
+            " JOIN idx_original_pages o ON o.source_id=e.source_id AND o.page=e.page "
+                    + "JOIN idx_sources s ON s.source_id=e.source_id "
+                    + "LEFT JOIN idx_page_processing p ON p.source_id=e.source_id AND p.page=e.page "
+                    + "LEFT JOIN idx_page_coverage c ON c.source_id=e.source_id AND c.page=e.page ";
+
+    public static Report search(Context context, String question) {
+        // Deliberately do not expand an explicit question with the active map:
+        // unrelated configured topics must never silently widen its scope.
+        ResearchSemanticEngine.Profile profile = ResearchSemanticEngine.compile(question, null);
+        if (!profile.enabled()) {
+            return new Report(Collections.emptyList(), 0, 0, 0, profile.intent(), false);
+        }
+        // Separately recover on-topic mentions when an explicit question has no
+        // relation-bearing answer. They remain visibly RELATED, never promoted
+        // into direct answers. The user can inspect their real facsimiles.
+        ResearchSemanticEngine.Profile relatedProfile = profile.intent()
+                == ResearchSemanticEngine.Intent.TOPIC ? null
+                : ResearchSemanticEngine.compile(String.join(" ", profile.directTerms()), null);
+        if (relatedProfile != null && !relatedProfile.enabled()) relatedProfile = null;
+
+        SQLiteDatabase db = IndexCoreDatabase.get(context).getReadableDatabase();
+        List<Passage> found = new ArrayList<>();
+        Set<String> sourceIds = new HashSet<>();
+        Map<String, Integer> distinct = new HashMap<>();
+        int scanned = 0;
+
+        // OCR blocks preserve coherent paragraphs, including answers spanning
+        // multiple OCR lines. Every archived source is included in this query.
+        String blockSql = "SELECT e.source_id,s.title,e.page,e.block_index,e.raw_text,"
+                + PROOF + " FROM idx_ocr_blocks e " + JOINS
+                + " ORDER BY e.source_id,CAST(e.page AS INTEGER),e.page,e.block_index";
+        try (Cursor cursor = db.rawQuery(blockSql, null)) {
+            while (cursor.moveToNext()) {
+                String sourceId = cursor.getString(0);
+                sourceIds.add(sourceId);
+                scanned++;
+                appendAnswers(profile, relatedProfile, found, distinct, sourceId, cursor.getString(1),
+                        cursor.getString(2), cursor.getInt(3), cursor.getString(4),
+                        cursor.getInt(5) != 0);
+            }
+        }
+
+        // Migration fallback: version 6 can have spatial OCR lines but no
+        // immutable paragraph blocks. Read each legacy page in line order.
+        String legacySql = "SELECT e.source_id,s.title,e.page,e.line_index,e.raw_text,"
+                + PROOF + " FROM idx_original_ocr_lines e " + JOINS
+                + " WHERE NOT EXISTS (SELECT 1 FROM idx_ocr_blocks b "
+                + "WHERE b.source_id=e.source_id AND b.page=e.page) "
+                + "ORDER BY e.source_id,CAST(e.page AS INTEGER),e.page,e.line_index";
+        try (Cursor cursor = db.rawQuery(legacySql, null)) {
+            String previousSource = null;
+            String previousPage = null;
+            String previousTitle = "";
+            boolean previousVerified = false;
+            StringBuilder text = new StringBuilder();
+            while (cursor.moveToNext()) {
+                String source = cursor.getString(0);
+                String page = cursor.getString(2);
+                if (previousSource != null
+                        && (!previousSource.equals(source) || !previousPage.equals(page))) {
+                    appendAnswers(profile, relatedProfile, found, distinct, previousSource, previousTitle,
+                            previousPage, -1, text.toString(), previousVerified);
+                    scanned++;
+                    text.setLength(0);
+                }
+                sourceIds.add(source);
+                previousSource = source;
+                previousTitle = cursor.getString(1);
+                previousPage = page;
+                previousVerified = cursor.getInt(5) != 0;
+                if (text.length() > 0) text.append('\n');
+                text.append(cursor.getString(4));
+            }
+            if (previousSource != null) {
+                appendAnswers(profile, relatedProfile, found, distinct, previousSource, previousTitle,
+                        previousPage, -1, text.toString(), previousVerified);
+                scanned++;
+            }
+        }
+
+        found.sort(Comparator
+                .comparingInt((Passage p) -> p.directCandidate ? 0 : 1)
+                .thenComparing(Comparator.comparingDouble((Passage p) -> p.score).reversed())
+                .thenComparing(p -> p.sourceTitle.toLowerCase(Locale.ROOT))
+                .thenComparing(p -> p.page)
+                .thenComparingInt(p -> p.blockIndex));
+        int direct = 0;
+        for (Passage passage : found) if (passage.directCandidate) direct++;
+        return new Report(found, sourceIds.size(), scanned, direct, profile.intent(), true);
+    }
+
+    private static void appendAnswers(
+            ResearchSemanticEngine.Profile profile,
+            ResearchSemanticEngine.Profile relatedProfile, List<Passage> output,
+            Map<String, Integer> distinct, String sourceId, String sourceTitle, String page,
+            int block, String raw, boolean verified) {
+        if (raw == null || raw.trim().isEmpty()) return;
+        List<UniversalParagraphDetector.Detection> detections = new ArrayList<>();
+        for (String paragraph : UniversalParagraphDetector.splitParagraphs(raw)) {
+            detections.add(UniversalParagraphDetector.detect(paragraph, detections.size()));
+        }
+        if (detections.isEmpty()) return;
+        List<ResearchSemanticEngine.Answer> answers = ResearchSemanticEngine.findAll(
+                profile, detections, null, Integer.MAX_VALUE);
+        addEvidenceAnswers(profile, answers, true, output, distinct, sourceId, sourceTitle,
+                page, block, verified);
+        if (relatedProfile != null) {
+            // The second pass broadens RECALL but never weakens answer certainty.
+            List<ResearchSemanticEngine.Answer> relatedAnswers = ResearchSemanticEngine.findAll(
+                    relatedProfile, detections, null, Integer.MAX_VALUE);
+            addEvidenceAnswers(profile, relatedAnswers, false, output, distinct,
+                    sourceId, sourceTitle, page, block, verified);
+        }
+    }
+
+    private static void addEvidenceAnswers(
+            ResearchSemanticEngine.Profile question,
+            List<ResearchSemanticEngine.Answer> answers, boolean checkDirect,
+            List<Passage> output, Map<String, Integer> distinct,
+            String sourceId, String sourceTitle, String page, int block, boolean verified) {
+        for (ResearchSemanticEngine.Answer answer : answers) {
+            String segment = answer.segment();
+            if (segment.isEmpty()) continue;
+            String identity = sourceId + "\u0000" + page + "\u0000" + block
+                    + "\u0000" + answer.paragraphIndex() + "\u0000" + segment;
+            boolean direct = checkDirect && isDirectCandidate(question, answer);
+            Integer existingIndex = distinct.get(identity);
+            if (existingIndex != null) {
+                Passage older = output.get(existingIndex);
+                if (direct) {
+                    EnumSet<ResearchSemanticEngine.Intent> combined =
+                            EnumSet.noneOf(ResearchSemanticEngine.Intent.class);
+                    combined.addAll(older.explicitFacets);
+                    combined.add(answer.intent());
+                    output.set(existingIndex, new Passage(older.sourceId, older.sourceTitle,
+                            older.page, older.blockIndex, older.excerpt, older.manuallyVerified,
+                            true, Math.max(older.score, answer.score()),
+                            Math.max(older.lexicalCoverage, answer.directCoverage()),
+                            older.directCandidate ? older.intent : answer.intent(), combined));
+                }
+                continue;
+            }
+            EnumSet<ResearchSemanticEngine.Intent> aspects =
+                    EnumSet.noneOf(ResearchSemanticEngine.Intent.class);
+            if (direct) aspects.add(answer.intent());
+            distinct.put(identity, output.size());
+            output.add(new Passage(sourceId, sourceTitle == null || sourceTitle.trim().isEmpty()
+                    ? "Sursă fără titlu" : sourceTitle, page, block, segment,
+                    verified, direct, answer.score(), answer.directCoverage(),
+                    answer.intent(), aspects));
+        }
+    }
+
+    // A relation marker + aligned lexical evidence makes a strong CANDIDATE,
+    // not a certainty that OCR captured the entire source or that a historian
+    // has confirmed the interpretation.
+    static boolean isDirectCandidate(
+            ResearchSemanticEngine.Profile profile, ResearchSemanticEngine.Answer answer) {
+        if (profile == null || answer == null || !profile.explicitQuestion()) return false;
+        // Never silently discard an essential condition from a targeted question.
+        // The semantic scorer may legitimately show partial matches as RELATED,
+        // but only explicit evidence for every lexical anchor may be DIRECT.
+        if (!allQueryAnchorsInLiteralSegment(profile, answer.segment())) return false;
+        if (profile.asksNegation() && !answer.negated()) return false;
+        if (profile.asksModality() && !answer.modal()) return false;
+        // Composite queries are matched FACET BY FACET: a causal clause can
+        // answer "de ce", and a date clause can answer "când". Neither is
+        // advertised as a complete answer to the whole composite question.
+        if (!profile.intents().contains(answer.intent())) return false;
+        switch (answer.intent()) {
+            case WHEN:
+            case WHERE:
+            case WHY:
+            case HOW:
+            case DEFINITION:
+            case EFFECT:
+            case CONDITION:
+            case PURPOSE:
+            case COMPARISON:
+            case EVIDENCE:
+            case PROBLEM:
+            case SOLUTION:
+                return answer.relationEvidence() >= 0.62;
+            case WHO:
+                return !answer.subject().isEmpty()
+                        && answer.relationEvidence() >= 0.60;
+            case TOPIC:
+                // A literal "what" or "how many" question has no specialized
+                // ResearchSemanticEngine intent. Never silently classify a
+                // topical keyword search as an answered question.
+                String query = " " + RomanianLanguagePack.fold(profile.rawQuery()) + " ";
+                boolean quantity = query.contains(" cati ") || query.contains(" cate ")
+                        || query.contains(" cat ") || query.contains(" ce numar ");
+                if (quantity) {
+                    return answer.segment().matches("(?s).*\\b\\d+(?:[.,]\\d+)?\\b.*");
+                }
+                boolean what = query.startsWith(" ce ") || query.startsWith(" care ");
+                return what && answer.directCoverage() >= 0.75
+                        && !answer.subject().isEmpty()
+                        && (!answer.predicate().isEmpty() || !answer.object().isEmpty());
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * Require every content-word constraint in the literal source segment,
+     * rather than relying on the score's relaxed coverage or neighboring
+     * paragraphs. This only certifies lexical presence, NOT historical truth.
+     */
+    private static boolean allQueryAnchorsInLiteralSegment(
+            ResearchSemanticEngine.Profile profile, String segment) {
+        if (profile.directTerms().isEmpty() || segment == null || segment.isEmpty()) {
+            return false;
+        }
+        Set<String> present = meaningfulTokens(segment);
+        for (String required : profile.directTerms()) {
+            boolean found = false;
+            for (String word : present) {
+                String requiredFamily = RomanianMorphology.familyKey(required);
+                String wordFamily = RomanianMorphology.familyKey(word);
+                if (required.equals(word)
+                        || (requiredFamily.length() >= 4
+                            && requiredFamily.equals(wordFamily))) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Locate a whole source passage across OCR lines, not merely its strongest
+     * single line. It matches an ordered literal token span against the page's
+     * spatial OCR; no inference or reconstructed answer is involved.
+     *
+     * If OCR diverges, fall back to one best textual line as an ORIENTATION
+     * marker only. Zero positions mean the original page opens unmarked.
+     */
+    public static int[] matchingLineIndices(Context context, Passage passage) {
+        return matchingLineIndices(
+                SourceArchiveStore.lines(context, passage.sourceId, passage.page), passage.excerpt);
+    }
+
+    static int[] matchingLineIndices(List<SourceArchiveStore.OcrLine> pageLines, String excerpt) {
+        if (pageLines == null || pageLines.isEmpty()) return new int[0];
+        List<String> target = allTokens(excerpt);
+        if (target.isEmpty()) return new int[0];
+        List<String> pageTokens = new ArrayList<>();
+        List<Integer> ownerLines = new ArrayList<>();
+        for (SourceArchiveStore.OcrLine line : pageLines) {
+            for (String token : allTokens(line.text)) {
+                pageTokens.add(token);
+                ownerLines.add(line.index);
+            }
+        }
+        int bestStart = -1, bestLength = 0;
+        // The longest ordered literal span remains tied to the exact OCR lines.
+        for (int i = 0; i < target.size(); i++) {
+            for (int j = 0; j < pageTokens.size(); j++) {
+                if (!sameLocalizedToken(target.get(i), pageTokens.get(j))) continue;
+                int matched = 0;
+                while (i + matched < target.size() && j + matched < pageTokens.size()
+                        && sameLocalizedToken(target.get(i + matched), pageTokens.get(j + matched))) {
+                    matched++;
+                }
+                if (matched > bestLength) {
+                    bestStart = j;
+                    bestLength = matched;
+                }
+            }
+        }
+        int required = Math.max(2, Math.min(4, (target.size() + 2) / 3));
+        if (bestStart >= 0 && bestLength >= required) {
+            LinkedHashSet<Integer> indices = new LinkedHashSet<>();
+            for (int j = bestStart; j < bestStart + bestLength; j++) {
+                indices.add(ownerLines.get(j));
+            }
+            int[] found = new int[indices.size()];
+            int k = 0;
+            for (int index : indices) found[k++] = index;
+            return found;
+        }
+
+        // Best-effort fallback for imperfect OCR; no invented text is shown.
+        Set<String> terms = meaningfulTokens(excerpt);
+        int bestLine = -1, bestScore = 0;
+        for (SourceArchiveStore.OcrLine line : pageLines) {
+            Set<String> visible = meaningfulTokens(line.text);
+            int common = 0;
+            for (String term : terms) {
+                for (String candidate : visible) {
+                    if (sameLocalizedToken(term, candidate)) {
+                        common++;
+                        break;
+                    }
+                }
+            }
+            if (common > bestScore) {
+                bestScore = common;
+                bestLine = line.index;
+            }
+        }
+        return bestLine < 0 ? new int[0] : new int[]{bestLine};
+    }
+
+    public static int closestLine(Context context, Passage passage) {
+        int[] positions = matchingLineIndices(context, passage);
+        return positions.length == 0 ? -1 : positions[0];
+    }
+
+    private static List<String> allTokens(String value) {
+        List<String> out = new ArrayList<>();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("[\\p{L}\\p{N}]+")
+                .matcher(RomanianLanguagePack.fold(value));
+        while (m.find()) out.add(m.group());
+        return out;
+    }
+
+    private static boolean sameLocalizedToken(String left, String right) {
+        if (left.equals(right)) return true;
+        String a = RomanianMorphology.familyKey(left);
+        return a.length() >= 4 && a.equals(RomanianMorphology.familyKey(right));
+    }
+
+    private static Set<String> meaningfulTokens(String text) {
+        LinkedHashSet<String> terms = new LinkedHashSet<>();
+        String folded = RomanianLanguagePack.fold(text);
+        for (String word : folded.split(" ")) {
+            if (word.length() >= 3 && !RomanianLanguagePack.isFunctionWord(word)) {
+                terms.add(word);
+            }
+        }
+        return terms;
+    }
+}

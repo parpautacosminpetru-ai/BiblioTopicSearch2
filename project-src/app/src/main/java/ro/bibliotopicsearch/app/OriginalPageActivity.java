@@ -48,6 +48,8 @@ public final class OriginalPageActivity extends AppCompatActivity {
     public static final String EXTRA_SOURCE_ID = "source_id";
     public static final String EXTRA_PAGE = "printed_page";
     public static final String EXTRA_LINE_INDEX = "ocr_line_index";
+    public static final String EXTRA_LINE_INDICES = "ocr_line_indices";
+    public static final String EXTRA_ORIGINAL_ONLY = "view_original_only";
 
     private static final long MAX_RENDER_PIXELS = 6_000_000L;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -56,11 +58,15 @@ public final class OriginalPageActivity extends AppCompatActivity {
     private String sourceId = "";
     private String printedPage = "";
     private int selectedLine = -1;
+    private int[] selectedLines = new int[0];
     private List<SourceArchiveStore.Page> pages = new ArrayList<>();
     private Bitmap currentBitmap;
     private List<SourceArchiveStore.OcrLine> ocrLines = new ArrayList<>();
     private float zoom = 1f;
     private boolean stopped;
+    private boolean originalOnly;
+    private ScrollView pageScroller;
+    private HorizontalScrollView pictureScroller;
     private SourceArchiveStore.Page exportSelection;
 
     private FacsimileView facsimile;
@@ -77,6 +83,10 @@ public final class OriginalPageActivity extends AppCompatActivity {
         printedPage = getIntent().getStringExtra(EXTRA_PAGE);
         if (printedPage == null) printedPage = "";
         selectedLine = getIntent().getIntExtra(EXTRA_LINE_INDEX, -1);
+        int[] fromQuestion = getIntent().getIntArrayExtra(EXTRA_LINE_INDICES);
+        selectedLines = fromQuestion != null && fromQuestion.length > 0
+                ? fromQuestion.clone() : selectedLine < 0 ? new int[0] : new int[]{selectedLine};
+        originalOnly = getIntent().getBooleanExtra(EXTRA_ORIGINAL_ONLY, false);
         pages = SourceArchiveStore.pages(this, sourceId);
         if (printedPage.isEmpty() && !pages.isEmpty()) printedPage = pages.get(0).number;
         buildUi();
@@ -89,6 +99,7 @@ public final class OriginalPageActivity extends AppCompatActivity {
 
     private void buildUi() {
         ScrollView scroll = new ScrollView(this);
+        pageScroller = scroll;
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.rgb(12, 19, 26));
@@ -116,6 +127,7 @@ public final class OriginalPageActivity extends AppCompatActivity {
         root.addView(nav);
 
         HorizontalScrollView horizontal = new HorizontalScrollView(this);
+        pictureScroller = horizontal;
         horizontal.setFillViewport(true);
         facsimile = new FacsimileView();
         horizontal.addView(facsimile, new ViewGroup.LayoutParams(dp(280), dp(400)));
@@ -125,27 +137,35 @@ public final class OriginalPageActivity extends AppCompatActivity {
         status.setPadding(0, dp(8), 0, dp(10));
         root.addView(status);
 
-        LinearLayout find = row();
-        search = new EditText(this);
-        search.setSingleLine(true);
-        search.setTextColor(Color.WHITE);
-        search.setHintTextColor(Color.LTGRAY);
-        search.setHint("Cuvinte explicite în OCR");
-        find.addView(search, new LinearLayout.LayoutParams(0, dp(52), 1));
-        Button go = button("CAUTĂ");
-        go.setOnClickListener(v -> searchLines());
-        find.addView(go, new LinearLayout.LayoutParams(dp(91), dp(52)));
-        root.addView(find);
-
-        Button recover = button("RECUPEREAZĂ INDEXAREA DIN OCR ARHIVAT");
-        recover.setOnClickListener(v -> recoverMissingIndex());
-        root.addView(recover, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(45)));
-
-        Button confirm = button("AM VERIFICAT PAGINA • ÎNCHEIE ✓");
-        confirm.setOnClickListener(v -> confirmVerifiedPage());
-        root.addView(confirm, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        if (!originalOnly) {
+            LinearLayout find = row();
+            search = new EditText(this);
+            search.setSingleLine(true);
+            search.setTextColor(Color.WHITE);
+            search.setHintTextColor(Color.LTGRAY);
+            search.setHint("Întreabă toate sursele arhivate");
+            find.addView(search, new LinearLayout.LayoutParams(0, dp(52), 1));
+            Button go = button("ÎNTREABĂ");
+            go.setOnClickListener(v -> openQuestionSearch());
+            find.addView(go, new LinearLayout.LayoutParams(dp(91), dp(52)));
+            root.addView(find);
+            Button exact = button("CĂUTARE LEXICALĂ DOAR ÎN ACEASTĂ SURSĂ");
+            exact.setOnClickListener(v -> searchLines());
+            root.addView(exact, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+            Button recover = button("RECUPEREAZĂ INDEXAREA DIN OCR ARHIVAT");
+            recover.setOnClickListener(v -> recoverMissingIndex());
+            root.addView(recover, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(45)));
+            Button confirm = button("AM VERIFICAT PAGINA • ÎNCHEIE ✓");
+            confirm.setOnClickListener(v -> confirmVerifiedPage());
+            root.addView(confirm, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        } else {
+            TextView note = text("Facsimil din fișierul original • marcajul galben indică poziția găsită; documentul nu este modificat.", 12);
+            note.setTextColor(Color.rgb(174, 212, 187));
+            root.addView(note);
+        }
 
         Button export = button("EXPORTĂ ORIGINALUL NEMODIFICAT");
         export.setOnClickListener(v -> exportOriginal());
@@ -158,8 +178,10 @@ public final class OriginalPageActivity extends AppCompatActivity {
         disclaimer.setTextColor(Color.rgb(175, 193, 208));
         disclaimer.setPadding(0, dp(8), 0, dp(8));
         root.addView(disclaimer);
+        if (originalOnly) disclaimer.setVisibility(View.GONE);
 
         ocrText = text("", 12);
+        if (originalOnly) ocrText.setVisibility(View.GONE);
         ocrText.setTextIsSelectable(true);
         root.addView(ocrText);
 
@@ -175,6 +197,7 @@ public final class OriginalPageActivity extends AppCompatActivity {
         if (printedPage == null || printedPage.isEmpty()) return;
         final String requested = printedPage;
         final int requestedLine = selectedLine;
+        final int[] requestedLines = selectedLines.clone();
         int stamp = generation.incrementAndGet();
         status.setText("Verific amprenta și deschid originalul paginii " + requested + "…");
         pageTitle.setText("Pagina " + requested);
@@ -199,17 +222,24 @@ public final class OriginalPageActivity extends AppCompatActivity {
                     Bitmap previous = currentBitmap;
                     currentBitmap = loaded;
                     ocrLines = lines;
-                    facsimile.setContent(loaded, lines, requestedLine);
+                    facsimile.setContent(loaded, lines, requestedLines);
                     setZoom(zoom);
                     if (previous != null && previous != loaded) previous.recycle();
-                    StringBuilder text = new StringBuilder("OCR (strat separat, neevaluat semantic):\n\n");
-                    for (SourceArchiveStore.OcrLine line : lines) {
-                        text.append(line.text).append('\n');
+                    if (!originalOnly) {
+                        StringBuilder text = new StringBuilder("OCR (strat separat, neevaluat semantic):\n\n");
+                        for (SourceArchiveStore.OcrLine line : lines) {
+                            text.append(line.text).append('\n');
+                        }
+                        ocrText.setText(text.toString());
                     }
-                    ocrText.setText(text.toString());
-                    status.setText("Original verificat SHA-256 • "
-                            + (page.isPdf() ? "PDF, fila " + (page.pdfPageIndex + 1) : "fotografie originală")
-                            + " • " + lines.size() + " linii OCR");
+                    scrollToMarkedOriginal(lines, requestedLine, stamp);
+                    status.setText(originalOnly
+                            ? "Pagina originală verificată SHA-256 • "
+                                + (page.isPdf() ? "PDF, fila " + (page.pdfPageIndex + 1) : "fotografie originală")
+                                + (requestedLine < 0 ? "" : " • poziție marcată orientativ")
+                            : "Original verificat SHA-256 • "
+                                + (page.isPdf() ? "PDF, fila " + (page.pdfPageIndex + 1) : "fotografie originală")
+                                + " • " + lines.size() + " linii OCR");
                 });
             } catch (Exception failure) {
                 if (bitmap != null) bitmap.recycle();
@@ -221,6 +251,26 @@ public final class OriginalPageActivity extends AppCompatActivity {
                     }
                 });
             }
+        });
+    }
+
+    private void scrollToMarkedOriginal(List<SourceArchiveStore.OcrLine> positions,
+                                        int lineIndex, int stamp) {
+        if (lineIndex < 0 || !originalOnly || pageScroller == null) return;
+        SourceArchiveStore.OcrLine target = null;
+        for (SourceArchiveStore.OcrLine candidate : positions) {
+            if (candidate.index == lineIndex) { target = candidate; break; }
+        }
+        if (target == null) return;
+        final float top = target.top;
+        final float left = target.left;
+        pageScroller.post(() -> {
+            if (stopped || stamp != generation.get() || currentBitmap == null) return;
+            int pageY = pictureScroller.getTop() + Math.round(top * facsimile.getHeight());
+            int visibleY = Math.max(0, pageY - pageScroller.getHeight() / 3);
+            pageScroller.scrollTo(0, visibleY);
+            int pageX = Math.round(left * facsimile.getWidth());
+            pictureScroller.scrollTo(Math.max(0, pageX - pictureScroller.getWidth() / 4), 0);
         });
     }
 
@@ -250,12 +300,17 @@ public final class OriginalPageActivity extends AppCompatActivity {
      * unchanged; OCR uses the same upright display orientation.
      */
     public static Bitmap decodeImage(File file) throws IOException {
+        return decodeImage(file, MAX_RENDER_PIXELS);
+    }
+
+    /** Memory-bounded rendering copy; preserves the original JPEG bytes and EXIF. */
+    static Bitmap decodeImage(File file, long maxPixels) throws IOException {
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
         if (bounds.outWidth < 1 || bounds.outHeight < 1) throw new IOException("JPEG invalid.");
         int sample = 1;
-        while ((long) (bounds.outWidth / sample) * (bounds.outHeight / sample) > MAX_RENDER_PIXELS) {
+        while ((long) (bounds.outWidth / sample) * (bounds.outHeight / sample) > maxPixels) {
             sample *= 2;
         }
         BitmapFactory.Options options = new BitmapFactory.Options();
@@ -282,6 +337,13 @@ public final class OriginalPageActivity extends AppCompatActivity {
                 decoded.getHeight(), matrix, true);
         if (oriented != decoded) decoded.recycle();
         return oriented;
+    }
+
+    private void openQuestionSearch() {
+        Intent intent = new Intent(this, QuestionSearchActivity.class);
+        intent.putExtra(QuestionSearchActivity.EXTRA_QUESTION,
+                search.getText().toString().trim());
+        startActivity(intent);
     }
 
     private void searchLines() {
@@ -428,6 +490,7 @@ public final class OriginalPageActivity extends AppCompatActivity {
                 if (next >= 0 && next < pages.size()) {
                     printedPage = pages.get(next).number;
                     selectedLine = -1;
+                    selectedLines = new int[0];
                     loadPage();
                 }
                 return;
@@ -443,6 +506,7 @@ public final class OriginalPageActivity extends AppCompatActivity {
                 .setItems(numbers, (d, choice) -> {
                     printedPage = numbers[choice];
                     selectedLine = -1;
+                    selectedLines = new int[0];
                     loadPage();
                 })
                 .setNegativeButton("ANULEAZĂ", null).show();
@@ -494,16 +558,20 @@ public final class OriginalPageActivity extends AppCompatActivity {
     private final class FacsimileView extends View {
         private Bitmap bitmap;
         private List<SourceArchiveStore.OcrLine> lines = Collections.emptyList();
-        private int activeIndex = -1;
+        private int[] activeIndices = new int[0];
         private final Paint picture = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
         private final Paint highlighter = new Paint(Paint.ANTI_ALIAS_FLAG);
 
         FacsimileView() { super(OriginalPageActivity.this); }
 
         void setContent(Bitmap value, List<SourceArchiveStore.OcrLine> positions, int line) {
+            setContent(value, positions, line < 0 ? new int[0] : new int[]{line});
+        }
+
+        void setContent(Bitmap value, List<SourceArchiveStore.OcrLine> positions, int[] marked) {
             bitmap = value;
             lines = positions;
-            activeIndex = line;
+            activeIndices = marked == null ? new int[0] : marked.clone();
             invalidate();
         }
 
@@ -513,14 +581,17 @@ public final class OriginalPageActivity extends AppCompatActivity {
             if (bitmap == null || bitmap.isRecycled()) return;
             canvas.drawBitmap(bitmap, null,
                     new Rect(0, 0, getWidth(), getHeight()), picture);
-            if (activeIndex < 0) return;
+            if (activeIndices.length == 0) return;
             highlighter.setColor(Color.argb(100, 255, 205, 35));
             for (SourceArchiveStore.OcrLine ocr : lines) {
-                if (ocr.index != activeIndex) continue;
+                boolean selected = false;
+                for (int position : activeIndices) {
+                    if (ocr.index == position) { selected = true; break; }
+                }
+                if (!selected) continue;
                 canvas.drawRect(new RectF(ocr.left * getWidth(),
                         ocr.top * getHeight(), ocr.right * getWidth(),
                         ocr.bottom * getHeight()), highlighter);
-                break;
             }
         }
     }
