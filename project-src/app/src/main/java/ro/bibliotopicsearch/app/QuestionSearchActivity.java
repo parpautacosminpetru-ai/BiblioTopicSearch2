@@ -161,7 +161,7 @@ public final class QuestionSearchActivity extends AppCompatActivity {
                 row.setBackgroundColor(position % 2 == 0
                         ? Color.rgb(27, 39, 48) : Color.rgb(21, 32, 41));
                 holder.heading.setText((item.directCandidate
-                        ? "INDICIU EXPLICIT • " + facetLabel(item.intent)
+                        ? "INDICIU EXPLICIT • " + facetsLabel(item.explicitFacets)
                         : "PASAJ CONEX — NU CONFIRMĂ RĂSPUNSUL")
                         + " • " + (item.manuallyVerified
                                 ? "PAGINĂ VERIFICATĂ" : "PAGINĂ NEVERIFICATĂ")
@@ -304,6 +304,16 @@ public final class QuestionSearchActivity extends AppCompatActivity {
                 startActivity(intent);
             });
         });
+    }
+
+    private static String facetsLabel(Set<ResearchSemanticEngine.Intent> facets) {
+        if (facets == null || facets.isEmpty()) return "ASPECT NEDETERMINAT";
+        StringBuilder out = new StringBuilder();
+        for (ResearchSemanticEngine.Intent intent : facets) {
+            if (out.length() > 0) out.append(" + ");
+            out.append(facetLabel(intent));
+        }
+        return out.toString();
     }
 
     private static String facetLabel(ResearchSemanticEngine.Intent intent) {
