@@ -191,6 +191,13 @@ public final class QuestionSearchActivity extends AppCompatActivity {
             adapter.notifyDataSetChanged();
             return;
         }
+        // Do not present a blank list when only related excerpts are found.
+        // Automatically expose them WITH their non-direct label, not as answers.
+        if (report.directCandidates == 0 && !report.passages.isEmpty()
+                && !showRelated.isChecked()) {
+            showRelated.setChecked(true);
+            return;
+        }
         for (QuestionEvidenceSearch.Passage passage : report.passages) {
             if (passage.directCandidate || showRelated.isChecked()) shown.add(passage);
         }
