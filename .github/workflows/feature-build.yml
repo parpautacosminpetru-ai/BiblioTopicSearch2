@@ -70,7 +70,7 @@ jobs:
 
   android-instrumented:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 75  # Emulator startup + 7 real-device-style tests can exceed 35m on hosted runners.
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -96,5 +96,6 @@ jobs:
           arch: x86_64
           profile: pixel_2
           disable-animations: true
+          emulator-boot-timeout: 1200
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: gradle --no-daemon -p project-src :app:connectedDebugAndroidTest
