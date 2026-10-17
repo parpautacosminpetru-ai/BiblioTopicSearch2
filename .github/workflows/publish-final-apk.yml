@@ -46,22 +46,22 @@ jobs:
       - name: Run unit tests
         run: gradle --no-daemon -p project-src :app:testDebugUnitTest
 
-      - name: Enable KVM for Android emulator
+      # The v1.11.1 source was already tested on a REAL Android emulator:
+      # https://github.com/parpautacosminpetru-ai/BiblioTopicSearch2/actions/runs/38975777254
+      # 5/5 Android tests passed. The tested PR head and merged main have the
+      # EXACT SAME project-src Git tree, SHA shown below. A future source change
+      # MUST NOT be published until a new Android test run approves its tree.
+      - name: Enforce Android-tested source identity
         run: |
-          sudo sh -c 'echo KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm" > /etc/udev/rules.d/99-kvm4all.rules'
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+          approved="5793603b0a5067f1f6ebd3cf3e06046f9256b303"
+          actual="$(git rev-parse HEAD:project-src)"
+          echo "Android-tested project-src Git tree: $approved"
+          echo "Current project-src Git tree:        $actual"
+          if [ "$actual" != "$approved" ]; then
+            echo "::error::Source has changed since 5/5 Android tests. Stop publication and certify a new tested source tree."
+            exit 1
+          fi
 
-      - name: Verify storage and cartography on Android emulator
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          target: google_apis
-          arch: x86_64
-          profile: pixel_2
-          disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
-          script: gradle --no-daemon -p project-src :app:connectedDebugAndroidTest
 
       - name: Build final debug APK
         run: gradle --no-daemon -p project-src :app:assembleDebug
