@@ -436,9 +436,24 @@ public final class ResearchSemanticEngine {
 
     private static Answer toAnswer(Candidate candidate) {
         SemanticGraph.Proposition proposition = candidate.proposition;
+        // Return the whole SOURCE sentence rather than an orphan clause.
+        // "X happened because Y" may be parsed as two grammatical clauses;
+        // the original sentence is the smallest faithful excerpt that retains
+        // the explicit subject, predicate, causal connector and its scope.
+        // No source content is generated, joined from elsewhere, or rephrased.
+        String literal = proposition.raw();
+        if (candidate.detection != null && candidate.detection.paragraph() != null) {
+            String[] sentences = candidate.detection.paragraph().trim()
+                    .split("(?<=[.!?;])\\s+|\\n+");
+            int sentenceIndex = proposition.sentenceIndex();
+            if (sentenceIndex >= 0 && sentenceIndex < sentences.length
+                    && !sentences[sentenceIndex].trim().isEmpty()) {
+                literal = sentences[sentenceIndex].trim();
+            }
+        }
         return new Answer(
                 proposition.paragraphIndex(),
-                proposition.raw(),
+                literal,
                 candidate.score,
                 candidate.directCoverage,
                 candidate.relationEvidence,
