@@ -7,10 +7,13 @@ import android.database.sqlite.SQLiteDatabase;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -32,10 +35,14 @@ public final class QuestionEvidenceSearch {
         public final double score;
         public final double lexicalCoverage;
         public final ResearchSemanticEngine.Intent intent;
+        // A source sentence may explicitly support several separate facets
+        // (e.g. WHY + WHEN); that does not certify the whole question.
+        public final Set<ResearchSemanticEngine.Intent> explicitFacets;
 
         Passage(String sourceId, String sourceTitle, String page, int blockIndex,
                 String excerpt, boolean manuallyVerified, boolean directCandidate,
-                double score, double lexicalCoverage, ResearchSemanticEngine.Intent intent) {
+                double score, double lexicalCoverage, ResearchSemanticEngine.Intent intent,
+                Set<ResearchSemanticEngine.Intent> explicitFacets) {
             this.sourceId = sourceId;
             this.sourceTitle = sourceTitle;
             this.page = page;
@@ -46,6 +53,10 @@ public final class QuestionEvidenceSearch {
             this.score = score;
             this.lexicalCoverage = lexicalCoverage;
             this.intent = intent;
+            EnumSet<ResearchSemanticEngine.Intent> facets =
+                    EnumSet.noneOf(ResearchSemanticEngine.Intent.class);
+            if (explicitFacets != null) facets.addAll(explicitFacets);
+            this.explicitFacets = Collections.unmodifiableSet(facets);
         }
     }
 
@@ -98,7 +109,7 @@ public final class QuestionEvidenceSearch {
         SQLiteDatabase db = IndexCoreDatabase.get(context).getReadableDatabase();
         List<Passage> found = new ArrayList<>();
         Set<String> sourceIds = new HashSet<>();
-        Set<String> distinct = new HashSet<>();
+        Map<String, Integer> distinct = new HashMap<>();
         int scanned = 0;
 
         // OCR blocks preserve coherent paragraphs, including answers spanning
@@ -169,7 +180,7 @@ public final class QuestionEvidenceSearch {
     private static void appendAnswers(
             ResearchSemanticEngine.Profile profile,
             ResearchSemanticEngine.Profile relatedProfile, List<Passage> output,
-            Set<String> distinct, String sourceId, String sourceTitle, String page,
+            Map<String, Integer> distinct, String sourceId, String sourceTitle, String page,
             int block, String raw, boolean verified) {
         if (raw == null || raw.trim().isEmpty()) return;
         List<UniversalParagraphDetector.Detection> detections = new ArrayList<>();
@@ -193,18 +204,38 @@ public final class QuestionEvidenceSearch {
     private static void addEvidenceAnswers(
             ResearchSemanticEngine.Profile question,
             List<ResearchSemanticEngine.Answer> answers, boolean checkDirect,
-            List<Passage> output, Set<String> distinct,
+            List<Passage> output, Map<String, Integer> distinct,
             String sourceId, String sourceTitle, String page, int block, boolean verified) {
         for (ResearchSemanticEngine.Answer answer : answers) {
             String segment = answer.segment();
             if (segment.isEmpty()) continue;
             String identity = sourceId + "\u0000" + page + "\u0000" + block
                     + "\u0000" + answer.paragraphIndex() + "\u0000" + segment;
-            if (!distinct.add(identity)) continue;
             boolean direct = checkDirect && isDirectCandidate(question, answer);
+            Integer existingIndex = distinct.get(identity);
+            if (existingIndex != null) {
+                Passage older = output.get(existingIndex);
+                if (direct) {
+                    EnumSet<ResearchSemanticEngine.Intent> combined =
+                            EnumSet.noneOf(ResearchSemanticEngine.Intent.class);
+                    combined.addAll(older.explicitFacets);
+                    combined.add(answer.intent());
+                    output.set(existingIndex, new Passage(older.sourceId, older.sourceTitle,
+                            older.page, older.blockIndex, older.excerpt, older.manuallyVerified,
+                            true, Math.max(older.score, answer.score()),
+                            Math.max(older.lexicalCoverage, answer.directCoverage()),
+                            older.directCandidate ? older.intent : answer.intent(), combined));
+                }
+                continue;
+            }
+            EnumSet<ResearchSemanticEngine.Intent> aspects =
+                    EnumSet.noneOf(ResearchSemanticEngine.Intent.class);
+            if (direct) aspects.add(answer.intent());
+            distinct.put(identity, output.size());
             output.add(new Passage(sourceId, sourceTitle == null || sourceTitle.trim().isEmpty()
                     ? "Sursă fără titlu" : sourceTitle, page, block, segment,
-                    verified, direct, answer.score(), answer.directCoverage(), answer.intent()));
+                    verified, direct, answer.score(), answer.directCoverage(),
+                    answer.intent(), aspects));
         }
     }
 
