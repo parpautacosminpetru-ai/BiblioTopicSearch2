@@ -130,12 +130,17 @@ public final class OriginalPageActivity extends AppCompatActivity {
         search.setSingleLine(true);
         search.setTextColor(Color.WHITE);
         search.setHintTextColor(Color.LTGRAY);
-        search.setHint("Cuvinte explicite în OCR");
+        search.setHint("Întreabă toate sursele arhivate");
         find.addView(search, new LinearLayout.LayoutParams(0, dp(52), 1));
-        Button go = button("CAUTĂ");
-        go.setOnClickListener(v -> searchLines());
+        Button go = button("ÎNTREABĂ");
+        go.setOnClickListener(v -> openQuestionSearch());
         find.addView(go, new LinearLayout.LayoutParams(dp(91), dp(52)));
         root.addView(find);
+
+        Button exact = button("CĂUTARE LEXICALĂ DOAR ÎN ACEASTĂ SURSĂ");
+        exact.setOnClickListener(v -> searchLines());
+        root.addView(exact, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
 
         Button recover = button("RECUPEREAZĂ INDEXAREA DIN OCR ARHIVAT");
         recover.setOnClickListener(v -> recoverMissingIndex());
@@ -282,6 +287,13 @@ public final class OriginalPageActivity extends AppCompatActivity {
                 decoded.getHeight(), matrix, true);
         if (oriented != decoded) decoded.recycle();
         return oriented;
+    }
+
+    private void openQuestionSearch() {
+        Intent intent = new Intent(this, QuestionSearchActivity.class);
+        intent.putExtra(QuestionSearchActivity.EXTRA_QUESTION,
+                search.getText().toString().trim());
+        startActivity(intent);
     }
 
     private void searchLines() {
