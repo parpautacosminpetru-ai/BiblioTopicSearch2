@@ -122,17 +122,18 @@ public final class QuestionEvidenceSearchTest {
     }
 
     @Test
-    public void multiIntentQuestionCannotBePassedByOneSelectedRelation() {
+    public void multiIntentQuestionIsMarkedOnlyForItsEvidencedFacet() {
         ResearchSemanticEngine.Profile question = ResearchSemanticEngine.compile(
                 "De ce și când a crescut inflația?", null);
         assertTrue(question.intents().size() > 1);
         ResearchSemanticEngine.Answer partial = ResearchSemanticEngine.findBest(
                 question, Collections.singletonList(UniversalParagraphDetector.detect(
                         "Inflația a crescut în 1929 deoarece cererea depășea oferta.", 0)));
-        if (partial != null) {
-            assertFalse("Compound questions need facet-by-facet validation",
-                    QuestionEvidenceSearch.isDirectCandidate(question, partial));
-        }
+        assertNotNull(partial);
+        // A matching clause is an EXPLICIT FACET, not a claim that all
+        // components of a compound research question have been verified.
+        assertTrue(question.intents().contains(partial.intent()));
+        assertTrue(QuestionEvidenceSearch.isDirectCandidate(question, partial));
     }
 
     @Test
