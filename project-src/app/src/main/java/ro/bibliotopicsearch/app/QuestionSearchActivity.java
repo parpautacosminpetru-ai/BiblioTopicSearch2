@@ -2,7 +2,9 @@ package ro.bibliotopicsearch.app;
 
 import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.Bitmap;
 import android.os.Bundle;
+import android.util.LruCache;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -11,6 +13,7 @@ import android.widget.BaseAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
@@ -19,8 +22,10 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -33,6 +38,14 @@ public final class QuestionSearchActivity extends AppCompatActivity {
     public static final String EXTRA_QUESTION = "research_question";
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final ExecutorService previewWorker = Executors.newFixedThreadPool(2);
+    private final Set<String> previewsInFlight = Collections.synchronizedSet(new HashSet<>());
+    private final Set<String> previewUnavailable = Collections.synchronizedSet(new HashSet<>());
+    private final LruCache<String, Bitmap> previews = new LruCache<String, Bitmap>(12 * 1024 * 1024) {
+        @Override protected int sizeOf(String key, Bitmap image) {
+            return image.getByteCount();
+        }
+    };
     private final AtomicInteger generation = new AtomicInteger();
     private final List<QuestionEvidenceSearch.Passage> shown = new ArrayList<>();
     private QuestionEvidenceSearch.Report lastReport;
@@ -59,14 +72,14 @@ public final class QuestionSearchActivity extends AppCompatActivity {
         root.setBackgroundColor(Color.rgb(12, 20, 27));
         root.setPadding(dp(14), dp(14), dp(14), dp(14));
 
-        TextView title = label("ÎNTREBARE → PASAJE DIN SURSE", 19, Color.WHITE);
+        TextView title = label("ÎNTREBARE → ORIGINALELE SURSELOR", 19, Color.WHITE);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         root.addView(title);
 
         TextView explanation = label(
-                "Caută determinist în toate PDF-urile și scanările arhivate cu OCR, "
-                        + "nu doar în sursa sau harta activă. Pasajele sunt extrase din OCR "
-                        + "și se deschid pe pagina originală pentru verificare.",
+                "Caută în toate PDF-urile și fotografiile arhivate. OCR-ul lucrează "
+                        + "numai în fundal pentru localizare; rezultatele arată "
+                        + "fotografia sau fila PDF originală, nu transcrierea.",
                 12, Color.rgb(172, 194, 205));
         explanation.setPadding(0, dp(6), 0, dp(10));
         root.addView(explanation);
@@ -116,19 +129,57 @@ public final class QuestionSearchActivity extends AppCompatActivity {
             @Override public Object getItem(int position) { return shown.get(position); }
             @Override public long getItemId(int position) { return position; }
             @Override public View getView(int position, View reusable, ViewGroup parent) {
-                TextView row = reusable instanceof TextView
-                        ? (TextView) reusable : label("", 14, Color.WHITE);
+                LinearLayout row;
+                ResultHolder holder;
+                if (reusable instanceof LinearLayout
+                        && reusable.getTag() instanceof ResultHolder) {
+                    row = (LinearLayout) reusable;
+                    holder = (ResultHolder) row.getTag();
+                } else {
+                    row = new LinearLayout(QuestionSearchActivity.this);
+                    row.setOrientation(LinearLayout.VERTICAL);
+                    row.setPadding(dp(9), dp(9), dp(9), dp(11));
+                    holder = new ResultHolder();
+                    holder.heading = label("", 14, Color.WHITE);
+                    holder.heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                    row.addView(holder.heading);
+
+                    holder.original = new ImageView(QuestionSearchActivity.this);
+                    holder.original.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                    holder.original.setBackgroundColor(Color.WHITE);
+                    LinearLayout.LayoutParams photo = new LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, dp(190));
+                    photo.topMargin = dp(7);
+                    row.addView(holder.original, photo);
+
+                    holder.note = label("", 11, Color.rgb(174, 207, 225));
+                    holder.note.setPadding(0, dp(5), 0, 0);
+                    row.addView(holder.note);
+                    row.setTag(holder);
+                }
                 QuestionEvidenceSearch.Passage item = shown.get(position);
-                row.setPadding(dp(10), dp(10), dp(10), dp(12));
                 row.setBackgroundColor(position % 2 == 0
-                        ? Color.rgb(28, 40, 49) : Color.rgb(22, 33, 42));
-                row.setTextColor(Color.WHITE);
-                row.setMaxLines(10);
-                row.setText((item.directCandidate
-                        ? "INDICIU DIRECT • " : "PASAJ CONEX • ")
-                        + (item.manuallyVerified ? "PAGINĂ VERIFICATĂ" : "OCR NEVERIFICAT")
-                        + "\n" + item.sourceTitle + " • pagina " + item.page
-                        + "\n" + item.excerpt);
+                        ? Color.rgb(27, 39, 48) : Color.rgb(21, 32, 41));
+                holder.heading.setText((item.directCandidate
+                        ? "INDICIU DIRECT" : "PASAJ CONEX — NECONFIRMAT")
+                        + " • " + (item.manuallyVerified
+                                ? "PAGINĂ VERIFICATĂ" : "PAGINĂ NEVERIFICATĂ")
+                        + "\n" + item.sourceTitle + " • pagina " + item.page);
+
+                String key = previewKey(item);
+                Bitmap cached = previews.get(key);
+                if (cached != null) {
+                    holder.original.setImageBitmap(cached);
+                    holder.note.setText("Decupaj din original • atinge pentru întreaga pagină");
+                } else {
+                    holder.original.setImageDrawable(null);
+                    if (previewUnavailable.contains(key)) {
+                        holder.note.setText("Previzualizare indisponibilă • atinge pentru original");
+                    } else {
+                        holder.note.setText("Încarc imaginea din original…");
+                        schedulePreview(key, item);
+                    }
+                }
                 return row;
             }
         };
@@ -157,7 +208,7 @@ public final class QuestionSearchActivity extends AppCompatActivity {
             status.setText("Scrie întrebarea pentru care cauți dovezi în surse.");
             return;
         }
-        status.setText("Parcurg pasajele OCR din toate sursele arhivate…");
+        status.setText("Localizez paginile originale din toate sursele…");
         worker.execute(() -> {
             QuestionEvidenceSearch.Report report;
             try {
@@ -244,8 +295,46 @@ public final class QuestionSearchActivity extends AppCompatActivity {
                 intent.putExtra(OriginalPageActivity.EXTRA_SOURCE_ID, chosen.sourceId);
                 intent.putExtra(OriginalPageActivity.EXTRA_PAGE, chosen.page);
                 intent.putExtra(OriginalPageActivity.EXTRA_LINE_INDEX, targetLine);
+                intent.putExtra(OriginalPageActivity.EXTRA_ORIGINAL_ONLY, true);
                 startActivity(intent);
             });
+        });
+    }
+
+    private static final class ResultHolder {
+        TextView heading;
+        ImageView original;
+        TextView note;
+    }
+
+    private static String previewKey(QuestionEvidenceSearch.Passage item) {
+        return item.sourceId + "\u0000" + item.page + "\u0000"
+                + item.blockIndex + "\u0000" + item.excerpt;
+    }
+
+    /** Render only visible facsimiles, outside the UI thread. Nothing is written to disk. */
+    private void schedulePreview(String key, QuestionEvidenceSearch.Passage item) {
+        if (!previewsInFlight.add(key)) return;
+        final int stamp = generation.get();
+        previewWorker.execute(() -> {
+            Bitmap rendered = null;
+            try {
+                if (destroyed || generation.get() != stamp) return;
+                rendered = OriginalFacsimilePreview.render(getApplicationContext(), item);
+                if (destroyed || generation.get() != stamp) return;
+                previews.put(key, rendered);
+                rendered = null;
+            } catch (Exception failure) {
+                if (!destroyed && generation.get() == stamp) {
+                    previewUnavailable.add(key);
+                }
+            } finally {
+                if (rendered != null) rendered.recycle();
+                previewsInFlight.remove(key);
+                runOnUiThread(() -> {
+                    if (!destroyed && generation.get() == stamp) adapter.notifyDataSetChanged();
+                });
+            }
         });
     }
 
@@ -254,6 +343,8 @@ public final class QuestionSearchActivity extends AppCompatActivity {
         destroyed = true;
         generation.incrementAndGet();
         worker.shutdownNow();
+        previewWorker.shutdownNow();
+        previews.evictAll();
         super.onDestroy();
     }
 
