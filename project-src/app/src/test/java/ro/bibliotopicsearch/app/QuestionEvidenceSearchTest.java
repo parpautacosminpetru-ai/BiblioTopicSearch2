@@ -83,4 +83,34 @@ public final class QuestionEvidenceSearchTest {
             assertFalse(QuestionEvidenceSearch.isDirectCandidate(query, answer));
         }
     }
+
+    @Test
+    public void whatQuestionRequiresAnExplicitPredicationWithItsTarget() {
+        ResearchSemanticEngine.Profile query = ResearchSemanticEngine.compile(
+                "Ce include biblioteca?", null);
+        ResearchSemanticEngine.Answer answer = ResearchSemanticEngine.findBest(
+                query, Collections.singletonList(
+                        UniversalParagraphDetector.detect(
+                                "Biblioteca include manuscrise și hărți istorice.", 0)));
+        assertNotNull(answer);
+        assertTrue(QuestionEvidenceSearch.isDirectCandidate(query, answer));
+    }
+
+    @Test
+    public void quantityQuestionRequiresExplicitSourceNumber() {
+        ResearchSemanticEngine.Profile query = ResearchSemanticEngine.compile(
+                "Câți membri are consiliul?", null);
+        ResearchSemanticEngine.Answer answer = ResearchSemanticEngine.findBest(
+                query, Collections.singletonList(
+                        UniversalParagraphDetector.detect("Consiliul are 12 membri.", 0)));
+        assertNotNull(answer);
+        assertTrue(QuestionEvidenceSearch.isDirectCandidate(query, answer));
+
+        ResearchSemanticEngine.Answer withoutNumber = ResearchSemanticEngine.findBest(
+                query, Collections.singletonList(
+                        UniversalParagraphDetector.detect("Consiliul are mai mulți membri.", 0)));
+        if (withoutNumber != null) {
+            assertFalse(QuestionEvidenceSearch.isDirectCandidate(query, withoutNumber));
+        }
+    }
 }
