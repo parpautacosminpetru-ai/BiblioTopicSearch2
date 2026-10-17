@@ -48,6 +48,7 @@ public final class OriginalPageActivity extends AppCompatActivity {
     public static final String EXTRA_SOURCE_ID = "source_id";
     public static final String EXTRA_PAGE = "printed_page";
     public static final String EXTRA_LINE_INDEX = "ocr_line_index";
+    public static final String EXTRA_ORIGINAL_ONLY = "view_original_only";
 
     private static final long MAX_RENDER_PIXELS = 6_000_000L;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -61,6 +62,9 @@ public final class OriginalPageActivity extends AppCompatActivity {
     private List<SourceArchiveStore.OcrLine> ocrLines = new ArrayList<>();
     private float zoom = 1f;
     private boolean stopped;
+    private boolean originalOnly;
+    private ScrollView pageScroller;
+    private HorizontalScrollView pictureScroller;
     private SourceArchiveStore.Page exportSelection;
 
     private FacsimileView facsimile;
@@ -77,6 +81,7 @@ public final class OriginalPageActivity extends AppCompatActivity {
         printedPage = getIntent().getStringExtra(EXTRA_PAGE);
         if (printedPage == null) printedPage = "";
         selectedLine = getIntent().getIntExtra(EXTRA_LINE_INDEX, -1);
+        originalOnly = getIntent().getBooleanExtra(EXTRA_ORIGINAL_ONLY, false);
         pages = SourceArchiveStore.pages(this, sourceId);
         if (printedPage.isEmpty() && !pages.isEmpty()) printedPage = pages.get(0).number;
         buildUi();
@@ -89,6 +94,7 @@ public final class OriginalPageActivity extends AppCompatActivity {
 
     private void buildUi() {
         ScrollView scroll = new ScrollView(this);
+        pageScroller = scroll;
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.rgb(12, 19, 26));
@@ -116,6 +122,7 @@ public final class OriginalPageActivity extends AppCompatActivity {
         root.addView(nav);
 
         HorizontalScrollView horizontal = new HorizontalScrollView(this);
+        pictureScroller = horizontal;
         horizontal.setFillViewport(true);
         facsimile = new FacsimileView();
         horizontal.addView(facsimile, new ViewGroup.LayoutParams(dp(280), dp(400)));
@@ -125,32 +132,35 @@ public final class OriginalPageActivity extends AppCompatActivity {
         status.setPadding(0, dp(8), 0, dp(10));
         root.addView(status);
 
-        LinearLayout find = row();
-        search = new EditText(this);
-        search.setSingleLine(true);
-        search.setTextColor(Color.WHITE);
-        search.setHintTextColor(Color.LTGRAY);
-        search.setHint("Întreabă toate sursele arhivate");
-        find.addView(search, new LinearLayout.LayoutParams(0, dp(52), 1));
-        Button go = button("ÎNTREABĂ");
-        go.setOnClickListener(v -> openQuestionSearch());
-        find.addView(go, new LinearLayout.LayoutParams(dp(91), dp(52)));
-        root.addView(find);
-
-        Button exact = button("CĂUTARE LEXICALĂ DOAR ÎN ACEASTĂ SURSĂ");
-        exact.setOnClickListener(v -> searchLines());
-        root.addView(exact, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
-
-        Button recover = button("RECUPEREAZĂ INDEXAREA DIN OCR ARHIVAT");
-        recover.setOnClickListener(v -> recoverMissingIndex());
-        root.addView(recover, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(45)));
-
-        Button confirm = button("AM VERIFICAT PAGINA • ÎNCHEIE ✓");
-        confirm.setOnClickListener(v -> confirmVerifiedPage());
-        root.addView(confirm, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        if (!originalOnly) {
+            LinearLayout find = row();
+            search = new EditText(this);
+            search.setSingleLine(true);
+            search.setTextColor(Color.WHITE);
+            search.setHintTextColor(Color.LTGRAY);
+            search.setHint("Întreabă toate sursele arhivate");
+            find.addView(search, new LinearLayout.LayoutParams(0, dp(52), 1));
+            Button go = button("ÎNTREABĂ");
+            go.setOnClickListener(v -> openQuestionSearch());
+            find.addView(go, new LinearLayout.LayoutParams(dp(91), dp(52)));
+            root.addView(find);
+            Button exact = button("CĂUTARE LEXICALĂ DOAR ÎN ACEASTĂ SURSĂ");
+            exact.setOnClickListener(v -> searchLines());
+            root.addView(exact, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+            Button recover = button("RECUPEREAZĂ INDEXAREA DIN OCR ARHIVAT");
+            recover.setOnClickListener(v -> recoverMissingIndex());
+            root.addView(recover, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(45)));
+            Button confirm = button("AM VERIFICAT PAGINA • ÎNCHEIE ✓");
+            confirm.setOnClickListener(v -> confirmVerifiedPage());
+            root.addView(confirm, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        } else {
+            TextView note = text("Facsimil din fișierul original • marcajul galben indică poziția găsită; documentul nu este modificat.", 12);
+            note.setTextColor(Color.rgb(174, 212, 187));
+            root.addView(note);
+        }
 
         Button export = button("EXPORTĂ ORIGINALUL NEMODIFICAT");
         export.setOnClickListener(v -> exportOriginal());
@@ -163,8 +173,10 @@ public final class OriginalPageActivity extends AppCompatActivity {
         disclaimer.setTextColor(Color.rgb(175, 193, 208));
         disclaimer.setPadding(0, dp(8), 0, dp(8));
         root.addView(disclaimer);
+        if (originalOnly) disclaimer.setVisibility(View.GONE);
 
         ocrText = text("", 12);
+        if (originalOnly) ocrText.setVisibility(View.GONE);
         ocrText.setTextIsSelectable(true);
         root.addView(ocrText);
 
@@ -207,11 +219,14 @@ public final class OriginalPageActivity extends AppCompatActivity {
                     facsimile.setContent(loaded, lines, requestedLine);
                     setZoom(zoom);
                     if (previous != null && previous != loaded) previous.recycle();
-                    StringBuilder text = new StringBuilder("OCR (strat separat, neevaluat semantic):\n\n");
-                    for (SourceArchiveStore.OcrLine line : lines) {
-                        text.append(line.text).append('\n');
+                    if (!originalOnly) {
+                        StringBuilder text = new StringBuilder("OCR (strat separat, neevaluat semantic):\n\n");
+                        for (SourceArchiveStore.OcrLine line : lines) {
+                            text.append(line.text).append('\n');
+                        }
+                        ocrText.setText(text.toString());
                     }
-                    ocrText.setText(text.toString());
+                    scrollToMarkedOriginal(lines, requestedLine, stamp);
                     status.setText("Original verificat SHA-256 • "
                             + (page.isPdf() ? "PDF, fila " + (page.pdfPageIndex + 1) : "fotografie originală")
                             + " • " + lines.size() + " linii OCR");
@@ -226,6 +241,26 @@ public final class OriginalPageActivity extends AppCompatActivity {
                     }
                 });
             }
+        });
+    }
+
+    private void scrollToMarkedOriginal(List<SourceArchiveStore.OcrLine> positions,
+                                        int lineIndex, int stamp) {
+        if (lineIndex < 0 || !originalOnly || pageScroller == null) return;
+        SourceArchiveStore.OcrLine target = null;
+        for (SourceArchiveStore.OcrLine candidate : positions) {
+            if (candidate.index == lineIndex) { target = candidate; break; }
+        }
+        if (target == null) return;
+        final float top = target.top;
+        final float left = target.left;
+        pageScroller.post(() -> {
+            if (stopped || stamp != generation.get() || currentBitmap == null) return;
+            int pageY = pictureScroller.getTop() + Math.round(top * facsimile.getHeight());
+            int visibleY = Math.max(0, pageY - pageScroller.getHeight() / 3);
+            pageScroller.scrollTo(0, visibleY);
+            int pageX = Math.round(left * facsimile.getWidth());
+            pictureScroller.scrollTo(Math.max(0, pageX - pictureScroller.getWidth() / 4), 0);
         });
     }
 
@@ -255,12 +290,17 @@ public final class OriginalPageActivity extends AppCompatActivity {
      * unchanged; OCR uses the same upright display orientation.
      */
     public static Bitmap decodeImage(File file) throws IOException {
+        return decodeImage(file, MAX_RENDER_PIXELS);
+    }
+
+    /** Memory-bounded rendering copy; preserves the original JPEG bytes and EXIF. */
+    static Bitmap decodeImage(File file, long maxPixels) throws IOException {
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
         if (bounds.outWidth < 1 || bounds.outHeight < 1) throw new IOException("JPEG invalid.");
         int sample = 1;
-        while ((long) (bounds.outWidth / sample) * (bounds.outHeight / sample) > MAX_RENDER_PIXELS) {
+        while ((long) (bounds.outWidth / sample) * (bounds.outHeight / sample) > maxPixels) {
             sample *= 2;
         }
         BitmapFactory.Options options = new BitmapFactory.Options();
