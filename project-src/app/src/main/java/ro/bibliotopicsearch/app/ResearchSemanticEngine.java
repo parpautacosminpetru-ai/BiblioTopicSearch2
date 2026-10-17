@@ -194,7 +194,8 @@ public final class ResearchSemanticEngine {
             "a", "ai", "al", "ale", "aici", "acest", "aceasta", "acesta", "acele", "aceea",
             "ca", "care", "cat", "cât", "ce", "cel", "cea", "cei", "cele", "cine", "cu",
             "cum", "cand", "când", "catre", "către", "de", "despre", "din", "dintre", "dupa", "după",
-            "este", "sunt", "era", "erau", "fi", "fie", "in", "în", "intre", "între", "la",
+            "este", "sunt", "era", "erau", "fi", "fie", "fost", "fiind", "au", "avea", "avut",
+             "an", "anul", "perioada", "data", "in", "în", "intre", "între", "la",
             "mai", "o", "pe", "pentru", "prin", "privind", "sa", "să", "se", "si", "și", "sau",
             "un", "una", "unei", "unui", "unde", "the", "of", "and", "or", "to", "for", "with",
             "what", "why", "how", "where", "when", "who", "which", "is", "are"
