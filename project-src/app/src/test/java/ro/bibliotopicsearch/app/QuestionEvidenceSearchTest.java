@@ -97,6 +97,58 @@ public final class QuestionEvidenceSearchTest {
     }
 
     @Test
+    public void aQuestionWithYearCannotMarkAnUndatedClauseAsDirectEvidence() {
+        ResearchSemanticEngine.Profile question = ResearchSemanticEngine.compile(
+                "De ce crește inflația în 1929?", null);
+        UniversalParagraphDetector.Detection undated = UniversalParagraphDetector.detect(
+                "Inflația crește deoarece cererea depășește oferta.", 0);
+        ResearchSemanticEngine.Answer partial = ResearchSemanticEngine.findBest(
+                question, Collections.singletonList(undated));
+        assertNotNull("The undated cause can still be browsed as related evidence", partial);
+        assertFalse("An explicitly requested year is a required condition",
+                QuestionEvidenceSearch.isDirectCandidate(question, partial));
+    }
+
+    @Test
+    public void allQuestionAnchorsAreRequiredForDirectEvidence() {
+        ResearchSemanticEngine.Profile question = ResearchSemanticEngine.compile(
+                "De ce crește inflația în 1929?", null);
+        ResearchSemanticEngine.Answer full = ResearchSemanticEngine.findBest(
+                question, Collections.singletonList(UniversalParagraphDetector.detect(
+                        "În 1929, inflația crește deoarece cererea depășește oferta.", 0)));
+        assertNotNull(full);
+        assertTrue(QuestionEvidenceSearch.isDirectCandidate(question, full));
+    }
+
+    @Test
+    public void multiIntentQuestionCannotBePassedByOneSelectedRelation() {
+        ResearchSemanticEngine.Profile question = ResearchSemanticEngine.compile(
+                "De ce și când a crescut inflația?", null);
+        assertTrue(question.intents().size() > 1);
+        ResearchSemanticEngine.Answer partial = ResearchSemanticEngine.findBest(
+                question, Collections.singletonList(UniversalParagraphDetector.detect(
+                        "Inflația a crescut în 1929 deoarece cererea depășea oferta.", 0)));
+        if (partial != null) {
+            assertFalse("Compound questions need facet-by-facet validation",
+                    QuestionEvidenceSearch.isDirectCandidate(question, partial));
+        }
+    }
+
+    @Test
+    public void negatedQuestionDoesNotAcceptPositiveEvidenceAsDirect() {
+        ResearchSemanticEngine.Profile question = ResearchSemanticEngine.compile(
+                "De ce nu crește inflația?", null);
+        assertTrue(question.asksNegation());
+        ResearchSemanticEngine.Answer positive = ResearchSemanticEngine.findBest(
+                question, Collections.singletonList(UniversalParagraphDetector.detect(
+                        "Inflația crește deoarece cererea depășește oferta.", 0)));
+        if (positive != null) {
+            assertFalse("Negation is not an optional keyword",
+                    QuestionEvidenceSearch.isDirectCandidate(question, positive));
+        }
+    }
+
+    @Test
     public void quantityQuestionRequiresExplicitSourceNumber() {
         ResearchSemanticEngine.Profile query = ResearchSemanticEngine.compile(
                 "Câți membri are consiliul?", null);
