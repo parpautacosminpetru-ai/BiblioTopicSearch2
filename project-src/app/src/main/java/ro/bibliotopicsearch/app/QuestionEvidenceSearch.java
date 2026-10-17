@@ -149,7 +149,7 @@ public final class QuestionEvidenceSearch {
                 text.append(cursor.getString(4));
             }
             if (previousSource != null) {
-                appendAnswers(profile, found, distinct, previousSource, previousTitle,
+                appendAnswers(profile, relatedProfile, found, distinct, previousSource, previousTitle,
                         previousPage, -1, text.toString(), previousVerified);
                 scanned++;
             }
