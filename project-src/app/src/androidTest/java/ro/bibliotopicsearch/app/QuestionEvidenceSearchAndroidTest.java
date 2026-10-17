@@ -46,11 +46,13 @@ public final class QuestionEvidenceSearchAndroidTest {
         assertTrue(report.sourcesSearched >= 3);
 
         List<QuestionEvidenceSearch.Passage> evidence = new ArrayList<>();
+        boolean relatedMentionFound = false;
         for (QuestionEvidenceSearch.Passage item : report.passages) {
             if (first.equals(item.sourceId) || second.equals(item.sourceId)) {
                 if (item.directCandidate) evidence.add(item);
             }
             if (third.equals(item.sourceId)) {
+                relatedMentionFound = true;
                 assertTrue("A topical mention cannot be a direct causal answer",
                         !item.directCandidate);
             }
@@ -70,6 +72,8 @@ public final class QuestionEvidenceSearchAndroidTest {
                 assertEquals(0, QuestionEvidenceSearch.closestLine(context, item));
             }
         }
+        assertTrue("Topical mentions must remain discoverable as related originals",
+                relatedMentionFound);
         assertTrue("The first archived book must be searched", firstFound);
         assertTrue("The second archived book must be searched", secondFound);
     }
