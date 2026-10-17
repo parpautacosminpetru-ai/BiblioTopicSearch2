@@ -220,10 +220,10 @@ public final class QuestionEvidenceSearch {
         if (!allQueryAnchorsInLiteralSegment(profile, answer.segment())) return false;
         if (profile.asksNegation() && !answer.negated()) return false;
         if (profile.asksModality() && !answer.modal()) return false;
-        // "Why and when" must not be advertised as fully answered just
-        // because one of the two relations was detected by the scorer.
-        // Until individual facets are independently evidenced, remain RELATED.
-        if (profile.intents().size() > 1) return false;
+        // Composite queries are matched FACET BY FACET: a causal clause can
+        // answer "de ce", and a date clause can answer "când". Neither is
+        // advertised as a complete answer to the whole composite question.
+        if (!profile.intents().contains(answer.intent())) return false;
         switch (answer.intent()) {
             case WHEN:
             case WHERE:
@@ -274,7 +274,11 @@ public final class QuestionEvidenceSearch {
         for (String required : profile.directTerms()) {
             boolean found = false;
             for (String word : present) {
-                if (required.equals(word) || RomanianMorphology.sameFamily(required, word)) {
+                String requiredFamily = RomanianMorphology.familyKey(required);
+                String wordFamily = RomanianMorphology.familyKey(word);
+                if (required.equals(word)
+                        || (requiredFamily.length() >= 4
+                            && requiredFamily.equals(wordFamily))) {
                     found = true;
                     break;
                 }
@@ -284,30 +288,98 @@ public final class QuestionEvidenceSearch {
         return true;
     }
 
-    /** Highlight the line best aligned with the source clause on the facsimile. */
-    public static int closestLine(Context context, Passage passage) {
-        List<SourceArchiveStore.OcrLine> lines =
-                SourceArchiveStore.lines(context, passage.sourceId, passage.page);
-        if (lines.isEmpty()) return -1;
-        Set<String> tokens = meaningfulTokens(passage.excerpt);
-        int selected = -1, best = 0;
-        for (SourceArchiveStore.OcrLine line : lines) {
-            Set<String> lineTokens = meaningfulTokens(line.text);
+    /**
+     * Locate a whole source passage across OCR lines, not merely its strongest
+     * single line. It matches an ordered literal token span against the page's
+     * spatial OCR; no inference or reconstructed answer is involved.
+     *
+     * If OCR diverges, fall back to one best textual line as an ORIENTATION
+     * marker only. Zero positions mean the original page opens unmarked.
+     */
+    public static int[] matchingLineIndices(Context context, Passage passage) {
+        return matchingLineIndices(
+                SourceArchiveStore.lines(context, passage.sourceId, passage.page), passage.excerpt);
+    }
+
+    static int[] matchingLineIndices(List<SourceArchiveStore.OcrLine> pageLines, String excerpt) {
+        if (pageLines == null || pageLines.isEmpty()) return new int[0];
+        List<String> target = allTokens(excerpt);
+        if (target.isEmpty()) return new int[0];
+        List<String> pageTokens = new ArrayList<>();
+        List<Integer> ownerLines = new ArrayList<>();
+        for (SourceArchiveStore.OcrLine line : pageLines) {
+            for (String token : allTokens(line.text)) {
+                pageTokens.add(token);
+                ownerLines.add(line.index);
+            }
+        }
+        int bestStart = -1, bestLength = 0;
+        // The longest ordered literal span remains tied to the exact OCR lines.
+        for (int i = 0; i < target.size(); i++) {
+            for (int j = 0; j < pageTokens.size(); j++) {
+                if (!sameLocalizedToken(target.get(i), pageTokens.get(j))) continue;
+                int matched = 0;
+                while (i + matched < target.size() && j + matched < pageTokens.size()
+                        && sameLocalizedToken(target.get(i + matched), pageTokens.get(j + matched))) {
+                    matched++;
+                }
+                if (matched > bestLength) {
+                    bestStart = j;
+                    bestLength = matched;
+                }
+            }
+        }
+        int required = Math.max(2, Math.min(4, (target.size() + 2) / 3));
+        if (bestStart >= 0 && bestLength >= required) {
+            LinkedHashSet<Integer> indices = new LinkedHashSet<>();
+            for (int j = bestStart; j < bestStart + bestLength; j++) {
+                indices.add(ownerLines.get(j));
+            }
+            int[] found = new int[indices.size()];
+            int k = 0;
+            for (int index : indices) found[k++] = index;
+            return found;
+        }
+
+        // Best-effort fallback for imperfect OCR; no invented text is shown.
+        Set<String> terms = meaningfulTokens(excerpt);
+        int bestLine = -1, bestScore = 0;
+        for (SourceArchiveStore.OcrLine line : pageLines) {
+            Set<String> visible = meaningfulTokens(line.text);
             int common = 0;
-            for (String token : tokens) {
-                for (String lineToken : lineTokens) {
-                    if (token.equals(lineToken) || RomanianMorphology.sameFamily(token, lineToken)) {
+            for (String term : terms) {
+                for (String candidate : visible) {
+                    if (sameLocalizedToken(term, candidate)) {
                         common++;
                         break;
                     }
                 }
             }
-            if (common > best) {
-                best = common;
-                selected = line.index;
+            if (common > bestScore) {
+                bestScore = common;
+                bestLine = line.index;
             }
         }
-        return selected;
+        return bestLine < 0 ? new int[0] : new int[]{bestLine};
+    }
+
+    public static int closestLine(Context context, Passage passage) {
+        int[] positions = matchingLineIndices(context, passage);
+        return positions.length == 0 ? -1 : positions[0];
+    }
+
+    private static List<String> allTokens(String value) {
+        List<String> out = new ArrayList<>();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("[\\p{L}\\p{N}]+")
+                .matcher(RomanianLanguagePack.fold(value));
+        while (m.find()) out.add(m.group());
+        return out;
+    }
+
+    private static boolean sameLocalizedToken(String left, String right) {
+        if (left.equals(right)) return true;
+        String a = RomanianMorphology.familyKey(left);
+        return a.length() >= 4 && a.equals(RomanianMorphology.familyKey(right));
     }
 
     private static Set<String> meaningfulTokens(String text) {
