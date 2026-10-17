@@ -161,7 +161,8 @@ public final class QuestionSearchActivity extends AppCompatActivity {
                 row.setBackgroundColor(position % 2 == 0
                         ? Color.rgb(27, 39, 48) : Color.rgb(21, 32, 41));
                 holder.heading.setText((item.directCandidate
-                        ? "INDICIU DIRECT" : "PASAJ CONEX — NECONFIRMAT")
+                        ? "INDICIU EXPLICIT • " + facetLabel(item.intent)
+                        : "PASAJ CONEX — NU CONFIRMĂ RĂSPUNSUL")
                         + " • " + (item.manuallyVerified
                                 ? "PAGINĂ VERIFICATĂ" : "PAGINĂ NEVERIFICATĂ")
                         + "\n" + item.sourceTitle + " • pagina " + item.page);
@@ -267,8 +268,9 @@ public final class QuestionSearchActivity extends AppCompatActivity {
                 summary.append("Lipsa unei potriviri OCR nu dovedește absența răspunsului din original.");
             }
         } else {
-            summary.append("Atinge fiecare rezultat pentru pagina originală; ")
-                    .append("un indiciu nu este o confirmare automată a răspunsului.");
+            summary.append("Indiciile sunt marcate separat după aspectul întrebării. ")
+                    .append("La întrebările compuse, un indiciu poate acoperi un singur aspect, ")
+                    .append("nu întreaga întrebare. Atinge originalul pentru verificare.");
         }
         status.setText(summary.toString());
         adapter.notifyDataSetChanged();
@@ -277,14 +279,16 @@ public final class QuestionSearchActivity extends AppCompatActivity {
     private void openOriginal(QuestionEvidenceSearch.Passage chosen) {
         status.setText("Localizez pasajul în pagina originală…");
         worker.execute(() -> {
-            int line = -1;
+            int[] positions = new int[0];
             String warning = null;
             try {
-                line = QuestionEvidenceSearch.closestLine(getApplicationContext(), chosen);
+                positions = QuestionEvidenceSearch.matchingLineIndices(
+                        getApplicationContext(), chosen);
             } catch (Exception error) {
                 warning = error.getMessage();
             }
-            final int targetLine = line;
+            final int[] matchedLines = positions;
+            final int targetLine = positions.length == 0 ? -1 : positions[0];
             final String failure = warning;
             runOnUiThread(() -> {
                 if (destroyed) return;
@@ -295,10 +299,30 @@ public final class QuestionSearchActivity extends AppCompatActivity {
                 intent.putExtra(OriginalPageActivity.EXTRA_SOURCE_ID, chosen.sourceId);
                 intent.putExtra(OriginalPageActivity.EXTRA_PAGE, chosen.page);
                 intent.putExtra(OriginalPageActivity.EXTRA_LINE_INDEX, targetLine);
+                intent.putExtra(OriginalPageActivity.EXTRA_LINE_INDICES, matchedLines);
                 intent.putExtra(OriginalPageActivity.EXTRA_ORIGINAL_ONLY, true);
                 startActivity(intent);
             });
         });
+    }
+
+    private static String facetLabel(ResearchSemanticEngine.Intent intent) {
+        switch (intent) {
+            case WHY: return "CAUZĂ";
+            case WHEN: return "TIMP";
+            case WHERE: return "LOC";
+            case WHO: return "PERSOANĂ";
+            case HOW: return "MOD";
+            case EFFECT: return "EFECT";
+            case CONDITION: return "CONDIȚIE";
+            case PURPOSE: return "SCOP";
+            case DEFINITION: return "DEFINIȚIE";
+            case COMPARISON: return "COMPARAȚIE";
+            case EVIDENCE: return "DOVADĂ";
+            case PROBLEM: return "PROBLEMĂ";
+            case SOLUTION: return "SOLUȚIE";
+            default: return "CONȚINUT";
+        }
     }
 
     private static final class ResultHolder {
