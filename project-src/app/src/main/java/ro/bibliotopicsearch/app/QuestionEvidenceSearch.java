@@ -209,6 +209,20 @@ public final class QuestionEvidenceSearch {
             case WHO:
                 return !answer.subject().isEmpty()
                         && answer.relationEvidence() >= 0.60;
+            case TOPIC:
+                // A literal "what" or "how many" question has no specialized
+                // ResearchSemanticEngine intent. Never silently classify a
+                // topical keyword search as an answered question.
+                String query = " " + RomanianLanguagePack.fold(profile.rawQuery()) + " ";
+                boolean quantity = query.contains(" cati ") || query.contains(" cate ")
+                        || query.contains(" cat ") || query.contains(" ce numar ");
+                if (quantity) {
+                    return answer.segment().matches("(?s).*\\b\\d+(?:[.,]\\d+)?\\b.*");
+                }
+                boolean what = query.startsWith(" ce ") || query.startsWith(" care ");
+                return what && answer.directCoverage() >= 0.75
+                        && !answer.subject().isEmpty()
+                        && (!answer.predicate().isEmpty() || !answer.object().isEmpty());
             default:
                 return false;
         }
