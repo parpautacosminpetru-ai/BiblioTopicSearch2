@@ -48,6 +48,7 @@ public final class OriginalPageActivity extends AppCompatActivity {
     public static final String EXTRA_SOURCE_ID = "source_id";
     public static final String EXTRA_PAGE = "printed_page";
     public static final String EXTRA_LINE_INDEX = "ocr_line_index";
+    public static final String EXTRA_LINE_INDICES = "ocr_line_indices";
     public static final String EXTRA_ORIGINAL_ONLY = "view_original_only";
 
     private static final long MAX_RENDER_PIXELS = 6_000_000L;
@@ -57,6 +58,7 @@ public final class OriginalPageActivity extends AppCompatActivity {
     private String sourceId = "";
     private String printedPage = "";
     private int selectedLine = -1;
+    private int[] selectedLines = new int[0];
     private List<SourceArchiveStore.Page> pages = new ArrayList<>();
     private Bitmap currentBitmap;
     private List<SourceArchiveStore.OcrLine> ocrLines = new ArrayList<>();
@@ -81,6 +83,9 @@ public final class OriginalPageActivity extends AppCompatActivity {
         printedPage = getIntent().getStringExtra(EXTRA_PAGE);
         if (printedPage == null) printedPage = "";
         selectedLine = getIntent().getIntExtra(EXTRA_LINE_INDEX, -1);
+        int[] fromQuestion = getIntent().getIntArrayExtra(EXTRA_LINE_INDICES);
+        selectedLines = fromQuestion != null && fromQuestion.length > 0
+                ? fromQuestion.clone() : selectedLine < 0 ? new int[0] : new int[]{selectedLine};
         originalOnly = getIntent().getBooleanExtra(EXTRA_ORIGINAL_ONLY, false);
         pages = SourceArchiveStore.pages(this, sourceId);
         if (printedPage.isEmpty() && !pages.isEmpty()) printedPage = pages.get(0).number;
@@ -192,6 +197,7 @@ public final class OriginalPageActivity extends AppCompatActivity {
         if (printedPage == null || printedPage.isEmpty()) return;
         final String requested = printedPage;
         final int requestedLine = selectedLine;
+        final int[] requestedLines = selectedLines.clone();
         int stamp = generation.incrementAndGet();
         status.setText("Verific amprenta și deschid originalul paginii " + requested + "…");
         pageTitle.setText("Pagina " + requested);
@@ -216,7 +222,7 @@ public final class OriginalPageActivity extends AppCompatActivity {
                     Bitmap previous = currentBitmap;
                     currentBitmap = loaded;
                     ocrLines = lines;
-                    facsimile.setContent(loaded, lines, requestedLine);
+                    facsimile.setContent(loaded, lines, requestedLines);
                     setZoom(zoom);
                     if (previous != null && previous != loaded) previous.recycle();
                     if (!originalOnly) {
@@ -484,6 +490,7 @@ public final class OriginalPageActivity extends AppCompatActivity {
                 if (next >= 0 && next < pages.size()) {
                     printedPage = pages.get(next).number;
                     selectedLine = -1;
+                    selectedLines = new int[0];
                     loadPage();
                 }
                 return;
@@ -499,6 +506,7 @@ public final class OriginalPageActivity extends AppCompatActivity {
                 .setItems(numbers, (d, choice) -> {
                     printedPage = numbers[choice];
                     selectedLine = -1;
+                    selectedLines = new int[0];
                     loadPage();
                 })
                 .setNegativeButton("ANULEAZĂ", null).show();
@@ -550,16 +558,20 @@ public final class OriginalPageActivity extends AppCompatActivity {
     private final class FacsimileView extends View {
         private Bitmap bitmap;
         private List<SourceArchiveStore.OcrLine> lines = Collections.emptyList();
-        private int activeIndex = -1;
+        private int[] activeIndices = new int[0];
         private final Paint picture = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
         private final Paint highlighter = new Paint(Paint.ANTI_ALIAS_FLAG);
 
         FacsimileView() { super(OriginalPageActivity.this); }
 
         void setContent(Bitmap value, List<SourceArchiveStore.OcrLine> positions, int line) {
+            setContent(value, positions, line < 0 ? new int[0] : new int[]{line});
+        }
+
+        void setContent(Bitmap value, List<SourceArchiveStore.OcrLine> positions, int[] marked) {
             bitmap = value;
             lines = positions;
-            activeIndex = line;
+            activeIndices = marked == null ? new int[0] : marked.clone();
             invalidate();
         }
 
@@ -569,14 +581,17 @@ public final class OriginalPageActivity extends AppCompatActivity {
             if (bitmap == null || bitmap.isRecycled()) return;
             canvas.drawBitmap(bitmap, null,
                     new Rect(0, 0, getWidth(), getHeight()), picture);
-            if (activeIndex < 0) return;
+            if (activeIndices.length == 0) return;
             highlighter.setColor(Color.argb(100, 255, 205, 35));
             for (SourceArchiveStore.OcrLine ocr : lines) {
-                if (ocr.index != activeIndex) continue;
+                boolean selected = false;
+                for (int position : activeIndices) {
+                    if (ocr.index == position) { selected = true; break; }
+                }
+                if (!selected) continue;
                 canvas.drawRect(new RectF(ocr.left * getWidth(),
                         ocr.top * getHeight(), ocr.right * getWidth(),
                         ocr.bottom * getHeight()), highlighter);
-                break;
             }
         }
     }
