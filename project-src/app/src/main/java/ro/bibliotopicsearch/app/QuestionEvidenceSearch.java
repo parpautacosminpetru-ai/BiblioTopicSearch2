@@ -213,8 +213,17 @@ public final class QuestionEvidenceSearch {
     // has confirmed the interpretation.
     static boolean isDirectCandidate(
             ResearchSemanticEngine.Profile profile, ResearchSemanticEngine.Answer answer) {
-        if (answer.directCoverage() < 0.66) return false;
-        if (!profile.explicitQuestion()) return false;
+        if (profile == null || answer == null || !profile.explicitQuestion()) return false;
+        // Never silently discard an essential condition from a targeted question.
+        // The semantic scorer may legitimately show partial matches as RELATED,
+        // but only explicit evidence for every lexical anchor may be DIRECT.
+        if (!allQueryAnchorsInLiteralSegment(profile, answer.segment())) return false;
+        if (profile.asksNegation() && !answer.negated()) return false;
+        if (profile.asksModality() && !answer.modal()) return false;
+        // "Why and when" must not be advertised as fully answered just
+        // because one of the two relations was detected by the scorer.
+        // Until individual facets are independently evidenced, remain RELATED.
+        if (profile.intents().size() > 1) return false;
         switch (answer.intent()) {
             case WHEN:
             case WHERE:
@@ -249,6 +258,30 @@ public final class QuestionEvidenceSearch {
             default:
                 return false;
         }
+    }
+
+    /**
+     * Require every content-word constraint in the literal source segment,
+     * rather than relying on the score's relaxed coverage or neighboring
+     * paragraphs. This only certifies lexical presence, NOT historical truth.
+     */
+    private static boolean allQueryAnchorsInLiteralSegment(
+            ResearchSemanticEngine.Profile profile, String segment) {
+        if (profile.directTerms().isEmpty() || segment == null || segment.isEmpty()) {
+            return false;
+        }
+        Set<String> present = meaningfulTokens(segment);
+        for (String required : profile.directTerms()) {
+            boolean found = false;
+            for (String word : present) {
+                if (required.equals(word) || RomanianMorphology.sameFamily(required, word)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return false;
+        }
+        return true;
     }
 
     /** Highlight the line best aligned with the source clause on the facsimile. */
