@@ -227,9 +227,13 @@ public final class OriginalPageActivity extends AppCompatActivity {
                         ocrText.setText(text.toString());
                     }
                     scrollToMarkedOriginal(lines, requestedLine, stamp);
-                    status.setText("Original verificat SHA-256 • "
-                            + (page.isPdf() ? "PDF, fila " + (page.pdfPageIndex + 1) : "fotografie originală")
-                            + " • " + lines.size() + " linii OCR");
+                    status.setText(originalOnly
+                            ? "Pagina originală verificată SHA-256 • "
+                                + (page.isPdf() ? "PDF, fila " + (page.pdfPageIndex + 1) : "fotografie originală")
+                                + (requestedLine < 0 ? "" : " • poziție marcată orientativ")
+                            : "Original verificat SHA-256 • "
+                                + (page.isPdf() ? "PDF, fila " + (page.pdfPageIndex + 1) : "fotografie originală")
+                                + " • " + lines.size() + " linii OCR");
                 });
             } catch (Exception failure) {
                 if (bitmap != null) bitmap.recycle();
