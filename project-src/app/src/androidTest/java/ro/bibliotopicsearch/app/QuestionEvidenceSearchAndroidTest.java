@@ -1,6 +1,8 @@
 package ro.bibliotopicsearch.app;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import android.content.ContentValues;
@@ -16,6 +18,7 @@ import org.junit.runner.RunWith;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -69,6 +72,45 @@ public final class QuestionEvidenceSearchAndroidTest {
         }
         assertTrue("The first archived book must be searched", firstFound);
         assertTrue("The second archived book must be searched", secondFound);
+    }
+
+    @Test
+    public void visualResultIsRenderedFromUnmodifiedOriginalNotTranscribedText()
+            throws Exception {
+        Context context = ApplicationProvider.getApplicationContext();
+        IndexCoreDatabase db = IndexCoreDatabase.get(context);
+        String id = "facsimile-preview-" + System.nanoTime();
+        String page = "32";
+        archivePage(context, db, id, "Sursă primară", page,
+                "Inflația crește deoarece cererea depășește oferta.");
+
+        QuestionEvidenceSearch.Report report = QuestionEvidenceSearch.search(
+                context, "De ce crește inflația?");
+        QuestionEvidenceSearch.Passage chosen = null;
+        for (QuestionEvidenceSearch.Passage candidate : report.passages) {
+            if (id.equals(candidate.sourceId) && candidate.directCandidate) {
+                chosen = candidate;
+                break;
+            }
+        }
+        assertNotNull(chosen);
+
+        SourceArchiveStore.Page originalPage = SourceArchiveStore.page(context, id, page);
+        File original = SourceArchiveStore.originalFile(context, originalPage);
+        byte[] untouchedBytes = Files.readAllBytes(original.toPath());
+        Bitmap fromOriginal = OriginalPageActivity.decodeImage(original, 900_000L);
+        Bitmap preview = OriginalFacsimilePreview.render(context, chosen);
+        try {
+            assertTrue(preview.getWidth() > 0 && preview.getHeight() > 0);
+            // Test fixture has a 32x32 source, so the preview contains the
+            // original full page; the top-left pixel is outside the overlay.
+            assertEquals(fromOriginal.getPixel(0, 0), preview.getPixel(0, 0));
+        } finally {
+            preview.recycle();
+            fromOriginal.recycle();
+        }
+        assertArrayEquals("Preview must never rewrite PDF/JPEG original",
+                untouchedBytes, Files.readAllBytes(original.toPath()));
     }
 
     private static void archivePage(Context context, IndexCoreDatabase db,
