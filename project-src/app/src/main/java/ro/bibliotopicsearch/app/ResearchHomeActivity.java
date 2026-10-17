@@ -86,7 +86,7 @@ public final class ResearchHomeActivity extends AppCompatActivity {
         questionRow.addView(ask, new LinearLayout.LayoutParams(dp(104), dp(55)));
         root.addView(questionRow);
 
-        TextView evidenceHint = text("Întrebare țintită → pasaje din toate sursele OCR → pagină originală.", 11.3f,
+        TextView evidenceHint = text("Întrebare țintită → facsimilele originale PDF/JPEG, fără transcriere afișată.", 11.3f,
                 Color.rgb(162, 188, 205));
         evidenceHint.setPadding(0, dp(3), 0, dp(9));
         root.addView(evidenceHint);
