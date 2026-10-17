@@ -87,6 +87,13 @@ public final class QuestionEvidenceSearch {
         if (!profile.enabled()) {
             return new Report(Collections.emptyList(), 0, 0, 0, profile.intent(), false);
         }
+        // Separately recover on-topic mentions when an explicit question has no
+        // relation-bearing answer. They remain visibly RELATED, never promoted
+        // into direct answers. The user can inspect their real facsimiles.
+        ResearchSemanticEngine.Profile relatedProfile = profile.intent()
+                == ResearchSemanticEngine.Intent.TOPIC ? null
+                : ResearchSemanticEngine.compile(String.join(" ", profile.directTerms()), null);
+        if (relatedProfile != null && !relatedProfile.enabled()) relatedProfile = null;
 
         SQLiteDatabase db = IndexCoreDatabase.get(context).getReadableDatabase();
         List<Passage> found = new ArrayList<>();
@@ -104,7 +111,7 @@ public final class QuestionEvidenceSearch {
                 String sourceId = cursor.getString(0);
                 sourceIds.add(sourceId);
                 scanned++;
-                appendAnswers(profile, found, distinct, sourceId, cursor.getString(1),
+                appendAnswers(profile, relatedProfile, found, distinct, sourceId, cursor.getString(1),
                         cursor.getString(2), cursor.getInt(3), cursor.getString(4),
                         cursor.getInt(5) != 0);
             }
@@ -128,7 +135,7 @@ public final class QuestionEvidenceSearch {
                 String page = cursor.getString(2);
                 if (previousSource != null
                         && (!previousSource.equals(source) || !previousPage.equals(page))) {
-                    appendAnswers(profile, found, distinct, previousSource, previousTitle,
+                    appendAnswers(profile, relatedProfile, found, distinct, previousSource, previousTitle,
                             previousPage, -1, text.toString(), previousVerified);
                     scanned++;
                     text.setLength(0);
@@ -160,7 +167,8 @@ public final class QuestionEvidenceSearch {
     }
 
     private static void appendAnswers(
-            ResearchSemanticEngine.Profile profile, List<Passage> output,
+            ResearchSemanticEngine.Profile profile,
+            ResearchSemanticEngine.Profile relatedProfile, List<Passage> output,
             Set<String> distinct, String sourceId, String sourceTitle, String page,
             int block, String raw, boolean verified) {
         if (raw == null || raw.trim().isEmpty()) return;
@@ -171,14 +179,29 @@ public final class QuestionEvidenceSearch {
         if (detections.isEmpty()) return;
         List<ResearchSemanticEngine.Answer> answers = ResearchSemanticEngine.findAll(
                 profile, detections, null, Integer.MAX_VALUE);
+        addEvidenceAnswers(profile, answers, true, output, distinct, sourceId, sourceTitle,
+                page, block, verified);
+        if (relatedProfile != null) {
+            // The second pass broadens RECALL but never weakens answer certainty.
+            List<ResearchSemanticEngine.Answer> relatedAnswers = ResearchSemanticEngine.findAll(
+                    relatedProfile, detections, null, Integer.MAX_VALUE);
+            addEvidenceAnswers(profile, relatedAnswers, false, output, distinct,
+                    sourceId, sourceTitle, page, block, verified);
+        }
+    }
+
+    private static void addEvidenceAnswers(
+            ResearchSemanticEngine.Profile question,
+            List<ResearchSemanticEngine.Answer> answers, boolean checkDirect,
+            List<Passage> output, Set<String> distinct,
+            String sourceId, String sourceTitle, String page, int block, boolean verified) {
         for (ResearchSemanticEngine.Answer answer : answers) {
             String segment = answer.segment();
             if (segment.isEmpty()) continue;
-            // Exact source text, not a generated answer or a topic-only summary.
             String identity = sourceId + "\u0000" + page + "\u0000" + block
                     + "\u0000" + answer.paragraphIndex() + "\u0000" + segment;
             if (!distinct.add(identity)) continue;
-            boolean direct = isDirectCandidate(profile, answer);
+            boolean direct = checkDirect && isDirectCandidate(question, answer);
             output.add(new Passage(sourceId, sourceTitle == null || sourceTitle.trim().isEmpty()
                     ? "Sursă fără titlu" : sourceTitle, page, block, segment,
                     verified, direct, answer.score(), answer.directCoverage(), answer.intent()));
