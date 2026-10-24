@@ -73,8 +73,17 @@ public final class LensOverlayView extends View {
         if (plan.target) drawTargets(canvas);
         if (plan.subject) drawSemantic(canvas, SemanticTextMark.Kind.SUBJECT,
                 LensPalette.get(getContext(), LensPalette.Role.SUBJECT), level);
-        if (plan.function) drawSemantic(canvas, SemanticTextMark.Kind.FUNCTION,
-                LensPalette.get(getContext(), LensPalette.Role.FUNCTION), level);
+        if (plan.function) {
+            // Use the existing FUNCTION layer for local grammar at close zoom;
+            // subject and proven crossings remain separate, without a fourth layer.
+            if ((level == LensDisplayPolicy.Level.SENTENCE || level == LensDisplayPolicy.Level.SEGMENT)
+                    && !TopicMatcher.latestSyntaxCueMarks().isEmpty()) {
+                drawSyntaxCues(canvas);
+            } else {
+                drawSemantic(canvas, SemanticTextMark.Kind.FUNCTION,
+                        LensPalette.get(getContext(), LensPalette.Role.FUNCTION), level);
+            }
+        }
         if (plan.intersection) drawIntersections(canvas);
         if (plan.answer) drawAnswers(canvas);
         drawFooter(canvas, level, queryActive);
@@ -99,6 +108,45 @@ public final class LensOverlayView extends View {
             if (onePerParagraph && !shown.add(mark.paragraphIndex)) continue;
             int fillAlpha = 35 + (int) Math.round(mark.confidence * 38.0);
             drawBox(canvas, mark.box, color, fillAlpha, 225, mark.confidence >= 0.66 ? 3.0f : 2.1f);
+        }
+    }
+
+    /** A cue proves only that words occurred in the OCR, not a complete relation. */
+    private void drawSyntaxCues(Canvas canvas) {
+        List<SyntaxCueTextMark> marks = TopicMatcher.latestSyntaxCueMarks();
+        if (marks == null || marks.isEmpty()) return;
+        int badges = 0;
+        for (SyntaxCueTextMark mark : marks) {
+            if (mark == null || mark.kind == null || mark.box == null || mark.box.isEmpty()) continue;
+            int color = syntaxCueColor(mark.kind);
+            drawBox(canvas, mark.box, color, 35, 225, 2.2f);
+            if (mark.firstWord && badges < 4) {
+                drawBadge(canvas, "~ " + mark.kind.label(), mark.box, color);
+                badges++;
+            }
+        }
+    }
+
+    private int syntaxCueColor(SyntaxCueDetector.Kind kind) {
+        switch (kind) {
+            case CAUSE: return Color.rgb(195, 74, 84);
+            case PURPOSE: return Color.rgb(136, 91, 190);
+            case CONDITION: return Color.rgb(50, 146, 184);
+            case TIME: return Color.rgb(198, 142, 45);
+            case NEGATION: return Color.rgb(206, 85, 46);
+            case MODALITY: return Color.rgb(75, 108, 194);
+            case CONCESSION: return Color.rgb(145, 95, 174);
+            case ATTRIBUTION: return Color.rgb(57, 131, 129);
+            case COMPARISON: return Color.rgb(69, 150, 105);
+            case CONTRAST: return Color.rgb(156, 93, 84);
+            case CONSEQUENCE: return Color.rgb(191, 92, 137);
+            case LOCATION: return Color.rgb(68, 143, 175);
+            case RESTRICTION:
+            case EXCEPTION: return Color.rgb(172, 99, 55);
+            case QUANTITY: return Color.rgb(139, 121, 74);
+            case MANNER: return Color.rgb(100, 142, 160);
+            case COREFERENCE:
+            default: return Color.rgb(121, 136, 151);
         }
     }
 

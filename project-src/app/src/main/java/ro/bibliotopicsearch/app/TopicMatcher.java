@@ -42,6 +42,8 @@ public final class TopicMatcher {
             Collections.emptyList();
     private static volatile List<SemanticTextMark> latestSemanticTextMarks =
             Collections.emptyList();
+    private static volatile List<SyntaxCueTextMark> latestSyntaxCueMarks =
+            Collections.emptyList();
     private static volatile ResearchSemanticEngine.Answer latestResearchAnswer;
     private static volatile List<ResearchTextMark> latestResearchTextMarks =
             Collections.emptyList();
@@ -356,6 +358,11 @@ public final class TopicMatcher {
         return latestSemanticTextMarks;
     }
 
+    /** All explicitly visible grammatical cue spans from the last analyzed OCR frame. */
+    public static List<SyntaxCueTextMark> latestSyntaxCueMarks() {
+        return latestSyntaxCueMarks;
+    }
+
     public static ResearchSemanticEngine.Answer latestResearchAnswer() {
         return latestResearchAnswer;
     }
@@ -429,6 +436,7 @@ public final class TopicMatcher {
     private static void clearSemanticSidecar() {
         latestParagraphDetections = Collections.emptyList();
         latestSemanticTextMarks = Collections.emptyList();
+        latestSyntaxCueMarks = Collections.emptyList();
         latestResearchAnswer = null;
         latestResearchTextMarks = Collections.emptyList();
         latestParagraphCartography = new ParagraphCartography.Map(Collections.emptyList(), "");
@@ -475,6 +483,9 @@ public final class TopicMatcher {
                 latestSemanticTextMarks = Collections.unmodifiableList(
                         new ArrayList<>(SemanticTextMarker.build(text, immutableDetections))
                 );
+                // Reuse the same accepted frame; do not run another OCR operation
+                // or infer historical propositions from an isolated grammar marker.
+                latestSyntaxCueMarks = SyntaxCueTextMarker.build(text);
 
                 // Build the semantic graph/cartography exactly once per accepted semantic frame.
                 SemanticGraph semanticGraph = SemanticGraphBuilder.build(immutableDetections);
