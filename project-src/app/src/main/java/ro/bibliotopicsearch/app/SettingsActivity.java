@@ -49,7 +49,31 @@ public final class SettingsActivity extends AppCompatActivity {
         root.setBackgroundColor(Color.rgb(244, 240, 230));
         scroll.addView(root);
 
-        root.addView(heading("SETĂRI DE CĂUTARE", 22));
+        root.addView(heading("DETECTOR • SETĂRI", 22));
+        root.addView(label("Alertare deterministă"));
+        RadioGroup alerts = new RadioGroup(this);
+        RadioButton explore = radio("Explorare • fiecare termen distinct");
+        RadioButton balanced = radio("Echilibrat • sintagmă sau 2 termeni din aceeași temă");
+        RadioButton strict = radio("Strict • sintagmă de 3+ cuvinte sau 3 indicii");
+        alerts.addView(explore);
+        alerts.addView(balanced);
+        alerts.addView(strict);
+        root.addView(alerts);
+        DeterministicAlertGate.Mode selected = AppPrefs.getAlertMode(this);
+        if (selected == DeterministicAlertGate.Mode.EXPLORARE) explore.setChecked(true);
+        else if (selected == DeterministicAlertGate.Mode.STRICT) strict.setChecked(true);
+        else balanced.setChecked(true);
+        alerts.setOnCheckedChangeListener((group, id) -> {
+            DeterministicAlertGate.Mode chosen = id == explore.getId()
+                    ? DeterministicAlertGate.Mode.EXPLORARE
+                    : id == strict.getId() ? DeterministicAlertGate.Mode.STRICT
+                    : DeterministicAlertGate.Mode.ECHILIBRAT;
+            AppPrefs.setAlertMode(this, chosen);
+        });
+        root.addView(body("Fără AI: reguli fixe. !termen = alertă imediată; "
+                + "?termen = doar context; -termen = evidențiere fără vibrație. "
+                + "Aceeași potrivire nu vibrează la fiecare cadru."));
+        root.addView(sectionGap());
 
         root.addView(sectionGap());
         root.addView(heading("CULORI CATEGORII", 18));
@@ -154,7 +178,7 @@ public final class SettingsActivity extends AppCompatActivity {
 
         Switch haptic = toggle(
                 "Vibrație discretă",
-                "Semnal scurt când apare o zonă nouă cu potriviri.",
+                "Semnal scurt numai când o potrivire trece filtrul determinist.",
                 AppPrefs.haptic(this)
         );
         haptic.setOnCheckedChangeListener((b, checked) -> AppPrefs.setHaptic(this, checked));
