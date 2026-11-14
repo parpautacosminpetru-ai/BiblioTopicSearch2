@@ -61,6 +61,18 @@ public final class AppPrefs {
         prefs(context).edit().putInt("precision", Math.max(0, Math.min(100, value))).apply();
     }
 
+    /**
+     * The live Ctrl+F detector is preview-only. Pausing it must NOT finish an
+     * archival/research session or navigate away from the camera.
+     */
+    public static boolean detectorOcrEnabled(Context context) {
+        return prefs(context).getBoolean("detector_ocr_enabled", true);
+    }
+
+    public static void setDetectorOcrEnabled(Context context, boolean enabled) {
+        prefs(context).edit().putBoolean("detector_ocr_enabled", enabled).apply();
+    }
+
     public static boolean ocrEnabled(Context context) {
         boolean enabled = prefs(context).getBoolean("ocr_enabled", true);
         if (enabled) {
