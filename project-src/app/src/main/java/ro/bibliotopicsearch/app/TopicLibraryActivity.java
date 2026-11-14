@@ -52,8 +52,8 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         root.addView(title);
 
         TextView help = body(
-                "Păstrează mai multe hărți local și activează numai harta pe care o cercetezi acum. " +
-                "Pentru subfoldere poți scrie o cale, de exemplu Medievală/Reforma."
+                "Bifează simultan oricâte tematici dorești pentru detector. " +
+                "EDITEAZĂ schimbă numai profilul de lucru. Foldere: Medievală/Reforma."
         );
         help.setPadding(0, dp(4), 0, dp(10));
         root.addView(help);
@@ -83,6 +83,15 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         newMap.setOnClickListener(v -> showCreateDialog());
         editActive.setOnClickListener(v -> startActivity(new Intent(this, MapEditorActivity.class)));
 
+        Button scan = button("PORNEȘTE DETECTORUL LIVE");
+        scan.setOnClickListener(v -> {
+            Intent intent = new Intent(this, MainActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(intent);
+            finish();
+        });
+        root.addView(scan, new LinearLayout.LayoutParams(-1, dp(50)));
+
         libraryContainer = new LinearLayout(this);
         libraryContainer.setOrientation(LinearLayout.VERTICAL);
         libraryContainer.setPadding(0, dp(12), 0, 0);
@@ -94,7 +103,8 @@ public final class TopicLibraryActivity extends AppCompatActivity {
     private void refresh() {
         List<MapProfile> maps = TopicLibraryStore.list(this);
         MapProfile active = TopicLibraryStore.getActive(this);
-        summary.setText(maps.size() + " hărți salvate • activă: " + active.name);
+        summary.setText(TopicLibraryStore.selectedForScan(this).size() + "/" + maps.size()
+                + " tematici în detector • editare: " + active.name);
         libraryContainer.removeAllViews();
 
         String query = filterEdit == null ? "" : filterEdit.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
@@ -137,7 +147,9 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         TextView title = heading((active ? "● " : "") + profile.name, 16);
         title.setTextColor(active ? Color.rgb(36, 59, 83) : Color.rgb(23, 32, 42));
         header.addView(title, new LinearLayout.LayoutParams(0, dp(38), 1f));
-        TextView badge = smallBadge(active ? "ACTIVĂ" : profile.folder, active);
+        boolean selected = TopicLibraryStore.isSelectedForScan(this, profile.id);
+        TextView badge = smallBadge(selected ? "CAUTĂ" : (active ? "EDITARE" : profile.folder),
+                selected);
         header.addView(badge);
         card.addView(header);
 
@@ -162,7 +174,7 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         if (dots > 0) card.addView(palette);
 
         LinearLayout actions = row();
-        Button activate = button(active ? "DESCHIDE" : "ACTIVEAZĂ");
+        Button activate = button(selected ? "☑ DETECTEAZĂ" : "☐ ADAUGĂ");
         Button edit = button("EDITEAZĂ");
         Button more = button("⋯");
         actions.addView(activate, weighted());
@@ -171,18 +183,17 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         card.addView(actions);
 
         activate.setOnClickListener(v -> {
-            TopicLibraryStore.setActive(this, profile.id);
-            finish();
+            if (!TopicLibraryStore.setSelectedForScan(this, profile.id, !selected)) {
+                toast("Păstrează cel puțin o tematică activă.");
+            }
+            refresh();
         });
         edit.setOnClickListener(v -> {
             TopicLibraryStore.setActive(this, profile.id);
             startActivity(new Intent(this, MapEditorActivity.class));
         });
         more.setOnClickListener(v -> showMapMenu(profile));
-        card.setOnClickListener(v -> {
-            TopicLibraryStore.setActive(this, profile.id);
-            refresh();
-        });
+        card.setOnClickListener(v -> activate.performClick());
         return card;
     }
 
@@ -212,6 +223,7 @@ public final class TopicLibraryActivity extends AppCompatActivity {
                             ""
                     );
                     TopicLibraryStore.setActive(this, id);
+                    TopicLibraryStore.setSelectedForScan(this, id, true);
                     startActivity(new Intent(this, MapEditorActivity.class));
                 })
                 .show();
