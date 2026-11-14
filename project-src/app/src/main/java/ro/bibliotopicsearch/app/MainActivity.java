@@ -119,7 +119,7 @@ public final class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        ocrEnabled = AppPrefs.ocrEnabled(this);
+        ocrEnabled = AppPrefs.detectorOcrEnabled(this);
         floatingLabelsEnabled = AppPrefs.floatingLabels(this);
         textualLayerEnabled = AppPrefs.textualLayer(this);
         semanticLayerEnabled = AppPrefs.semanticLayer(this);
@@ -409,7 +409,7 @@ public final class MainActivity extends AppCompatActivity {
 
     private void toggleOcr() {
         ocrEnabled = !ocrEnabled;
-        AppPrefs.setOcrEnabled(this, ocrEnabled);
+        AppPrefs.setDetectorOcrEnabled(this, ocrEnabled);
         mainHandler.removeCallbacks(staleOverlayClear);
 
         if (cameraController != null) {
