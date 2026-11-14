@@ -25,11 +25,11 @@ public final class AppPrefs {
     }
 
     public static MatchMode getMatchMode(Context context) {
-        String value = prefs(context).getString("match_mode", MatchMode.PREFIX.name());
+        String value = prefs(context).getString("match_mode", MatchMode.EXACT.name());
         try {
             return MatchMode.valueOf(value);
         } catch (Exception ignored) {
-            return MatchMode.PREFIX;
+            return MatchMode.EXACT;
         }
     }
 
@@ -249,8 +249,19 @@ public final class AppPrefs {
         setFloatingLabels(context, value);
     }
 
+    public static DeterministicAlertGate.Mode getAlertMode(Context context) {
+        String setting = prefs(context).getString("alert_mode", "ECHILIBRAT");
+        try { return DeterministicAlertGate.Mode.valueOf(setting); }
+        catch (RuntimeException ignored) { return DeterministicAlertGate.Mode.ECHILIBRAT; }
+    }
+
+    public static void setAlertMode(Context context, DeterministicAlertGate.Mode value) {
+        prefs(context).edit().putString("alert_mode",
+                (value == null ? DeterministicAlertGate.Mode.ECHILIBRAT : value).name()).apply();
+    }
+
     public static boolean haptic(Context context) {
-        return prefs(context).getBoolean("haptic", false);
+        return prefs(context).getBoolean("haptic", true);
     }
 
     public static void setHaptic(Context context, boolean value) {
