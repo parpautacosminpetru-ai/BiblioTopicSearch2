@@ -66,6 +66,29 @@ public final class TopicMapStore {
         return parseForProfile(context, active.id, active.name, active.rawText);
     }
 
+    /**
+     * All checked profiles in ONE compiled scan plan. Preserve independent identity
+     * for co-occurrence alert thresholds and display distinct node paths.
+     */
+    public static TopicMap loadForDetector(Context context) {
+        List<TopicNode> merged = new ArrayList<>();
+        for (MapProfile profile : TopicLibraryStore.selectedForScan(context)) {
+            TopicMap source = parseForProfile(context, profile.id, profile.name, profile.rawText);
+            String id = profile.id.substring(0, Math.min(6, profile.id.length()));
+            for (TopicNode item : source.nodes) {
+                TopicNode node = new TopicNode(profile.name + " [" + id + "] > "
+                        + item.path, item.title, item.level);
+                node.sourceProfileId = profile.id;
+                node.enabled = item.enabled;
+                node.color = item.color;
+                node.symbol = item.symbol;
+                node.terms.addAll(item.terms);
+                merged.add(node);
+            }
+        }
+        return new TopicMap("Tematici active", "", merged);
+    }
+
     public static TopicMap parse(Context context, String name, String rawText) {
         return parseForProfile(context, TopicLibraryStore.getActiveId(context), name, rawText);
     }
