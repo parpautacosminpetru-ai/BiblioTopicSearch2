@@ -115,7 +115,7 @@ public final class DeterministicAlertGate {
                 contextual.computeIfAbsent(topic, ignored -> new TreeSet<>()).add(term);
             }
         }
-        int minimum = mode == Mode.STRICT ? 3 : mode == Mode.ECHILIBRAT ? 2 : 1;
+        int minimum = mode == Mode.STRICT ? 3 : 2;
         for (Map.Entry<String, Set<String>> entry : contextual.entrySet()) {
             if (entry.getValue().size() >= minimum) {
                 qualified.add("cluster:" + entry.getKey());
