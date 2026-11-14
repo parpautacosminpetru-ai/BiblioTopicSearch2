@@ -12,6 +12,8 @@ public final class TopicNode {
     public int color;
     public String symbol;
     public boolean enabled;
+    /** Selected profile owning this node; empty for built-in search layers. */
+    public String sourceProfileId = "";
 
     public TopicNode(String path, String title, int level) {
         this.path = path;
