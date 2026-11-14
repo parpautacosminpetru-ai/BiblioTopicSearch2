@@ -178,7 +178,7 @@ public final class TopicMatcher {
                         continue;
                     }
 
-                    String normalized = normalize(rawTerm, stripDiacritics);
+                    String normalized = normalize(DeterministicAlertGate.searchableTerm(rawTerm), stripDiacritics);
                     if (normalized.isEmpty()) continue;
 
                     int tokenCount = countTokens(normalized);
