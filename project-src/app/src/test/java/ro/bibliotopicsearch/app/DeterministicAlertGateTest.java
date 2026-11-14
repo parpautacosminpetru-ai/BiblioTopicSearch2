@@ -61,6 +61,17 @@ public final class DeterministicAlertGateTest {
                 DeterministicAlertGate.Mode.STRICT, 22000));
     }
 
+    @Test public void contextOnlyNeverAlertsAloneEvenInExploration() {
+        DeterministicAlertGate g = new DeterministicAlertGate();
+        assertFalse(g.shouldAlert(Collections.singletonList(
+                e("A", "?învățământ", "învățământ")),
+                DeterministicAlertGate.Mode.EXPLORARE, 30000));
+        assertTrue(g.shouldAlert(Arrays.asList(
+                e("A", "?învățământ", "învățământ"),
+                e("A", "modernizare", "modernizare")),
+                DeterministicAlertGate.Mode.EXPLORARE, 32000));
+    }
+
     @Test public void manySignalsOnePulseOnly() {
         DeterministicAlertGate g = new DeterministicAlertGate();
         List<DeterministicAlertGate.Evidence> frame = Arrays.asList(
