@@ -179,7 +179,8 @@ public final class TopicMatcher {
                         continue;
                     }
 
-                    String normalized = normalize(DeterministicAlertGate.searchableTerm(rawTerm), stripDiacritics);
+                    String normalized = normalizeForOcrWords(
+                            DeterministicAlertGate.searchableTerm(rawTerm), stripDiacritics);
                     if (normalized.isEmpty()) continue;
 
                     int tokenCount = countTokens(normalized);
@@ -284,11 +285,17 @@ public final class TopicMatcher {
 
                     // Hyphens/punctuation in ONE OCR element are token separators;
                     // ML Kit sometimes returns two words together as one element.
-                    String folded = normalize(original, plan.stripDiacritics)
-                            .replaceAll("[-']", " ");
-                    for (String token : folded.split("\\s+")) {
-                        if (!token.isEmpty()) words.add(
-                                new OcrWord(token, original, box, lineIndex));
+                    String folded = normalizeForOcrWords(original, plan.stripDiacritics);
+                    String surface = original.replaceAll("[^\\p{L}\\p{N}]+", " ").trim();
+                    String[] tokens = folded.split("\\s+");
+                    String[] originalTokens = surface.split("\\s+");
+                    for (int wordIndex = 0; wordIndex < tokens.length; wordIndex++) {
+                        String token = tokens[wordIndex];
+                        if (!token.isEmpty()) {
+                            String observed = tokens.length == originalTokens.length
+                                    ? originalTokens[wordIndex] : token;
+                            words.add(new OcrWord(token, observed, box, lineIndex));
+                        }
                     }
                 }
                 lineIndex++;
@@ -547,6 +554,13 @@ public final class TopicMatcher {
                 from = index + Math.max(1, mark.length());
             }
         }
+    }
+
+    /** Exact search treats hyphens and apostrophes as OCR word boundaries. */
+    private static String normalizeForOcrWords(String value, boolean stripDiacritics) {
+        return normalize(value, stripDiacritics)
+                .replaceAll("[-']", " ")
+                .replaceAll("\\s+", " ").trim();
     }
 
     private static int countTokens(String normalized) {
