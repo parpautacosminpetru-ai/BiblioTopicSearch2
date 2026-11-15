@@ -38,6 +38,7 @@ public final class DeterministicMultiIndexMatcher {
      * in different topic nodes are retained as thematic overlap, not merged.
      */
     public static final class Occurrence {
+        private final TopicNode node;
         private final String indexId;
         private final String title;
         private final String canonicalTerm;
@@ -47,6 +48,7 @@ public final class DeterministicMultiIndexMatcher {
         private final DeterministicIndexIntersectionEngine.MatchKind matchKind;
 
         private Occurrence(RawMatch match) {
+            this.node = match.node;
             this.indexId = match.node.path;
             this.title = match.node.title;
             this.canonicalTerm = match.term;
@@ -56,6 +58,7 @@ public final class DeterministicMultiIndexMatcher {
             this.matchKind = match.kind;
         }
 
+        public TopicNode node() { return node; }
         public String indexId() { return indexId; }
         public String title() { return title; }
         public String canonicalTerm() { return canonicalTerm; }
