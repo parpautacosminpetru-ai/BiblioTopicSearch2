@@ -119,6 +119,7 @@ public final class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        BundledThemeInstaller.ensureInstalled(this);
         ocrEnabled = AppPrefs.detectorOcrEnabled(this);
         floatingLabelsEnabled = AppPrefs.floatingLabels(this);
         textualLayerEnabled = AppPrefs.textualLayer(this);
@@ -390,7 +391,8 @@ public final class MainActivity extends AppCompatActivity {
                         searchPlan = activePlan;
                     }
 
-                    List<MatchHit> hits = TopicMatcher.findLexicalOnly(text, activePlan);
+                    List<MatchHit> hits = collapseDuplicateOccurrences(
+                            TopicMatcher.findLexicalOnly(text, activePlan));
                     int recognizedWords = countRecognizedWords(text);
                     int searchableTerms = activePlan.termCount();
                     runOnUiThread(() -> applyHits(hits, recognizedWords, searchableTerms));
@@ -648,7 +650,23 @@ public final class MainActivity extends AppCompatActivity {
         if (source == null || source.isEmpty()) return Collections.emptyList();
         List<MatchHit> out = new java.util.ArrayList<>();
         for (MatchHit hit : source) {
-            if (hit != null && hit.node != null && visibleNodePaths.contains(hit.node.path)) out.add(hit);
+            if (hit == null) continue;
+            MatchHit displayed = null;
+            for (MatchHit association : hit.associations()) {
+                if (association.node != null && visibleNodePaths.contains(association.node.path)) {
+                    displayed = association;
+                    break;
+                }
+            }
+            if (displayed == null) continue;
+            if (displayed == hit) out.add(hit);
+            else {
+                MatchHit representative = new MatchHit(
+                        displayed.box, displayed.originalText, displayed.searchTerm,
+                        displayed.node, displayed.detectedAt);
+                representative.attach(hit);
+                out.add(representative);
+            }
         }
         return out;
     }
@@ -782,15 +800,41 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     /** Filtering applies to haptics only: no matching highlight is discarded. */
+    /**
+     * Same phrase and same OCR rectangle -> one visual hit, associated with
+     * every relevant thematic map. Different positions remain separate hits.
+     */
+    private static List<MatchHit> collapseDuplicateOccurrences(List<MatchHit> source) {
+        java.util.Map<String, MatchHit> unique = new java.util.LinkedHashMap<>();
+        if (source == null) return new java.util.ArrayList<>();
+        for (MatchHit hit : source) {
+            if (hit == null || hit.node == null || hit.box == null) continue;
+            String lexical = TopicMatcher.normalize(
+                    DeterministicAlertGate.searchableTerm(hit.searchTerm), true);
+            String key = lexical + "|" + Math.round(hit.box.left / 4f)
+                    + "|" + Math.round(hit.box.top / 4f)
+                    + "|" + Math.round(hit.box.right / 4f)
+                    + "|" + Math.round(hit.box.bottom / 4f);
+            MatchHit previous = unique.get(key);
+            if (previous == null) unique.put(key, hit);
+            else previous.attach(hit);
+        }
+        return new java.util.ArrayList<>(unique.values());
+    }
+
     private void maybeFeedback(List<MatchHit> hits) {
         List<DeterministicAlertGate.Evidence> frame = new java.util.ArrayList<>();
         if (hits != null) {
             for (MatchHit hit : hits) {
-                if (hit == null || hit.node == null) continue;
-                String profileId = hit.node.sourceProfileId.isEmpty()
-                        ? hit.node.path : hit.node.sourceProfileId;
-                frame.add(new DeterministicAlertGate.Evidence(
-                        profileId, hit.searchTerm, hit.originalText));
+                if (hit == null) continue;
+                for (MatchHit association : hit.associations()) {
+                    if (association.node == null
+                            || !visibleNodePaths.contains(association.node.path)) continue;
+                    String profileId = association.node.sourceProfileId.isEmpty()
+                            ? association.node.path : association.node.sourceProfileId;
+                    frame.add(new DeterministicAlertGate.Evidence(
+                            profileId, association.searchTerm, association.originalText));
+                }
             }
         }
         if (!alertGate.shouldAlert(frame, AppPrefs.getAlertMode(this),
@@ -886,6 +930,14 @@ public final class MainActivity extends AppCompatActivity {
         message.append("Nod: ").append(hit.node.path)
                 .append("\nTermen căutat: ").append(hit.searchTerm)
                 .append("\nText OCR: ").append(hit.originalText);
+        if (hit.associations().size() > 1) {
+            message.append("\n\nAceeași apariție este relevantă pentru:");
+            java.util.Set<String> names = new java.util.LinkedHashSet<>();
+            for (MatchHit association : hit.associations()) {
+                if (association.node != null) names.add(association.node.path);
+            }
+            for (String name : names) message.append("\n• ").append(name);
+        }
         if (entry != null) {
             message.append("\n\nDEFINIȚIE\n").append(entry.definition);
             if (!entry.synonyms.isEmpty()) message.append("\n\nSinonime: ").append(entry.synonyms);
