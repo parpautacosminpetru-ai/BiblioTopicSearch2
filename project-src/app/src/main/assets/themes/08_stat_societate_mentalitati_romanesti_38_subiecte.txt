@@ -80,7 +80,7 @@
 !Mănăstirea Neamț | ?Rădăuți | ?ctitorii moldovenești | ?Mănăstirea Putna | ?Mănăstirea Sucevița | ?Biserica Sfântul Nicolae din Rădăuți | ?mănăstiri moldovenești | ?necropole domnești | ?pictura murală moldovenească | ?ctitoriile Movileștilor | ?ctitoriile Mușatinilor
 
 # 28 — Instaurarea stăpânirii habsburgice: Diploma Leopoldină
-!Diploma Leopoldină | !1691 | ?stăpânirea habsburgică în Transilvania | ?integrarea Transilvaniei | ?Diploma Leopoldină din 1691 | ?Împăratul Leopold I | ?anexarea Transilvaniei | ?administrarea habsburgică | ?Guvernul Transilvaniei | ?reorganizarea instituțională | ?dominație austriacă
+!Diploma Leopoldină | ?1691 | ?stăpânirea habsburgică în Transilvania | ?integrarea Transilvaniei | ?Diploma Leopoldină din 1691 | ?Împăratul Leopold I | ?anexarea Transilvaniei | ?administrarea habsburgică | ?Guvernul Transilvaniei | ?reorganizarea instituțională | ?dominație austriacă
 
 # 29 — Unirea cu Biserica Romei
 !Biserica Română Unită cu Roma | !unirea religioasă de la 1700 | ?Atanasie Anghel | ?greco-catolicism | ?1698 | ?unirea religioasă din Transilvania | ?Unirea din 1700 | ?Biserica greco-catolică | ?Biserica Unită | ?Diploma Leopoldină din 1701 | ?reforma confesională | ?catolicismul și românii
