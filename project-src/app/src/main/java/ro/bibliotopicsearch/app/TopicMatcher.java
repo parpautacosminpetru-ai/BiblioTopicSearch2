@@ -68,7 +68,8 @@ public final class TopicMatcher {
         CompiledTerm(String raw, String normalized, int tokenCount, TopicNode node) {
             this.raw = raw;
             this.normalized = normalized;
-            this.familyKey = RomanianLanguagePack.phraseFamilyKey(raw);
+            this.familyKey = RomanianLanguagePack.phraseFamilyKey(
+                    DeterministicAlertGate.searchableTerm(raw));
             this.tokenCount = tokenCount;
             this.node = node;
         }
@@ -233,6 +234,26 @@ public final class TopicMatcher {
         return findLexicalOnly(text, plan);
     }
 
+    /**
+     * A normalized word plus its original position in ML Kit's reading order.
+     * Spans can cross ONE line break within the same OCR TextBlock, which
+     * matters when a historical name or document title wraps at page margin.
+     * Different TextBlocks are never concatenated (avoids column mixing).
+     */
+    private static final class OcrWord {
+        final String normalized;
+        final String original;
+        final RectF box;
+        final int lineIndex;
+
+        OcrWord(String normalized, String original, RectF box, int lineIndex) {
+            this.normalized = normalized;
+            this.original = original;
+            this.box = box;
+            this.lineIndex = lineIndex;
+        }
+    }
+
     /** Lexical/punctuation branch without scheduling the semantic sidecar. */
     static List<MatchHit> findLexicalOnly(Text text, SearchPlan plan) {
         List<MatchHit> hits = new ArrayList<>();
@@ -242,107 +263,72 @@ public final class TopicMatcher {
         Set<String> dedupe = new HashSet<>();
 
         for (Text.TextBlock block : text.getTextBlocks()) {
+            List<OcrWord> words = new ArrayList<>();
+            int lineIndex = 0;
             for (Text.Line line : block.getLines()) {
                 List<Text.Element> elements = line.getElements();
-                if (elements == null || elements.isEmpty()) continue;
-
-                int size = elements.size();
-                String[] normalizedElements = new String[size];
-                String[] originalElements = new String[size];
-                RectF[] boxes = new RectF[size];
-
-                for (int i = 0; i < size; i++) {
-                    Text.Element element = elements.get(i);
-                    originalElements[i] = element.getText();
-                    normalizedElements[i] = normalize(element.getText(), plan.stripDiacritics);
-                    Rect box = element.getBoundingBox();
-                    boxes[i] = box == null ? null : new RectF(box);
+                if (elements == null) {
+                    lineIndex++;
+                    continue;
                 }
+                for (Text.Element element : elements) {
+                    if (element == null || element.getBoundingBox() == null) continue;
+                    String original = element.getText();
+                    if (original == null) continue;
+                    RectF box = new RectF(element.getBoundingBox());
 
-                if (!plan.punctuationNodes.isEmpty()) {
-                    for (int i = 0; i < size; i++) {
-                        if (boxes[i] == null || originalElements[i] == null) continue;
-                        addPunctuationHits(
-                                hits,
-                                dedupe,
-                                boxes[i],
-                                originalElements[i],
-                                plan.punctuationNodes,
-                                plan.punctuationMarks,
-                                now
-                        );
+                    if (!plan.punctuationNodes.isEmpty()) {
+                        addPunctuationHits(hits, dedupe, box, original,
+                                plan.punctuationNodes, plan.punctuationMarks, now);
+                    }
+
+                    // Hyphens/punctuation in ONE OCR element are token separators;
+                    // ML Kit sometimes returns two words together as one element.
+                    String folded = normalize(original, plan.stripDiacritics)
+                            .replaceAll("[-']", " ");
+                    for (String token : folded.split("\\s+")) {
+                        if (!token.isEmpty()) words.add(
+                                new OcrWord(token, original, box, lineIndex));
                     }
                 }
+                lineIndex++;
+            }
 
-                if (plan.termsByTokenCount.containsKey(1)) {
-                    for (int i = 0; i < size; i++) {
-                        if (boxes[i] == null) continue;
-                        String actual = normalizedElements[i];
-                        if (actual == null || actual.isEmpty()) continue;
-                        for (CompiledTerm term : plan.candidates(1, actual)) {
-                            if (matches(actual, term.normalized, plan.mode, plan.compareChars)
-                                    || matchesInflectionalFamily(actual, term.familyKey)) {
-                                addHit(
-                                        hits,
-                                        dedupe,
-                                        new RectF(boxes[i]),
-                                        originalElements[i],
-                                        term.raw,
-                                        term.node,
-                                        now
-                                );
-                            }
+            final int size = words.size();
+            for (int tokenCount : plan.tokenCounts) {
+                if (tokenCount > size || tokenCount < 1) continue;
+                for (int start = 0; start + tokenCount <= size; start++) {
+                    OcrWord first = words.get(start);
+                    OcrWord last = words.get(start + tokenCount - 1);
+                    if (last.lineIndex - first.lineIndex > 1) continue;
+
+                    StringBuilder phrase = new StringBuilder();
+                    StringBuilder original = new StringBuilder();
+                    RectF union = null;
+                    for (int i = start; i < start + tokenCount; i++) {
+                        OcrWord w = words.get(i);
+                        if (phrase.length() > 0) {
+                            phrase.append(' ');
+                            original.append(' ');
                         }
+                        phrase.append(w.normalized);
+                        original.append(w.original);
+                        if (union == null) union = new RectF(w.box);
+                        else union.union(w.box);
                     }
-                }
+                    if (union == null) continue;
+                    String found = phrase.toString();
 
-                for (int tokenCount : plan.tokenCounts) {
-                    if (tokenCount <= 1 || tokenCount > size) continue;
-
-                    for (int start = 0; start + tokenCount <= size; start++) {
-                        StringBuilder phrase = new StringBuilder();
-                        StringBuilder original = new StringBuilder();
-                        RectF union = null;
-                        boolean valid = true;
-
-                        for (int i = start; i < start + tokenCount; i++) {
-                            if (boxes[i] == null) {
-                                valid = false;
-                                break;
-                            }
-                            if (phrase.length() > 0) {
-                                phrase.append(' ');
-                                original.append(' ');
-                            }
-                            phrase.append(normalizedElements[i]);
-                            original.append(originalElements[i]);
-                            if (union == null) union = new RectF(boxes[i]);
-                            else union.union(boxes[i]);
-                        }
-
-                        if (!valid || union == null) continue;
-                        String actualPhrase = phrase.toString().trim();
-                        if (actualPhrase.isEmpty()) continue;
-
-                        for (CompiledTerm term : plan.candidates(tokenCount, actualPhrase)) {
-                            if (matches(actualPhrase, term.normalized, plan.mode, plan.compareChars)
-                                    || matchesInflectionalFamily(actualPhrase, term.familyKey)) {
-                                addHit(
-                                        hits,
-                                        dedupe,
-                                        union,
-                                        original.toString(),
-                                        term.raw,
-                                        term.node,
-                                        now
-                                );
-                            }
+                    for (CompiledTerm term : plan.candidates(tokenCount, found)) {
+                        if (matches(found, term.normalized, plan.mode, plan.compareChars)
+                                || matchesInflectionalFamily(found, term.familyKey)) {
+                            addHit(hits, dedupe, union, original.toString(),
+                                    term.raw, term.node, now);
                         }
                     }
                 }
             }
         }
-
         return hits;
     }
 
