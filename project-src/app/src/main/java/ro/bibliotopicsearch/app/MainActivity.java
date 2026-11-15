@@ -809,8 +809,7 @@ public final class MainActivity extends AppCompatActivity {
         if (source == null) return new java.util.ArrayList<>();
         for (MatchHit hit : source) {
             if (hit == null || hit.node == null || hit.box == null) continue;
-            String lexical = TopicMatcher.normalize(
-                    DeterministicAlertGate.searchableTerm(hit.searchTerm), true);
+            String lexical = TopicMatcher.normalize(hit.originalText, true);
             String key = lexical + "|" + Math.round(hit.box.left / 4f)
                     + "|" + Math.round(hit.box.top / 4f)
                     + "|" + Math.round(hit.box.right / 4f)
@@ -833,7 +832,8 @@ public final class MainActivity extends AppCompatActivity {
                     String profileId = association.node.sourceProfileId.isEmpty()
                             ? association.node.path : association.node.sourceProfileId;
                     frame.add(new DeterministicAlertGate.Evidence(
-                            profileId, association.searchTerm, association.originalText));
+                            profileId, association.node.path,
+                            association.searchTerm, association.originalText));
                 }
             }
         }
