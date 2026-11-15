@@ -11,8 +11,8 @@ android {
         minSdk = 23
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 31
-        versionName = "2.3.0-beta5-complet"
+        versionCode = 32
+        versionName = "2.4.0-universal"
     }
 
     compileOptions {
@@ -21,6 +21,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Separate package while a production signing key is unavailable:
+            // the existing Beta5 app and its private source archive stay untouched.
+            applicationIdSuffix = ".universal"
+            versionNameSuffix = "-offline"
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(

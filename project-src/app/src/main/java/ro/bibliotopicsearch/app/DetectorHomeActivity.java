@@ -89,6 +89,11 @@ public final class DetectorHomeActivity extends AppCompatActivity {
         detector.setOnClickListener(v -> startActivity(new Intent(this, MainActivity.class)));
         addButton(detector);
 
+        Button canonical = button("INDEX UNIVERSAL • IMPORT / INBOX", true);
+        canonical.setOnClickListener(v ->
+                startActivity(new Intent(this, UniversalIndexActivity.class)));
+        addButton(canonical);
+
         Button themes = button("ALEGE TEMATICILE", true);
         themes.setOnClickListener(v -> startActivity(new Intent(this, TopicLibraryActivity.class)));
         addButton(themes);

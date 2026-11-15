@@ -1,0 +1,57 @@
+name: Universal offline index - build APK
+
+on:
+  push:
+    branches:
+      - feature/beta5-index-universal-inbox-20261115
+  pull_request:
+    branches:
+      - feature/beta5-indexuri-context-live-20261115
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - uses: android-actions/setup-android@v4
+      - name: Android SDK 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;35.0.0"
+      - name: Check deterministic rules and archive SQL
+        run: |
+          python3 -m unittest discover -s project-src/sql-tests -p 'test_*.py'
+          gradle --no-daemon -p project-src :app:testDebugUnitTest
+      - name: Build installable APK
+        run: gradle --no-daemon -p project-src :app:assembleDebug
+      - name: Verify included source maps and Android package
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          apk = Path('project-src/app/build/outputs/apk/debug/app-debug.apk')
+          assert apk.stat().st_size > 1000000
+          with ZipFile(apk) as archive:
+              assert archive.testzip() is None
+              theme_assets = [p for p in archive.namelist() if p.startswith('assets/themes/') and p.endswith('.txt')]
+              assert len(theme_assets) == 7, theme_assets
+          print('APK OK • 7 bundled themes preserved')
+          PY
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging \
+            project-src/app/build/outputs/apk/debug/app-debug.apk | head -n 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BiblioTopicSearch-universal-index-apk
+          path: project-src/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

@@ -93,6 +93,7 @@ public final class MainActivity extends AppCompatActivity {
     private final AtomicInteger planGeneration = new AtomicInteger(0);
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private volatile TopicMatcher.SearchPlan searchPlan;
+    private volatile boolean fastMatching;
     private volatile DeterministicMultiIndexMatcher.Plan evidencePlan;
     private LiveDetectionPipeline<Text, LiveFrame> livePipeline;
     private volatile boolean destroyed;
@@ -318,6 +319,10 @@ public final class MainActivity extends AppCompatActivity {
         toolbar.addView(nodesButton, toolbarLp());
         toolbar.addView(labelsButton, toolbarLp());
         toolbar.addView(evidenceButton, toolbarLp());
+        Button canonicalButton = toolbarButton("INDEX UNIVERSAL");
+        canonicalButton.setOnClickListener(v -> startActivity(
+                new Intent(this, UniversalIndexActivity.class)));
+        toolbar.addView(canonicalButton, toolbarLp());
         toolbar.addView(saveButton, toolbarLp());
         toolbar.addView(settingsButton, toolbarLp());
         toolScroll.addView(toolbar, new HorizontalScrollView.LayoutParams(
@@ -440,15 +445,18 @@ public final class MainActivity extends AppCompatActivity {
                     TopicMatcher.SearchPlan plan = searchPlan;
                     DeterministicMultiIndexMatcher.Plan indices = evidencePlan;
                     int version = planGeneration.get();
-                    if (plan == null || indices == null) return null;
+                    boolean fast = fastMatching;
+                    if (indices == null || (!fast && plan == null)) return null;
 
-                    List<MatchHit> hits = collapseDuplicateOccurrences(TopicMatcher.findLexicalOnly(text, plan));
+                    List<MatchHit> hits = collapseDuplicateOccurrences(fast
+                            ? FastCameraIndexMatcher.find(text, indices)
+                            : TopicMatcher.findLexicalOnly(text, plan));
                     List<String> blocks = new ArrayList<>();
                     for (Text.TextBlock block : text.getTextBlocks()) blocks.add(block.getText());
                     LiveEvidenceAnalyzer.Snapshot evidence =
                             LiveEvidenceAnalyzer.inspect(blocks, indices);
                     return new LiveFrame(hits, countRecognizedWords(text),
-                            plan.termCount(), version, evidence);
+                            fast ? indices.termCount() : plan.termCount(), version, evidence);
                 },
                 new LiveDetectionPipeline.Listener<LiveFrame>() {
                     @Override public void onResult(LiveFrame frame) {
@@ -536,6 +544,11 @@ public final class MainActivity extends AppCompatActivity {
         topicMap = buildActiveSearchMap();
         final TopicMap snapshotMap = topicMap;
         final int generation = planGeneration.incrementAndGet();
+        final boolean fastEligible = AppPrefs.getMatchMode(this) == AppPrefs.MatchMode.EXACT
+                && AppPrefs.ignoreDiacritics(this)
+                && AppPrefs.compareChars(this) == 0
+                && !textualLayerEnabled && !semanticLayerEnabled;
+        fastMatching = false;
         searchPlan = null;
         evidencePlan = null;
         latestEvidence = null;
@@ -543,7 +556,8 @@ public final class MainActivity extends AppCompatActivity {
         for (MapProfile profile : TopicLibraryStore.selectedForScan(this)) {
             selectedKey.append(profile.id).append('/');
         }
-        syncVisibleNodes(selectedKey.toString());
+        final String selectedSignature = selectedKey.toString();
+        syncVisibleNodes(selectedSignature);
         latestAllHits = Collections.emptyList();
         if (overlayView != null) overlayView.clearHits();
         updateLegend(Collections.emptyList());
@@ -555,14 +569,30 @@ public final class MainActivity extends AppCompatActivity {
         planExecutor.execute(() -> {
             if (destroyed || generation != planGeneration.get()) return;
             try {
-                TopicMatcher.SearchPlan compiled = TopicMatcher.compile(getApplicationContext(), snapshotMap);
+                TopicMap universal = themeLayerEnabled
+                        ? UniversalIndexStore.get(getApplicationContext()).loadMap()
+                        : new TopicMap("Index universal în pauză", "", new ArrayList<>());
+                TopicMap complete = TopicMapMerger.merge(
+                        "Tematici și indici canonici", snapshotMap, universal);
+                // The canonical Aho–Corasick matcher is used for exact search;
+                // less restrictive modes keep the existing matching semantics.
+                TopicMatcher.SearchPlan compiled = fastEligible ? null
+                        : TopicMatcher.compile(getApplicationContext(), complete);
                 DeterministicMultiIndexMatcher.Plan indices =
-                        DeterministicMultiIndexMatcher.compile(snapshotMap);
+                        DeterministicMultiIndexMatcher.compile(complete);
                 runOnUiThread(() -> {
                     if (destroyed || generation != planGeneration.get()) return;
+                    topicMap = complete;
                     evidencePlan = indices;
                     searchPlan = compiled;
-                    setStatus("Indexurile sunt pregătite • OCR live", Color.rgb(78, 201, 126));
+                    fastMatching = fastEligible;
+                    syncVisibleNodes(selectedSignature);
+                    updateHeader();
+                    rebuildNodeChips();
+                    redrawVisibleHits();
+                    setStatus("Indexuri pregătite • " + indices.termCount()
+                                    + " forme active • OCR live",
+                            Color.rgb(78, 201, 126));
                 });
             } catch (RuntimeException error) {
                 android.util.Log.e("BiblioTopicSearch", "Nu pot compila indexul", error);
@@ -1061,7 +1091,7 @@ public final class MainActivity extends AppCompatActivity {
                 "OCURENȚE • " + snapshot.groups.size() + " indici / " + snapshot.occurrences + " apariții",
                 "COOCURENȚE • " + snapshot.cooccurrences() + " perechi în aceeași propoziție",
                 "SUPRAPUNERI • " + snapshot.overlaps() + " perechi pe același fragment",
-                "CANDIDAȚI • " + snapshot.candidates.size() + " forme cronologice"
+                "CANDIDAȚI • " + snapshot.candidates.size() + " intrări din OCR"
         };
         new AlertDialog.Builder(this)
                 .setTitle("INDICI • selectează ce verifici")
@@ -1154,7 +1184,7 @@ public final class MainActivity extends AppCompatActivity {
 
     private void showEvidenceCandidates(LiveEvidenceAnalyzer.Snapshot snapshot) {
         if (snapshot.candidates.isEmpty()) {
-            showEvidenceMessage("CANDIDAȚI", "Nicio formă cronologică nouă identificată în cadrul curent.");
+            showEvidenceMessage("CANDIDAȚI", "Nu am găsit candidați noi în cadrul curent.");
             return;
         }
         int limit = Math.min(100, snapshot.candidates.size());
@@ -1167,13 +1197,31 @@ public final class MainActivity extends AppCompatActivity {
                 .setTitle("CANDIDAȚI • nevalidați, neadăugați în index")
                 .setItems(rows, (dialog, index) -> {
                     LiveEvidenceAnalyzer.Candidate item = snapshot.candidates.get(index);
-                    showEvidenceMessage(item.type,
-                            "Formă OCR: «" + item.original + "»"
-                                    + "\nBloc " + (item.block + 1)
+                    new AlertDialog.Builder(this)
+                            .setTitle(item.type + " • " + item.original)
+                            .setMessage("Bloc " + (item.block + 1)
                                     + ", caractere " + item.start + "–" + item.end
                                     + "\n\nCitat OCR exact:\n«" + item.quote + "»"
-                                    + "\n\nAcesta este doar un candidat determinist, nu un an/indice validat."
-                                    + " Nu este introdus automat în bibliotecă.");
+                                    + "\n\nAcesta este un candidat, nu o informație"
+                                    + " istorică validată. Numai tu îl poți aproba.")
+                            .setNegativeButton("ÎNCHIDE", null)
+                            .setPositiveButton("TRIMITE ÎN INBOX", (d,w) -> {
+                                planExecutor.execute(() -> {
+                                    try {
+                                        UniversalIndexStore.get(getApplicationContext())
+                                                .addToInbox(item.type, item.original, item.quote);
+                                        runOnUiThread(() -> {
+                                            if (!destroyed) toast("Candidat salvat în INBOX.");
+                                        });
+                                    } catch (RuntimeException error) {
+                                        android.util.Log.e("BiblioTopicSearch",
+                                                "Nu pot salva candidatul", error);
+                                        runOnUiThread(() -> {
+                                            if (!destroyed) toast("Nu am putut salva candidatul.");
+                                        });
+                                    }
+                                });
+                            }).show();
                 }).setNegativeButton("ÎNCHIDE", null).show();
     }
 
