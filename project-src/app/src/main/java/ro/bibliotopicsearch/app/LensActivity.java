@@ -734,6 +734,105 @@ public final class LensActivity extends AppCompatActivity {
         zoomLabel.setText((level.ordinal() + 1) + "/5\n" + level.labelRo());
     }
 
+    /**
+     * Read-only LIVE evidence. Every dialog uses one captured snapshot, never
+     * mixes OCR text from two frames or rewrites its original quotation.
+     */
+    private void openLensEvidence() {
+        final LiveEvidenceAnalyzer.Snapshot snapshot = latestEvidence;
+        if (snapshot == null) {
+            showLensEvidenceMessage("INDICI", "Indexurile se pregătesc sau camera nu a citit încă text.");
+            return;
+        }
+        String[] options = {
+                "OCURENȚE • " + snapshot.groups.size() + " indici / " + snapshot.occurrences + " apariții",
+                "COOCURENȚE • " + snapshot.cooccurrences(),
+                "SUPRAPUNERI • " + snapshot.overlaps(),
+                "CANDIDAȚI CRONOLOGICI • " + snapshot.candidates.size()
+        };
+        new AlertDialog.Builder(this).setTitle("INDICI • ce vrei să vezi?")
+                .setItems(options, (dialog, which) -> {
+                    if (which == 0) {
+                        if (snapshot.groups.isEmpty()) {
+                            showLensEvidenceMessage("OCURENȚE", "Niciun indice prezent în cadrul OCR.");
+                            return;
+                        }
+                        int count = Math.min(100, snapshot.groups.size());
+                        String[] rows = new String[count];
+                        for (int i = 0; i < count; i++) {
+                            LiveEvidenceAnalyzer.Group group = snapshot.groups.get(i);
+                            rows[i] = group.title + " • " + group.count() + " apariții";
+                        }
+                        new AlertDialog.Builder(this).setTitle("OCURENȚE (primele " + count + ")")
+                                .setItems(rows, (d, index) -> {
+                                    LiveEvidenceAnalyzer.Group group = snapshot.groups.get(index);
+                                    StringBuilder detail = new StringBuilder("Index: ")
+                                            .append(group.indexId).append("\n")
+                                            .append(group.count()).append(" ocurențe distincte");
+                                    int n = Math.min(30, group.occurrences.size());
+                                    for (int j = 0; j < n; j++) {
+                                        LiveEvidenceAnalyzer.Spot spot = group.occurrences.get(j);
+                                        detail.append("\n\n").append(spot.position())
+                                                .append("\n«").append(spot.quote).append("»");
+                                    }
+                                    showLensEvidenceMessage(group.title, detail.toString());
+                                }).setNegativeButton("ÎNCHIDE", null).show();
+                    } else if (which == 1 || which == 2) {
+                        boolean overlaps = which == 2;
+                        List<LiveEvidenceAnalyzer.Pair> pairs = new ArrayList<>();
+                        for (LiveEvidenceAnalyzer.Pair pair : snapshot.pairs) {
+                            if (pair.thematicOverlap == overlaps) pairs.add(pair);
+                        }
+                        if (pairs.isEmpty()) {
+                            showLensEvidenceMessage(overlaps ? "SUPRAPUNERI" : "COOCURENȚE",
+                                    "Nu s-au găsit perechi de acest tip.");
+                            return;
+                        }
+                        int count = Math.min(100, pairs.size());
+                        String[] rows = new String[count];
+                        for (int i = 0; i < count; i++) rows[i] = pairs.get(i).label();
+                        new AlertDialog.Builder(this)
+                                .setTitle((overlaps ? "SUPRAPUNERI" : "COOCURENȚE")
+                                        + (snapshot.pairsLimited ? " • listă limitată" : ""))
+                                .setItems(rows, (d, index) -> {
+                                    LiveEvidenceAnalyzer.Pair pair = pairs.get(index);
+                                    showLensEvidenceMessage(pair.label(), "CITAT OCR EXACT:\n«"
+                                            + pair.quote + "»\n\n"
+                                            + "«" + pair.left.original + "» / «" + pair.right.original + "»"
+                                            + (pair.thematicOverlap ? "\nAceeași zonă OCR."
+                                            : "\nSegment exact între indicii: «"
+                                            + pair.exactBetween + "»"
+                                            + (pair.visibleConnector.isEmpty() ? ""
+                                            : "\nConector vizibil: «" + pair.visibleConnector + "»"))
+                                            + "\n\nCoocurența nu demonstrează o relație istorică sau sintactică.");
+                                }).setNegativeButton("ÎNCHIDE", null).show();
+                    } else {
+                        if (snapshot.candidates.isEmpty()) {
+                            showLensEvidenceMessage("CANDIDAȚI", "Nicio formă cronologică nouă în OCR.");
+                            return;
+                        }
+                        int count = Math.min(100, snapshot.candidates.size());
+                        String[] rows = new String[count];
+                        for (int i = 0; i < count; i++) {
+                            LiveEvidenceAnalyzer.Candidate item = snapshot.candidates.get(i);
+                            rows[i] = item.type + " • «" + item.original + "»";
+                        }
+                        new AlertDialog.Builder(this).setTitle("CANDIDAȚI • nevalidați")
+                                .setItems(rows, (d, index) -> {
+                                    LiveEvidenceAnalyzer.Candidate item = snapshot.candidates.get(index);
+                                    showLensEvidenceMessage(item.type, "«" + item.quote + "»\n\n"
+                                            + "Candidat determinist. Nu este introdus automat în index.");
+                                }).setNegativeButton("ÎNCHIDE", null).show();
+                    }
+                }).setNegativeButton("ÎNCHIDE", null).show();
+    }
+
+    private void showLensEvidenceMessage(String title, String message) {
+        if (destroyed || isFinishing()) return;
+        new AlertDialog.Builder(this).setTitle(title).setMessage(message)
+                .setPositiveButton("ÎNCHIDE", null).show();
+    }
+
     private void showTargetDetails(MatchHit hit) {
         if (hit == null) return;
         new AlertDialog.Builder(this)
