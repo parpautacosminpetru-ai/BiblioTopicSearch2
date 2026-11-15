@@ -318,6 +318,10 @@ public final class MainActivity extends AppCompatActivity {
         toolbar.addView(nodesButton, toolbarLp());
         toolbar.addView(labelsButton, toolbarLp());
         toolbar.addView(evidenceButton, toolbarLp());
+        Button canonicalButton = toolbarButton("INDEX UNIVERSAL");
+        canonicalButton.setOnClickListener(v -> startActivity(
+                new Intent(this, UniversalIndexActivity.class)));
+        toolbar.addView(canonicalButton, toolbarLp());
         toolbar.addView(saveButton, toolbarLp());
         toolbar.addView(settingsButton, toolbarLp());
         toolScroll.addView(toolbar, new HorizontalScrollView.LayoutParams(
@@ -543,7 +547,8 @@ public final class MainActivity extends AppCompatActivity {
         for (MapProfile profile : TopicLibraryStore.selectedForScan(this)) {
             selectedKey.append(profile.id).append('/');
         }
-        syncVisibleNodes(selectedKey.toString());
+        final String selectedSignature = selectedKey.toString();
+        syncVisibleNodes(selectedSignature);
         latestAllHits = Collections.emptyList();
         if (overlayView != null) overlayView.clearHits();
         updateLegend(Collections.emptyList());
@@ -555,14 +560,25 @@ public final class MainActivity extends AppCompatActivity {
         planExecutor.execute(() -> {
             if (destroyed || generation != planGeneration.get()) return;
             try {
-                TopicMatcher.SearchPlan compiled = TopicMatcher.compile(getApplicationContext(), snapshotMap);
+                TopicMap universal = UniversalIndexStore.get(getApplicationContext()).loadMap();
+                TopicMap complete = TopicMapMerger.merge(
+                        "Tematici și indici canonici", snapshotMap, universal);
+                TopicMatcher.SearchPlan compiled =
+                        TopicMatcher.compile(getApplicationContext(), complete);
                 DeterministicMultiIndexMatcher.Plan indices =
-                        DeterministicMultiIndexMatcher.compile(snapshotMap);
+                        DeterministicMultiIndexMatcher.compile(complete);
                 runOnUiThread(() -> {
                     if (destroyed || generation != planGeneration.get()) return;
+                    topicMap = complete;
                     evidencePlan = indices;
                     searchPlan = compiled;
-                    setStatus("Indexurile sunt pregătite • OCR live", Color.rgb(78, 201, 126));
+                    syncVisibleNodes(selectedSignature);
+                    updateHeader();
+                    rebuildNodeChips();
+                    redrawVisibleHits();
+                    setStatus("Indexuri pregătite • " + compiled.termCount()
+                                    + " forme active • OCR live",
+                            Color.rgb(78, 201, 126));
                 });
             } catch (RuntimeException error) {
                 android.util.Log.e("BiblioTopicSearch", "Nu pot compila indexul", error);
@@ -1167,13 +1183,31 @@ public final class MainActivity extends AppCompatActivity {
                 .setTitle("CANDIDAȚI • nevalidați, neadăugați în index")
                 .setItems(rows, (dialog, index) -> {
                     LiveEvidenceAnalyzer.Candidate item = snapshot.candidates.get(index);
-                    showEvidenceMessage(item.type,
-                            "Formă OCR: «" + item.original + "»"
-                                    + "\nBloc " + (item.block + 1)
+                    new AlertDialog.Builder(this)
+                            .setTitle(item.type + " • " + item.original)
+                            .setMessage("Bloc " + (item.block + 1)
                                     + ", caractere " + item.start + "–" + item.end
                                     + "\n\nCitat OCR exact:\n«" + item.quote + "»"
-                                    + "\n\nAcesta este doar un candidat determinist, nu un an/indice validat."
-                                    + " Nu este introdus automat în bibliotecă.");
+                                    + "\n\nAcesta este un candidat, nu o informație"
+                                    + " istorică validată. Numai tu îl poți aproba.")
+                            .setNegativeButton("ÎNCHIDE", null)
+                            .setPositiveButton("TRIMITE ÎN INBOX", (d,w) -> {
+                                planExecutor.execute(() -> {
+                                    try {
+                                        UniversalIndexStore.get(getApplicationContext())
+                                                .addToInbox(item.type, item.original, item.quote);
+                                        runOnUiThread(() -> {
+                                            if (!destroyed) toast("Candidat salvat în INBOX.");
+                                        });
+                                    } catch (RuntimeException error) {
+                                        android.util.Log.e("BiblioTopicSearch",
+                                                "Nu pot salva candidatul", error);
+                                        runOnUiThread(() -> {
+                                            if (!destroyed) toast("Nu am putut salva candidatul.");
+                                        });
+                                    }
+                                });
+                            }).show();
                 }).setNegativeButton("ÎNCHIDE", null).show();
     }
 
