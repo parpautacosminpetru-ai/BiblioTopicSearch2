@@ -301,6 +301,10 @@ public final class LensActivity extends AppCompatActivity {
         archiveKeysButton = button(archiveKeysEnabled ? "PEDALĂ ●" : "PEDALĂ ○");
         archiveKeysButton.setOnClickListener(v -> toggleArchiveKeys());
         archive.addView(archiveKeysButton, new LinearLayout.LayoutParams(0, dp(38), 1f));
+        Button universal = button("INDEX UNIVERSAL");
+        universal.setOnClickListener(v -> startActivity(new Intent(this, UniversalIndexActivity.class)));
+        archive.addView(universal, new LinearLayout.LayoutParams(0, dp(38), 1f));
+
         Button evidenceButton = button("INDICI");
         evidenceButton.setOnClickListener(v -> openLensEvidence());
         archive.addView(evidenceButton, new LinearLayout.LayoutParams(0, dp(38), 1f));
@@ -475,8 +479,12 @@ public final class LensActivity extends AppCompatActivity {
         queryExecutor.execute(() -> {
             if (destroyed || generation != queryGeneration.get()) return;
             try {
-                TopicMap aliases = TopicMapStore.load(getApplicationContext());
+                TopicMap aliases = TopicMapStore.loadForDetector(getApplicationContext());
+                // Crossings stay restricted to explicit user tematici; the
+                // canonical register is a detection layer, not an inference source.
                 TopicMatcher.setIntersectionThemeMap(aliases);
+                TopicMap allIndices = TopicMapMerger.merge("Indici universali", aliases,
+                        UniversalIndexStore.get(getApplicationContext()).loadMap());
                 TopicMap lensMap = LensQueryMap.build(
                         query,
                         aliases,
@@ -485,7 +493,7 @@ public final class LensActivity extends AppCompatActivity {
                 TopicMatcher.SearchPlan compiled = TopicMatcher.compile(getApplicationContext(), lensMap);
                 // The live inspector always searches the user's full active index.
                 DeterministicMultiIndexMatcher.Plan indices =
-                        DeterministicMultiIndexMatcher.compile(aliases);
+                        DeterministicMultiIndexMatcher.compile(allIndices);
                 if (!destroyed && generation == queryGeneration.get() && query.equals(activeQuery)) {
                     evidencePlan = indices;
                     searchPlan = compiled;
