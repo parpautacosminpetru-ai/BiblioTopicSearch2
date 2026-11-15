@@ -47,6 +47,7 @@ import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -55,6 +56,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public final class MainActivity extends AppCompatActivity {
     private static final int REQ_CAMERA = 101;
@@ -78,6 +80,7 @@ public final class MainActivity extends AppCompatActivity {
     private Button semanticButton;
     private Button themeLayerButton;
     private Button zoomButton;
+    private Button evidenceButton;
     private LinearLayout nodePanel;
     private LinearLayout nodeChips;
     private LinearLayout legendPanel;
@@ -86,8 +89,31 @@ public final class MainActivity extends AppCompatActivity {
     private TextRecognizer recognizer;
     private MlKitAnalyzer analyzer;
     private final ExecutorService analysisExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService planExecutor = Executors.newSingleThreadExecutor();
+    private final AtomicInteger planGeneration = new AtomicInteger(0);
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private volatile TopicMatcher.SearchPlan searchPlan;
+    private volatile DeterministicMultiIndexMatcher.Plan evidencePlan;
+    private LiveDetectionPipeline<Text, LiveFrame> livePipeline;
+    private volatile boolean destroyed;
+    private LiveEvidenceAnalyzer.Snapshot latestEvidence;
+
+    private static final class LiveFrame {
+        final List<MatchHit> hits;
+        final int words;
+        final int terms;
+        final int generation;
+        final LiveEvidenceAnalyzer.Snapshot evidence;
+
+        LiveFrame(List<MatchHit> hits, int words, int terms, int generation,
+                  LiveEvidenceAnalyzer.Snapshot evidence) {
+            this.hits = hits;
+            this.words = words;
+            this.terms = terms;
+            this.generation = generation;
+            this.evidence = evidence;
+        }
+    }
 
     private TopicMap topicMap;
     private TopicMap userTopicMap;
@@ -112,6 +138,7 @@ public final class MainActivity extends AppCompatActivity {
     private final Runnable staleOverlayClear = () -> {
         if (!frozen && ocrEnabled && overlayView != null) {
             overlayView.clearHits();
+            latestEvidence = null;
             updateLegend(Collections.emptyList());
             setStatus("OCR live • caut text nou", Color.rgb(78, 201, 126));
         }
@@ -129,6 +156,7 @@ public final class MainActivity extends AppCompatActivity {
         buildUi();
         toneGenerator = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 22);
         overlayView.setOnHitTapListener(this::showHitDetails);
+        initializeLiveDetection();
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED) {
@@ -150,6 +178,10 @@ public final class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        destroyed = true;
+        planGeneration.incrementAndGet();
+        if (livePipeline != null) livePipeline.close();
+        planExecutor.shutdownNow();
         if (cameraController != null) {
             cameraController.clearImageAnalysisAnalyzer();
             cameraController.unbind();
@@ -257,6 +289,7 @@ public final class MainActivity extends AppCompatActivity {
         zoomButton = toolbarButton("LUPĂ");
         nodesButton = toolbarButton("NODURI");
         labelsButton = toolbarButton("ETICHETE");
+        evidenceButton = toolbarButton("INDICI");
         Button libraryButton = toolbarButton("TEME");
         freezeButton = toolbarButton("CADRU");
         saveButton = toolbarButton("SALVEAZĂ");
@@ -270,6 +303,7 @@ public final class MainActivity extends AppCompatActivity {
         toolbar.addView(zoomButton, toolbarLp());
         toolbar.addView(nodesButton, toolbarLp());
         toolbar.addView(labelsButton, toolbarLp());
+        toolbar.addView(evidenceButton, toolbarLp());
         toolbar.addView(libraryButton, toolbarLp());
         toolbar.addView(freezeButton, toolbarLp());
         toolbar.addView(saveButton, toolbarLp());
@@ -323,6 +357,7 @@ public final class MainActivity extends AppCompatActivity {
             nodesButton.setText(nodePanel.getVisibility() == View.VISIBLE ? "ÎNCHIDE NODURI" : "NODURI");
         });
         labelsButton.setOnClickListener(v -> toggleFloatingLabels());
+        evidenceButton.setOnClickListener(v -> openLiveInspector());
         libraryButton.setOnClickListener(v -> openLibrary());
         settingsButton.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         freezeButton.setOnClickListener(v -> toggleFreeze());
@@ -364,28 +399,58 @@ public final class MainActivity extends AppCompatActivity {
                             if (!ocrEnabled || frozen) return;
                             overlayView.clearHits();
                             latestAllHits = Collections.emptyList();
+                            latestEvidence = null;
                             updateLegend(Collections.emptyList());
                             setStatus("OCR live • niciun text citit încă", Color.rgb(78, 201, 126));
                         });
                         return;
                     }
 
-                    TopicMatcher.SearchPlan activePlan = searchPlan;
-                    if (activePlan == null) {
-                        TopicMap activeMap = topicMap == null ? buildActiveSearchMap() : topicMap;
-                        activePlan = TopicMatcher.compile(MainActivity.this, activeMap);
-                        searchPlan = activePlan;
-                    }
-
-                    List<MatchHit> hits = TopicMatcher.find(text, activePlan);
-                    int recognizedWords = countRecognizedWords(text);
-                    int searchableTerms = activePlan.termCount();
-                    runOnUiThread(() -> applyHits(hits, recognizedWords, searchableTerms));
+                    // OCR callback never performs lexical matching, plan compilation
+                    // or evidence graph construction. Busy frames are skipped.
+                    if (livePipeline != null) livePipeline.offer(text);
                 }
         );
 
         if (ocrEnabled) attachAnalyzer();
         cameraController.bindToLifecycle(this);
+    }
+
+    private void initializeLiveDetection() {
+        livePipeline = new LiveDetectionPipeline<>(
+                260L,
+                this::runOnUiThread,
+                text -> {
+                    TopicMatcher.SearchPlan plan = searchPlan;
+                    DeterministicMultiIndexMatcher.Plan indices = evidencePlan;
+                    int version = planGeneration.get();
+                    if (plan == null || indices == null) return null;
+
+                    List<MatchHit> hits = TopicMatcher.find(text, plan);
+                    List<String> blocks = new ArrayList<>();
+                    for (Text.TextBlock block : text.getTextBlocks()) blocks.add(block.getText());
+                    LiveEvidenceAnalyzer.Snapshot evidence =
+                            LiveEvidenceAnalyzer.inspect(blocks, indices);
+                    return new LiveFrame(hits, countRecognizedWords(text),
+                            plan.termCount(), version, evidence);
+                },
+                new LiveDetectionPipeline.Listener<LiveFrame>() {
+                    @Override public void onResult(LiveFrame frame) {
+                        if (frame == null || destroyed || !ocrEnabled || frozen
+                                || frame.generation != planGeneration.get()) return;
+                        latestEvidence = frame.evidence;
+                        applyHits(frame.hits, frame.words, frame.terms);
+                    }
+
+                    @Override public void onError(Exception failure) {
+                        android.util.Log.w("BiblioTopicSearch", "Eroare detecție OCR", failure);
+                        if (!destroyed && ocrEnabled && !frozen) {
+                            setStatus("OCR activ • rezultat omis după eroare",
+                                    Color.rgb(244, 188, 77));
+                        }
+                    }
+                }
+        );
     }
 
     private void attachAnalyzer() {
@@ -453,7 +518,11 @@ public final class MainActivity extends AppCompatActivity {
         userTopicMap = TopicMapStore.load(this);
         TopicMatcher.setIntersectionThemeMap(userTopicMap);
         topicMap = buildActiveSearchMap();
-        searchPlan = TopicMatcher.compile(this, topicMap);
+        final TopicMap snapshotMap = topicMap;
+        final int generation = planGeneration.incrementAndGet();
+        searchPlan = null;
+        evidencePlan = null;
+        latestEvidence = null;
         syncVisibleNodes(activeProfile.id);
         latestAllHits = Collections.emptyList();
         if (overlayView != null) overlayView.clearHits();
@@ -461,6 +530,29 @@ public final class MainActivity extends AppCompatActivity {
         updateHeader();
         rebuildNodeChips();
         redrawVisibleHits();
+        setStatus("Pregătesc indexurile în fundal…", Color.rgb(244, 188, 77));
+
+        planExecutor.execute(() -> {
+            try {
+                TopicMatcher.SearchPlan compiled = TopicMatcher.compile(getApplicationContext(), snapshotMap);
+                DeterministicMultiIndexMatcher.Plan indices =
+                        DeterministicMultiIndexMatcher.compile(snapshotMap);
+                runOnUiThread(() -> {
+                    if (destroyed || generation != planGeneration.get()) return;
+                    evidencePlan = indices;
+                    searchPlan = compiled;
+                    setStatus("Indexurile sunt pregătite • OCR live", Color.rgb(78, 201, 126));
+                });
+            } catch (RuntimeException error) {
+                android.util.Log.e("BiblioTopicSearch", "Nu pot compila indexul", error);
+                runOnUiThread(() -> {
+                    if (!destroyed && generation == planGeneration.get()) {
+                        setStatus("Indexul nu s-a încărcat; verifică tematicile",
+                                Color.rgb(230, 92, 92));
+                    }
+                });
+            }
+        });
     }
 
     private void toggleTextualLayer() {
