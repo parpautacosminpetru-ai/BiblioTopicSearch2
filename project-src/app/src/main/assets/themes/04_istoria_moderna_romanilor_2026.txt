@@ -1,0 +1,23 @@
+# S01 — Modernitatea românească: societate și elite
+!geneza modernității românești | ?secolul al XVIII-lea românesc | ?societatea românească modernă | ?modernitate politică | ?modelul apusean | ?boierimea românească | ?burghezia românească | ?elită politică | ?conștiință națională | ?românii și Europa
+
+# S02 — Geneza chestiunii române (1774–1858)
+!chestiunea română | !cauza românească | ?1774-1858 | ?chestiunea orientală | ?Principatele Române | ?suzeranitatea otomană | ?protectorat rusesc | ?drept de intervenție | ?autonomia Principatelor | ?Marile Puteri
+
+# S03 — Regimul fanariot și reformismul
+!regimul fanariot | !Constantin Mavrocordat | ?instaurarea domniilor fanariote | ?reformism fanariot | ?fanariotism | ?domni pământeni | ?cultura greacă în Principate | ?boieri fanarioți | ?despotism luminat
+
+# S04 — Transilvania (1700–1850); Școala Ardeleană
+!Inochentie Micu Klein | !Școala Ardeleană | !Supplex Libellus Valachorum | ?reformism iosefin | ?românii din Transilvania | ?Imperiul Habsburgic | ?răscoala lui Horea | ?identitate națională ardeleană | ?Biserica Română Unită | ?revoluția din Transilvania
+
+# S05 — Construcție politică, 1821–1848
+!Tudor Vladimirescu | !Regulamentul Organic | !mișcarea eteristă | ?1821 | ?domnia pământeană | ?partida națională | ?programe de emancipare | ?ocupația rusă | ?protectorat proconsular | ?Alexandru Dimitrie Ghica
+
+# S06 — Revoluția română de la 1848
+!Revoluția de la 1848 | !Petițiunea-proclamațiune | ?guvernul provizoriu | ?revoluționarii pașoptiști | ?criza regimului regulamentar | ?petiții politice | ?Țara Românească la 1848 | ?Moldova la 1848 | ?gândire politică pașoptistă | ?revoluție și progres
+
+# S07 — Unirea Principatelor și statul național (1848–1866)
+!Unirea Principatelor | !Adunările ad-hoc | !Alexandru Ioan Cuza | !Războiul Crimeei | ?1856-1859 | ?garanția colectivă | ?Conferința de la Paris | ?fapt împlinit | ?Constituția din 1866 | ?Partida națională | ?liberali și conservatori | ?statul național român
+
+# Repere din bibliografia selectivă — fără vibrație
+-Keith Hitchins | -Gheorghe Platon | -Dan Berindei | -Leonid Boicu | -Cristian Ploscaru | -Nicolae Isar | -Apostol Stan | -Cornelia Bodea | -David Prodan | -Neagu Djuvara
