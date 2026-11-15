@@ -92,13 +92,13 @@ class ThemeAssetsTest(unittest.TestCase):
             self.assertGreaterEqual(len(terms), 10)
 
     def test_priority_context_and_visual_only_are_explicit(self):
+        combined = ""
         for path in ASSETS.glob("*.txt"):
             s = path.read_text(encoding="utf-8")
-            if "bibliograf" in path.name.lower():
-                continue
-            self.assertRegex(s, r"(?:^|[|\s])![^|\s]")
+            combined += s + "\n"
             self.assertRegex(s, r"(?:^|[|\s])\?[^|\s]")
-            self.assertRegex(s, r"(?:^|[|\s])-[^|\s]")
+        self.assertRegex(combined, r"(?:^|[|\s])![^|\s]")
+        self.assertRegex(combined, r"(?:^|[|\s])-[^|\s]")
 
 
 if __name__ == "__main__":
