@@ -1,0 +1,56 @@
+name: Public direct APK download — BiblioTopicSearch 2.1.1 beta3
+
+on:
+  push:
+    branches:
+      - feature/bibliotopicsearch-2-deterministic-detector-20261114
+    paths:
+      - .github/workflows/publish-v2-beta-direct.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish-apk:
+    if: github.repository == 'parpautacosminpetru-ai/BiblioTopicSearch2' && github.ref == 'refs/heads/feature/bibliotopicsearch-2-deterministic-detector-20261114'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download APK built and unit-tested from exact source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 43691099073 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name BiblioTopicSearch-implicit-tools-APK \
+            --dir apk-output
+          test -s apk-output/BiblioTopicSearch-implicit-tools.apk
+          unzip -t apk-output/BiblioTopicSearch-implicit-tools.apk > /dev/null
+          cp apk-output/BiblioTopicSearch-implicit-tools.apk BiblioTopicSearch_2.1.1_Beta3_Fara_Dubluri.apk
+          sha256sum BiblioTopicSearch_2.1.1_Beta3_Fara_Dubluri.apk | tee BiblioTopicSearch_2.1.1_Beta3_Fara_Dubluri.apk.sha256
+
+      - name: Publish downloadable prerelease without modifying stable main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=v2.1.1-beta3
+          NOTES="BiblioTopicSearch 2.1.1 beta3. Android debug APK, 7 university themes integrated from 9 documents, 144 topic sections, 1027 globally unique expressions, de-duplicated OCR highlights. Offline camera OCR. Built from 384555d8aa5ad349d9f6bc0377938f1702d08eae. NOT a production-signed release; test on your phone. Separate Android application ID; local data does not migrate automatically."
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              BiblioTopicSearch_2.1.1_Beta3_Fara_Dubluri.apk \
+              BiblioTopicSearch_2.1.1_Beta3_Fara_Dubluri.apk.sha256 \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" \
+              BiblioTopicSearch_2.1.1_Beta3_Fara_Dubluri.apk \
+              BiblioTopicSearch_2.1.1_Beta3_Fara_Dubluri.apk.sha256 \
+              --repo "$GITHUB_REPOSITORY" \
+              --target 384555d8aa5ad349d9f6bc0377938f1702d08eae \
+              --title "BiblioTopicSearch 2.1.1 Beta 3 — 7 tematici fără dubluri" \
+              --notes "$NOTES" --prerelease
+          fi
