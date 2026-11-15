@@ -25,6 +25,10 @@ class ThemeAssetsTest(unittest.TestCase):
     def test_seven_curated_maps_no_old_medieval_duplicates(self):
         packs = sorted(ASSETS.glob("*.txt"))
         self.assertEqual(7, len(packs), [p.name for p in packs])
+        medieval = ASSETS / "05_europa_medievala_unificata_2020_2026.txt"
+        headings = [x for x in medieval.read_text(encoding="utf-8").splitlines()
+                    if x.startswith("# ")]
+        self.assertEqual(24, len(headings), "merge semantically duplicated medieval sections")
         self.assertEqual(
             1,
             sum("europa_medievala" in p.name for p in packs),

@@ -51,3 +51,6 @@ nou hărțile deja instalate. Datele personale/academice rămân offline.
 
 Testul `project-src/sql-tests/test_theme_assets.py` verifică numărul hărților,
 unicitatea internă a termenilor și păstrarea celor 38 de subiecte.
+
+## Consolidarea secțiunilor medievale (beta 3)
+După eliminarea termenilor repetați, temele suprapuse între programele medievale din 2020 și 2026 au fost comasate și conceptual: 42 de secțiuni inițiale -> 24 de subiecte canonice, fără pierderea celor 271 de expresii unice. Întregul catalog are 144 de secțiuni și 1.027 expresii distincte.
