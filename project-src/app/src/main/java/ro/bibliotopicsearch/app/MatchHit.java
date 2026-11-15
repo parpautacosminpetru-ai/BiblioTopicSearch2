@@ -108,10 +108,10 @@ public final class MatchHit {
         if (other == null) return;
         Set<String> existing = new LinkedHashSet<>();
         for (MatchHit item : associations) {
-            existing.add(item.node.path + "\u001f" + item.searchTerm);
+            existing.add(item.node.path + "|" + item.searchTerm);
         }
         for (MatchHit item : other.associations) {
-            String key = item.node.path + "\u001f" + item.searchTerm;
+            String key = item.node.path + "|" + item.searchTerm;
             if (existing.add(key)) associations.add(item);
         }
     }
