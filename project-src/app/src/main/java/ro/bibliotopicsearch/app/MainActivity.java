@@ -93,6 +93,7 @@ public final class MainActivity extends AppCompatActivity {
     private final AtomicInteger planGeneration = new AtomicInteger(0);
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private volatile TopicMatcher.SearchPlan searchPlan;
+    private volatile boolean fastMatching;
     private volatile DeterministicMultiIndexMatcher.Plan evidencePlan;
     private LiveDetectionPipeline<Text, LiveFrame> livePipeline;
     private volatile boolean destroyed;
@@ -444,15 +445,18 @@ public final class MainActivity extends AppCompatActivity {
                     TopicMatcher.SearchPlan plan = searchPlan;
                     DeterministicMultiIndexMatcher.Plan indices = evidencePlan;
                     int version = planGeneration.get();
-                    if (plan == null || indices == null) return null;
+                    boolean fast = fastMatching;
+                    if (indices == null || (!fast && plan == null)) return null;
 
-                    List<MatchHit> hits = collapseDuplicateOccurrences(TopicMatcher.findLexicalOnly(text, plan));
+                    List<MatchHit> hits = collapseDuplicateOccurrences(fast
+                            ? FastCameraIndexMatcher.find(text, indices)
+                            : TopicMatcher.findLexicalOnly(text, plan));
                     List<String> blocks = new ArrayList<>();
                     for (Text.TextBlock block : text.getTextBlocks()) blocks.add(block.getText());
                     LiveEvidenceAnalyzer.Snapshot evidence =
                             LiveEvidenceAnalyzer.inspect(blocks, indices);
                     return new LiveFrame(hits, countRecognizedWords(text),
-                            plan.termCount(), version, evidence);
+                            fast ? indices.termCount() : plan.termCount(), version, evidence);
                 },
                 new LiveDetectionPipeline.Listener<LiveFrame>() {
                     @Override public void onResult(LiveFrame frame) {
@@ -540,6 +544,11 @@ public final class MainActivity extends AppCompatActivity {
         topicMap = buildActiveSearchMap();
         final TopicMap snapshotMap = topicMap;
         final int generation = planGeneration.incrementAndGet();
+        final boolean fastEligible = AppPrefs.getMatchMode(this) == AppPrefs.MatchMode.EXACT
+                && AppPrefs.ignoreDiacritics(this)
+                && AppPrefs.compareChars(this) == 0
+                && !textualLayerEnabled && !semanticLayerEnabled;
+        fastMatching = false;
         searchPlan = null;
         evidencePlan = null;
         latestEvidence = null;
@@ -560,11 +569,15 @@ public final class MainActivity extends AppCompatActivity {
         planExecutor.execute(() -> {
             if (destroyed || generation != planGeneration.get()) return;
             try {
-                TopicMap universal = UniversalIndexStore.get(getApplicationContext()).loadMap();
+                TopicMap universal = themeLayerEnabled
+                        ? UniversalIndexStore.get(getApplicationContext()).loadMap()
+                        : new TopicMap("Index universal în pauză", "", new ArrayList<>());
                 TopicMap complete = TopicMapMerger.merge(
                         "Tematici și indici canonici", snapshotMap, universal);
-                TopicMatcher.SearchPlan compiled =
-                        TopicMatcher.compile(getApplicationContext(), complete);
+                // The canonical Aho–Corasick matcher is used for exact search;
+                // less restrictive modes keep the existing matching semantics.
+                TopicMatcher.SearchPlan compiled = fastEligible ? null
+                        : TopicMatcher.compile(getApplicationContext(), complete);
                 DeterministicMultiIndexMatcher.Plan indices =
                         DeterministicMultiIndexMatcher.compile(complete);
                 runOnUiThread(() -> {
@@ -572,11 +585,12 @@ public final class MainActivity extends AppCompatActivity {
                     topicMap = complete;
                     evidencePlan = indices;
                     searchPlan = compiled;
+                    fastMatching = fastEligible;
                     syncVisibleNodes(selectedSignature);
                     updateHeader();
                     rebuildNodeChips();
                     redrawVisibleHits();
-                    setStatus("Indexuri pregătite • " + compiled.termCount()
+                    setStatus("Indexuri pregătite • " + indices.termCount()
                                     + " forme active • OCR live",
                             Color.rgb(78, 201, 126));
                 });
