@@ -1,83 +1,56 @@
 # C01 — Introducere: periodizarea Bizanțului
 !Imperiul Bizantin | ?Bizanț timpuriu | ?Bizanț târziu | ?provincii bizantine | ?Constantinopol | ?izvoare bizantine | ?periodizare bizantină
-
 # C02 — Constantin I și creștinarea imperiului
 !Constantin cel Mare | !Edictul de la Milano | ?Imperiul Roman târziu | ?creștinarea imperiului | ?Constantin I | ?Noua Romă
-
 # C03 — Justinian I și moștenirea sa
 !Justinian I | !Corpus Juris Civilis | ?Theodora | ?Codul lui Justinian | ?reconquista justiniană | ?Nika | ?Hagia Sophia
-
 # C04 — Crizele din 610–717; heraclizii
 !dinastia Heraclizilor | !Heraclius | ?610-717 | ?războaie bizantino-persane | ?atacuri arabe | ?anarhia bizantină
-
 # C05 — Isaurieni, Amorieni și iconoclasm
 !iconoclasm bizantin | !dinastia isauriană | ?dinastia amoriană | ?Leon al III-lea Isaurul | ?Teodora și icoanele | ?sinodul de la Niceea | ?cultul icoanelor
-
 # C06 — Renașterea macedoneană I
 !renașterea macedoneană | !dinastia macedoneană | ?867-1025 | ?Vasile I Macedoneanul | ?Leon al VI-lea | ?renaștere culturală bizantină
-
 # C07 — Renașterea macedoneană II
 !Vasile al II-lea Bulgaroctonul | ?expansiunea bizantină | ?Bulgaria bizantină | ?Constantin VII Porfirogenetul | ?politica macedoneană
-
 # C08 — Aristocrația militară și Comnenii
 !dinastia Comnenilor | !Alexios I Comnenul | !Manuel I Comnenul | ?aristocrația militară | ?pronoia | ?reforma armatei | ?Ana Comnena
-
 # C09 — Cruciada IV și Imperiul latin (1204–1261)
 !Cruciada a patra | !Imperiul latin de Constantinopol | ?1204 | ?1261 | ?Imperiul de Niceea | ?Bizanțul în exil | ?destrămarea Bizanțului
-
 # C10 — Restaurația paleologă
-!dinastia Paleologilor | !Mihail al VIII-lea Paleologul | ?1261 | ?restaurația Bizanțului | ?Imperiul de Niceea | ?renașterea paleologă
-
+!dinastia Paleologilor | !Mihail al VIII-lea Paleologul | ?restaurația Bizanțului | ?renașterea paleologă
 # C11 — Bizanțul sub presiune otomană
 !expansiunea otomană în Balcani | ?secolul al XIV-lea | ?secolul al XV-lea | ?asediul Constantinopolului | ?criza imperiului bizantin | ?Imperiul Otoman
-
 # C12 — Căderea Constantinopolului (1453)
 !Căderea Constantinopolului | !Constantin al XI-lea Paleologul | !Mehmed al II-lea | ?1453 | ?asediul din 1453 | ?cucerirea Constantinopolului
-
 # C13 — Bizanț după Bizanț
 !Bizanț după Bizanț | ?moștenire bizantină | ?tradiție bizantină | ?instituții bizantine | ?dreptul bizantin în Țările Române | ?cultură bizantină
-
 # S01 — Seminar introductiv
-?istoria Bizanțului | ?izvoare bizantine | ?periodizarea Bizanțului | ?scriitori bizantini | ?imperiul roman de răsărit
-
+?istoria Bizanțului | ?periodizarea Bizanțului | ?scriitori bizantini | ?imperiul roman de răsărit
 # S02 — Universalism și teocrație imperială
 !teocrația bizantină | !universalismul bizantin | ?basileus | ?împărat bizantin | ?ideologie imperială | ?moștenirea romană | ?cezaropapism
-
 # S03 — Cronicarii bizantini
 !cronicari bizantini | ?Procopius din Caesarea | ?Mihail Psellos | ?Anna Comnena | ?Ioan Skylitzes | ?Teofilact Simocatta | ?Laonikos Chalkokondyles
-
 # S04 — Administrație, armata și flota bizantină
 !sistemul temelor | !thema bizantină | ?logothet | ?strategos | ?demnități bizantine | ?armata bizantină | ?flota bizantină | ?exarhat
-
 # S05 — Ceremonial, învestitură și succesiune
 !ceremonialul curții bizantine | ?învestitură imperială | ?ritualul încoronării | ?succesiunea la tron | ?protocol imperial | ?ceremonii bizantine
-
 # S06 — Dreptul bizantin și canoane
-!drept bizantin | !Corpus Juris Civilis | ?Ecloga | ?Basilicale | ?nomocanon | ?canoane bisericești | ?jurisprudență bizantină
-
+!drept bizantin | ?Ecloga | ?Basilicale | ?nomocanon | ?canoane bisericești | ?jurisprudență bizantină
 # S07 — Biserica, patriarhia, monahismul
 !Patriarhia Constantinopolului | !monahism bizantin | ?relații stat-biserică | ?ierarhie bisericească | ?mănăstiri bizantine | ?patriarh ecumenic
-
 # S08 — Politică religioasă, erezii și concilii
 !concilii ecumenice | ?controverse dogmatice | ?erezii bizantine | ?iconoclasm | ?monofizitism | ?arianism | ?politică religioasă imperială
-
 # S09 — Viața religioasă: sfinți, icoane, cult
-!cultul icoanelor | ?sfinți bizantini | ?centre spirituale | ?cult divin public | ?icoană bizantină | ?relicve | ?pelerinaj bizantin
-
+?sfinți bizantini | ?centre spirituale | ?cult divin public | ?icoană bizantină | ?relicve | ?pelerinaj bizantin
 # S10 — Cultura bizantină
 !filosofia bizantină | ?literatură bizantină | ?educație bizantină | ?învățământ bizantin | ?umanism paleolog | ?școli bizantine
-
 # S11 — Orașul bizantin și viața cotidiană
 !orașul bizantin | ?viață cotidiană bizantină | ?bresle bizantine | ?piața Constantinopolului | ?societatea bizantină | ?femeile în Bizanț
-
 # S12 — Arta bizantină I: arhitectură și simbolism
-!arhitectură bizantină | ?biserici cu cupolă | ?mozaic bizantin | ?muzică sacră bizantină | ?simbolism religios | ?Hagia Sophia
-
+!arhitectură bizantină | ?biserici cu cupolă | ?mozaic bizantin | ?muzică sacră bizantină | ?simbolism religios
 # S13 — Arta bizantină II: pictură și liturghie
 !pictură bizantină | !spațiul liturgic | ?teologia icoanei | ?iconografie bizantină | ?frescă bizantină | ?liturghie bizantină
-
 # S14 — Moștenirea Bizanțului în spațiul românesc
 !tradiția bizantină în țările române | ?drept bizantin românesc | ?influențe bizantine | ?ierarhie ecleziastică | ?arhitectură moldovenească | ?ideologie domnească
-
 # Repere bibliografice — doar evidențiere
 -Georges Ostrogorsky | -Anthony Kaldellis | -Warren Treadgold | -Steven Runciman | -Nicolae Iorga | -Stelian Brezeanu | -Judith Herrin | -Averil Cameron | -Louis Bréhier | -Cyril Mango
