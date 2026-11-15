@@ -22,11 +22,18 @@ public final class DeterministicAlertGate {
 
     public static final class Evidence {
         public final String profileId;
+        /** A distinct seminar/exam subject within a selected discipline. */
+        public final String topicId;
         public final String term;
         public final String observed;
 
         public Evidence(String profileId, String term, String observed) {
+            this(profileId, "", term, observed);
+        }
+
+        public Evidence(String profileId, String topicId, String term, String observed) {
             this.profileId = profileId == null ? "" : profileId;
+            this.topicId = topicId == null ? "" : topicId;
             this.term = term == null ? "" : term;
             this.observed = observed == null ? "" : observed;
         }
@@ -100,8 +107,14 @@ public final class DeterministicAlertGate {
             if (term.isEmpty() || !term.equals(normalized(e.observed))) continue;
             char hint = hint(e.term);
             if (hint == '-') continue;
-            String topic = e.profileId.isEmpty() ? "default" : e.profileId;
+            // Distinct themes are independent: two clues in different seminar
+            // subjects must never accidentally make a contextual cluster.
+            String profile = e.profileId.isEmpty() ? "default" : e.profileId;
+            String topic = e.topicId.isEmpty() ? profile : profile + "|" + e.topicId;
             int words = wordCount(term);
+            // A bare year is useful visually but is not reliable evidence for
+            // a whole historical subject, even when marked ! by a user.
+            if (term.matches("[0-9]+")) continue;
 
             if (hint == '!') {
                 qualified.add("priority:" + topic + ":" + term);
