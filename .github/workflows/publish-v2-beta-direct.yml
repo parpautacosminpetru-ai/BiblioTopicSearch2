@@ -1,4 +1,5 @@
 name: Public direct APK download — BTS 2.3 TEME COMPLETE
+# Publish only after SQL, lexical thematic coverage and Java unit checks pass.
 
 on:
   push:
