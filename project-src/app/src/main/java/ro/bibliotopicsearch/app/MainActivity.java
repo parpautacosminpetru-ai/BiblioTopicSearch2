@@ -946,6 +946,145 @@ public final class MainActivity extends AppCompatActivity {
         torchButton.setText(torchEnabled ? "STINGE" : "LUMINĂ");
     }
 
+    /**
+     * Progressive LIVE inspection. The selection holds one immutable frame
+     * snapshot, so a new camera frame cannot silently change the quotation.
+     */
+    private void openLiveInspector() {
+        final LiveEvidenceAnalyzer.Snapshot snapshot = latestEvidence;
+        if (snapshot == null) {
+            new AlertDialog.Builder(this)
+                    .setTitle("INDICI • OCR LIVE")
+                    .setMessage("Nu există încă un cadru OCR analizat. Așteaptă stabilizarea paginii.")
+                    .setPositiveButton("ÎNCHIDE", null).show();
+            return;
+        }
+        String[] options = {
+                "OCURENȚE • " + snapshot.groups.size() + " indici / " + snapshot.occurrences + " apariții",
+                "COOCURENȚE • " + snapshot.cooccurrences() + " perechi în aceeași propoziție",
+                "SUPRAPUNERI • " + snapshot.overlaps() + " perechi pe același fragment",
+                "CANDIDAȚI • " + snapshot.candidates.size() + " forme cronologice"
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("INDICI • selectează ce verifici")
+                .setItems(options, (dialog, which) -> {
+                    if (which == 0) showEvidenceGroups(snapshot);
+                    else if (which == 1) showEvidencePairs(snapshot, false);
+                    else if (which == 2) showEvidencePairs(snapshot, true);
+                    else showEvidenceCandidates(snapshot);
+                })
+                .setNegativeButton("ÎNCHIDE", null)
+                .show();
+    }
+
+    private void showEvidenceGroups(LiveEvidenceAnalyzer.Snapshot snapshot) {
+        if (snapshot.groups.isEmpty()) {
+            showEvidenceMessage("OCURENȚE", "Niciun indice din tematicile active nu apare în acest cadru.");
+            return;
+        }
+        int limit = Math.min(100, snapshot.groups.size());
+        String[] rows = new String[limit];
+        for (int i = 0; i < limit; i++) {
+            LiveEvidenceAnalyzer.Group group = snapshot.groups.get(i);
+            rows[i] = group.title + " • " + group.count() + " ocurențe";
+        }
+        new AlertDialog.Builder(this).setTitle("OCURENȚE • "
+                        + snapshot.groups.size() + " indici"
+                        + (limit < snapshot.groups.size() ? " (primele " + limit + ")" : ""))
+                .setItems(rows, (dialog, index) -> {
+                    LiveEvidenceAnalyzer.Group group = snapshot.groups.get(index);
+                    StringBuilder details = new StringBuilder()
+                            .append("Index canonic: ").append(group.indexId)
+                            .append("\nOcurențe distincte în cadru: ").append(group.count())
+                            .append("\nPotriviri păstrate, nu confundate cu duplicate.\n");
+                    int count = Math.min(30, group.occurrences.size());
+                    for (int i = 0; i < count; i++) {
+                        LiveEvidenceAnalyzer.Spot spot = group.occurrences.get(i);
+                        details.append("\n").append(i + 1).append(". ")
+                                .append(spot.position())
+                                .append("\nOCR exact: «").append(spot.quote).append("»")
+                                .append("\nTermen: «").append(spot.original).append("»")
+                                .append(" • ").append(spot.matchKind);
+                    }
+                    if (count < group.count()) details.append("\n…alte ")
+                            .append(group.count() - count).append(" apariții.");
+                    details.append("\n\nOCR orientativ: verifică originalul înainte de citare.");
+                    showEvidenceMessage(group.title, details.toString());
+                }).setNegativeButton("ÎNCHIDE", null).show();
+    }
+
+    private void showEvidencePairs(LiveEvidenceAnalyzer.Snapshot snapshot, boolean overlapsOnly) {
+        List<LiveEvidenceAnalyzer.Pair> filtered = new ArrayList<>();
+        for (LiveEvidenceAnalyzer.Pair pair : snapshot.pairs) {
+            if (pair.thematicOverlap == overlapsOnly) filtered.add(pair);
+        }
+        String title = overlapsOnly ? "SUPRAPUNERI" : "COOCURENȚE";
+        if (filtered.isEmpty()) {
+            showEvidenceMessage(title, "Nu am detectat asemenea perechi în acest cadru OCR.");
+            return;
+        }
+        int limit = Math.min(100, filtered.size());
+        String[] rows = new String[limit];
+        for (int i = 0; i < limit; i++) {
+            LiveEvidenceAnalyzer.Pair pair = filtered.get(i);
+            rows[i] = pair.left.indexTitle + " / " + pair.right.indexTitle
+                    + " • bloc " + (pair.left.block + 1)
+                    + ", prop. " + (pair.left.sentence + 1);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(title + " • " + filtered.size()
+                        + (snapshot.pairsLimited ? " • listă limitată" : ""))
+                .setItems(rows, (dialog, index) -> {
+                    LiveEvidenceAnalyzer.Pair pair = filtered.get(index);
+                    String message = "INDICI:\n"
+                            + pair.left.indexId + " — «" + pair.left.original + "»"
+                            + " [" + pair.left.start + "–" + pair.left.end + "]\n"
+                            + pair.right.indexId + " — «" + pair.right.original + "»"
+                            + " [" + pair.right.start + "–" + pair.right.end + "]\n\n"
+                            + "CITAT OCR EXACT:\n«" + pair.quote + "»\n\n"
+                            + (pair.thematicOverlap
+                            ? "Aceeași zonă OCR corespunde unor indici diferiți. Nu este o relație demonstrată."
+                            : "INTERVAL TEXTUAL EXACT ÎNTRE INDICI:\n«"
+                            + pair.exactBetween + "»\n"
+                            + (pair.visibleConnector.isEmpty() ? "Nu am marcat un conector lexical."
+                            : "Conector vizibil: «" + pair.visibleConnector
+                            + "» (nu dovedește singur o subordonare)."))
+                            + "\n\nCoocurența nu constituie interpretare istorică.";
+                    showEvidenceMessage(pair.label(), message);
+                }).setNegativeButton("ÎNCHIDE", null).show();
+    }
+
+    private void showEvidenceCandidates(LiveEvidenceAnalyzer.Snapshot snapshot) {
+        if (snapshot.candidates.isEmpty()) {
+            showEvidenceMessage("CANDIDAȚI", "Nicio formă cronologică nouă identificată în cadrul curent.");
+            return;
+        }
+        int limit = Math.min(100, snapshot.candidates.size());
+        String[] rows = new String[limit];
+        for (int i = 0; i < limit; i++) {
+            LiveEvidenceAnalyzer.Candidate item = snapshot.candidates.get(i);
+            rows[i] = item.type + " • «" + item.original + "»";
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("CANDIDAȚI • nevalidați, neadăugați în index")
+                .setItems(rows, (dialog, index) -> {
+                    LiveEvidenceAnalyzer.Candidate item = snapshot.candidates.get(index);
+                    showEvidenceMessage(item.type,
+                            "Formă OCR: «" + item.original + "»"
+                                    + "\nBloc " + (item.block + 1)
+                                    + ", caractere " + item.start + "–" + item.end
+                                    + "\n\nCitat OCR exact:\n«" + item.quote + "»"
+                                    + "\n\nAcesta este doar un candidat determinist, nu un an/indice validat."
+                                    + " Nu este introdus automat în bibliotecă.");
+                }).setNegativeButton("ÎNCHIDE", null).show();
+    }
+
+    private void showEvidenceMessage(String title, String message) {
+        if (isFinishing() || destroyed) return;
+        new AlertDialog.Builder(this).setTitle(title).setMessage(message)
+                .setPositiveButton("ÎNCHIDE", null).show();
+    }
+
     private void showHitDetails(MatchHit hit) {
         DictionaryStore store = new DictionaryStore(this);
         DictionaryStore.Entry entry = store.lookup(hit.originalText);
