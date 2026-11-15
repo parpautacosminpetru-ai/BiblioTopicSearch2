@@ -98,6 +98,11 @@ public final class DetectorHomeActivity extends AppCompatActivity {
         mode.setPadding(0, dp(12), 0, dp(10));
         root.addView(mode);
 
+        Button explicitRules = button("REGULI CLARE • CUM DETECTEAZĂ", false);
+        explicitRules.setOnClickListener(v ->
+                startActivity(new Intent(this, DetectionRulesActivity.class)));
+        addButton(explicitRules);
+
         Button settings = button("REGLAJE ȘI VIBRAȚII", false);
         settings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         addButton(settings);

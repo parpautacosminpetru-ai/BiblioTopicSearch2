@@ -52,7 +52,7 @@ public final class SettingsActivity extends AppCompatActivity {
         root.addView(heading("DETECTOR • SETĂRI", 22));
         root.addView(label("Alertare deterministă"));
         RadioGroup alerts = new RadioGroup(this);
-        RadioButton explore = radio("Explorare • priorități sau termeni neetichetați ≥5 litere");
+        RadioButton explore = radio("Explorare • priorități sau termeni neetichetați ≥5 caractere");
         RadioButton balanced = radio("Echilibrat • priorități, expresii neetichetate sau 2 indicii din ACELAȘI SUBIECT");
         RadioButton strict = radio("Strict • priorități, expresii 3+ cuvinte sau 3 indicii din ACELAȘI SUBIECT");
         alerts.addView(explore);
