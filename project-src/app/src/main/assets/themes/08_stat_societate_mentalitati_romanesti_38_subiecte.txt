@@ -1,76 +1,113 @@
 # 01 — Întemeierea Moldovei
-!întemeierea Moldovei | !Bogdan I | ?Dragoș | ?descălecatul Moldovei | ?Maramureș | ?voievodatul Moldovei
+!întemeierea Moldovei | !Bogdan I | ?Dragoș | ?descălecatul Moldovei | ?Maramureș | ?voievodatul Moldovei | ?Descălecatul lui Bogdan | ?Dragoș Vodă | ?voievodatul maramureșean | ?independența Moldovei | ?regele Ludovic I | ?domnie moldovenească | ?separarea de coroana maghiară | ?fundarea statului moldovean
+
 # 02 — Întemeierea Țării Românești
-!întemeierea Țării Românești | !Basarab I | !bătălia de la Posada | ?Negru Vodă | ?voievodat muntean
+!întemeierea Țării Românești | !Basarab I | !bătălia de la Posada | ?Negru Vodă | ?voievodat muntean | ?Basarab Întemeietorul | ?voievodatul de la Argeș | ?Carol Robert de Anjou | ?1330 | ?diploma ioaniților | ?consolidarea statului muntean | ?Posada 1330 | ?unificarea voievodatelor
+
 # 03 — Mitropolia Țării Românești și Mitropolia Severinului
-!Mitropolia Ungrovlahiei | !Mitropolia Severinului | ?Iachint | ?organizarea bisericească munteană
+!Mitropolia Ungrovlahiei | !Mitropolia Severinului | ?Iachint | ?organizarea bisericească munteană | ?mitropolitul Iachint | ?Iachint de Vicina | ?Mitropolia Țării Românești 1359 | ?1359 | ?1370 | ?Mitropolia Severinului 1370 | ?Patriarhia Constantinopolului | ?organizarea ecleziastică munteană
+
 # 04 — Înființarea Mitropoliei Moldovei
-!Mitropolia Moldovei | ?Iosif Mușat | ?recunoașterea mitropoliei | ?patriarhia ecumenică
+!Mitropolia Moldovei | ?Iosif Mușat | ?recunoașterea mitropoliei | ?patriarhia ecumenică | ?înființarea mitropoliei în Moldova | ?recunoașterea Mitropoliei Moldovei | ?mitropolitul Iosif | ?Ieremia al Constantinopolului | ?Alexandru cel Bun și Biserica | ?1401 | ?scaun mitropolitan
+
 # 05 — Alexandru cel Bun
-!Alexandru cel Bun | ?domnia lui Alexandru cel Bun | ?organizarea Moldovei | ?privilegii comerciale
+!Alexandru cel Bun | ?domnia lui Alexandru cel Bun | ?organizarea Moldovei | ?privilegii comerciale | ?Alexandru I cel Bun | ?domnia 1400-1432 | ?organizarea administrației | ?vămile Moldovei | ?privilegiul negustorilor lioveni | ?relațiile moldo-polone | ?mănăstirea Bistrița | ?politica bisericească
+
 # 06 — Mircea cel Bătrân
-!Mircea cel Bătrân | !bătălia de la Rovine | ?politica externă a lui Mircea | ?Dobrogea medievală
+!Mircea cel Bătrân | !bătălia de la Rovine | ?politica externă a lui Mircea | ?Dobrogea medievală | ?Mircea I Basarab | ?domnia 1386-1418 | ?lupta antiotomană | ?Tratatul de la Brașov | ?1395 | ?Dobrogea și Mircea | ?Vladislav I | ?Sigismund de Luxemburg
+
 # 07 — Ștefan cel Mare: politică externă până în 1475
-!Ștefan cel Mare | !bătălia de la Vaslui | ?1475 | ?politica externă moldovenească | ?relațiile cu Polonia | ?relațiile cu Ungaria
+!Ștefan cel Mare | !bătălia de la Vaslui | ?1475 | ?politica externă moldovenească | ?relațiile cu Polonia | ?relațiile cu Ungaria | ?Ștefan III al Moldovei | ?Ștefan al III-lea | ?relații moldo-otomane | ?bătălia de la Baia | ?1467 | ?bătălia de la Lipnic | ?1470 | ?bătălia de la Vaslui 1475 | ?victoria de la Podul Înalt
+
 # 08 — Ștefan cel Mare: politică externă 1476–1504
-!bătălia de la Războieni | !Pacea de la Hârlău | ?1476 | ?1504 | ?campaniile otomane în Moldova | ?Chilia și Cetatea Albă
+!bătălia de la Războieni | !Pacea de la Hârlău | ?1476 | ?1504 | ?campaniile otomane în Moldova | ?Chilia și Cetatea Albă | ?Ștefan cel Mare | ?Ștefan III al Moldovei | ?Valea Albă | ?lupta de la Valea Albă | ?Cetatea Albă 1484 | ?Chilia 1484 | ?Pacea de la Hârlău 1499 | ?tratatul de la Colomeea | ?conflictele cu regatul Poloniei
+
 # 09 — Ștefan cel Mare: ctitorii
-!ctitoriile lui Ștefan cel Mare | ?Mănăstirea Putna | ?Voroneț | ?Pătrăuți | ?Biserica Sfântul Nicolae Rădăuți
+!ctitoriile lui Ștefan cel Mare | ?Mănăstirea Putna | ?Voroneț | ?Pătrăuți | ?Biserica Sfântul Nicolae Rădăuți | ?Ștefan cel Mare | ?ctitoria de la Putna | ?Biserica Sfântul Nicolae din Rădăuți | ?mănăstirea Voroneț | ?Mănăstirea Pătrăuți | ?Mănăstirea Neamț | ?Biserica Sfântul Gheorghe din Hârlău
+
 # 10 — Cronicile secolului XVI: Macarie, Eftimie, Azarie
-!cronica lui Macarie | !cronica lui Eftimie | !cronica lui Azarie | ?cronicile slavo-române | ?literatură istorică moldovenească
+!cronica lui Macarie | !cronica lui Eftimie | !cronica lui Azarie | ?cronicile slavo-române | ?literatură istorică moldovenească | ?Macarie episcopul Romanului | ?Eftimie cronicarul | ?Azarie cronicarul | ?cronica oficială moldovenească | ?cronicile de curte | ?istoriografia slavonă | ?cronica lui Petru Rareș | ?scrierea cronicilor slavone
+
 # 11 — Neagoe Basarab
-!Neagoe Basarab | !Învățăturile lui Neagoe Basarab | ?Curtea de Argeș | ?politica domnească
+!Neagoe Basarab | !Învățăturile lui Neagoe Basarab | ?Curtea de Argeș | ?politica domnească | ?domnia lui Neagoe Basarab | ?1512-1521 | ?Mănăstirea Curtea de Argeș | ?învățăturile către fiul său Teodosie | ?ideologia domnească | ?literatura parenetică | ?ctitoria lui Neagoe
+
 # 12 — Petru Rareș
-!Petru Rareș | ?1538 | ?campaniile lui Petru Rareș | ?Pocuția | ?Moldovița
+!Petru Rareș | ?1538 | ?campaniile lui Petru Rareș | ?Pocuția | ?Moldovița | ?Petru Rareș fiul lui Ștefan | ?domnia 1527-1538 | ?1541-1546 | ?pierderea tronului Moldovei | ?campaniile din Transilvania | ?asediul Sucevei | ?pictura exterioară moldovenească
+
 # 13 — Alexandru Lăpușneanu
-!Alexandru Lăpușneanu | ?1564 | ?restabilirea domniei | ?luptele boierești
+!Alexandru Lăpușneanu | ?1564 | ?restabilirea domniei | ?luptele boierești | ?Lăpușneanul | ?domnia 1552-1561 | ?a doua domnie 1564-1568 | ?mutarea capitalei la Iași | ?confruntarea cu boierii | ?uciderea boierilor | ?Petru Schiopul | ?suzeranitatea otomană
+
 # 14 — Despot Vodă și Ion Vodă
-!Despot Vodă | !Ion Vodă cel Cumplit | ?Iacob Heraclid | ?reformele lui Despot | ?lupta antiotomană
+!Despot Vodă | !Ion Vodă cel Cumplit | ?Iacob Heraclid | ?reformele lui Despot | ?lupta antiotomană | ?Iacob Heraclid Despotul | ?Despot Heraclid | ?Despot Vodă 1561 | ?Ion Vodă cel Viteaz | ?Ion Vodă 1574 | ?bătălia de la Jiliște | ?bătălia de la Roșcani | ?politica antiotomană
+
 # 15 — Mihai Viteazul
-!Mihai Viteazul | !Călugăreni | ?1600 | ?unirea politică din 1600 | ?Transilvania și Țara Românească
+!Mihai Viteazul | !Călugăreni | ?1600 | ?unirea politică din 1600 | ?Transilvania și Țara Românească | ?Mihai Viteazul 1593-1601 | ?bătălia de la Șelimbăr | ?bătălia de la Guruslău | ?Alba Iulia 1599 | ?Campania din Moldova 1600 | ?Liga Sfântă | ?Sigismund Báthory | ?Basta | ?Călugăreni 1595
+
 # 16 — Movileștii
-!dinastia Movileștilor | !Ieremia Movilă | ?Simion Movilă | ?relațiile polono-moldovene | ?Mănăstirea Sucevița
+!dinastia Movileștilor | !Ieremia Movilă | ?Simion Movilă | ?relațiile polono-moldovene | ?Mănăstirea Sucevița | ?familia Movilă | ?Mihail Movilă | ?domniile Movileștilor | ?boierii Movilești | ?Polonia și Moldova
+
 # 17 — Matei Basarab
-!Matei Basarab | ?1632-1654 | ?tipărituri muntene | ?războaiele cu Vasile Lupu
+!Matei Basarab | ?1632-1654 | ?tipărituri muntene | ?războaiele cu Vasile Lupu | ?Matei Basarab 1632 | ?politica lui Matei Basarab | ?Îndreptarea legii | ?tiparul în limba română | ?lupta de la Finta | ?1653 | ?întemeiere de mănăstiri | ?relațiile cu Transilvania
+
 # 18 — Vasile Lupu
-!Vasile Lupu | !Pravila lui Vasile Lupu | ?Trei Ierarhi Iași | ?1653 | ?rivalitatea moldo-munteană
+!Vasile Lupu | !Pravila lui Vasile Lupu | ?Trei Ierarhi Iași | ?1653 | ?rivalitatea moldo-munteană | ?Vasile Lupu 1634-1653 | ?Pravila lui Vasile Lupu 1646 | ?Biserica Trei Ierarhi | ?Sinodul de la Iași | ?1642 | ?Gheorghe Ștefan | ?bătălia de la Finta 1653 | ?politica externă a Moldovei
+
 # 19 — Gheorghe Ștefan
-!Gheorghe Ștefan al Moldovei | ?1653-1658 | ?conflictul cu Vasile Lupu | ?relațiile cu Transilvania
+!Gheorghe Ștefan al Moldovei | ?1653-1658 | ?conflictul cu Vasile Lupu | ?relațiile cu Transilvania | ?domnia lui Gheorghe Ștefan | ?Gheorghe Ștefan 1653 | ?alianța cu Gheorghe Rákóczi | ?detronarea lui Vasile Lupu | ?1658 | ?boierimea moldovenească | ?relațiile dintre Moldova și Transilvania | ?influența otomană
+
 # 20 — Principii Transilvaniei: Bethlen și Rákóczi
-!Gabriel Bethlen | !Gheorghe Rákóczi I | !Gheorghe Rákóczi II | ?Principatul Transilvaniei | ?politica principilor transilvăneni
+!Gabriel Bethlen | !Gheorghe Rákóczi I | !Gheorghe Rákóczi II | ?Principatul Transilvaniei | ?politica principilor transilvăneni | ?Gabriel Bethlen 1613-1629 | ?Gheorghe I Rákóczi | ?Gheorghe al II-lea Rákóczi | ?Rákóczi | ?Principatul Transilvaniei în secolul XVII | ?Războiul de Treizeci de Ani | ?politica protestantă | ?Poarta Otomană și Transilvania
+
 # 21 — Șerban Cantacuzino
-!Șerban Cantacuzino | !Biblia de la București | ?1688 | ?politica externă munteană
+!Șerban Cantacuzino | !Biblia de la București | ?1688 | ?politica externă munteană | ?Șerban Cantacuzino 1678-1688 | ?Biblia de la București 1688 | ?lupta de la Viena 1683 | ?alianța antiotomană | ?tipărirea Bibliei | ?boierimea Cantacuzină | ?Țara Românească secolul XVII
+
 # 22 — Grigore Ureche
-!Grigore Ureche | ?Letopisețul Țării Moldovei | ?istoria Moldovei în cronici
+!Grigore Ureche | ?Letopisețul Țării Moldovei | ?istoria Moldovei în cronici | ?Grigore Ureche cronicar | ?originea romană | ?istoriografia moldovenească | ?limba română | ?domniile Moldovei | ?tradiția cronicărească | ?letopisețe
+
 # 23 — Miron Costin
-!Miron Costin | ?De neamul moldovenilor | ?istoria cronicarilor moldoveni
+!Miron Costin | ?De neamul moldovenilor | ?istoria cronicarilor moldoveni | ?Miron Costin cronicar | ?Viața lumii | ?Letopisețul de la Aron Vodă | ?istoriografia românească | ?originea romană a românilor | ?umanismul moldovenesc | ?romanitatea românilor
+
 # 24 — Ion Neculce
-!Ion Neculce | ?O samă de cuvinte | ?cronică moldovenească
+!Ion Neculce | ?O samă de cuvinte | ?cronică moldovenească | ?Ion Neculce cronicar | ?Letopisețul Țării Moldovei | ?domnia lui Dimitrie Cantemir | ?povestiri istorice | ?tradiție orală | ?cronică și memorie | ?narațiunea istorică
+
 # 25 — Letopisețul Cantacuzinesc și Cronica Bălenilor
-!Letopisețul Cantacuzinesc | !Cronica Bălenilor | ?istoriografia munteană | ?Cantacuzini și Băleni
+!Letopisețul Cantacuzinesc | !Cronica Bălenilor | ?istoriografia munteană | ?Cantacuzini și Băleni | ?cronica Cantacuzinilor | ?istoria Țării Românești în cronici | ?Partida Cantacuzinilor | ?boierii Băleni | ?conflicte boierești | ?cronici muntene | ?istoriografie munteană
+
 # 26 — Ctitorii muntene: Curtea de Argeș și Hurezi
-!Mănăstirea Hurezi | !Biserica Domnească Curtea de Argeș | ?Mănăstirea Argeșului | ?Mitropolia Țării Românești | ?arhitectura brâncovenească
+!Mănăstirea Hurezi | !Biserica Domnească Curtea de Argeș | ?Mănăstirea Argeșului | ?Mitropolia Țării Românești | ?arhitectura brâncovenească | ?Biserica Sfântul Nicolae Domnesc | ?Biserica Episcopală Curtea de Argeș | ?Mănăstirea Curtea de Argeș | ?Constantin Brâncoveanu și Hurezi | ?mănăstirile Țării Românești | ?arhitectura ecleziastică | ?ctitoriile domnești muntene
+
 # 27 — Ctitorii moldovene: Rădăuți, Putna, Neamț, Sucevița
-!Mănăstirea Neamț | ?Rădăuți | ?ctitorii moldovenești
+!Mănăstirea Neamț | ?Rădăuți | ?ctitorii moldovenești | ?Mănăstirea Putna | ?Mănăstirea Sucevița | ?Biserica Sfântul Nicolae din Rădăuți | ?mănăstiri moldovenești | ?necropole domnești | ?pictura murală moldovenească | ?ctitoriile Movileștilor | ?ctitoriile Mușatinilor
+
 # 28 — Instaurarea stăpânirii habsburgice: Diploma Leopoldină
-!Diploma Leopoldină | !1691 | ?stăpânirea habsburgică în Transilvania | ?integrarea Transilvaniei
+!Diploma Leopoldină | !1691 | ?stăpânirea habsburgică în Transilvania | ?integrarea Transilvaniei | ?Diploma Leopoldină din 1691 | ?Împăratul Leopold I | ?anexarea Transilvaniei | ?administrarea habsburgică | ?Guvernul Transilvaniei | ?reorganizarea instituțională | ?dominație austriacă
+
 # 29 — Unirea cu Biserica Romei
-!Biserica Română Unită cu Roma | !unirea religioasă de la 1700 | ?Atanasie Anghel | ?greco-catolicism | ?1698
+!Biserica Română Unită cu Roma | !unirea religioasă de la 1700 | ?Atanasie Anghel | ?greco-catolicism | ?1698 | ?unirea religioasă din Transilvania | ?Unirea din 1700 | ?Biserica greco-catolică | ?Biserica Unită | ?Diploma Leopoldină din 1701 | ?reforma confesională | ?catolicismul și românii
+
 # 30 — Învățământul în Moldova și Țara Românească
-!învățământul în Țările Române | ?Academia Domnească | ?școli domnești | ?învățământul medieval românesc
+!învățământul în Țările Române | ?Academia Domnească | ?școli domnești | ?învățământul medieval românesc | ?Academiile domnești | ?Academia Domnească din Iași | ?Academia Domnească București | ?școli mănăstirești | ?cărți de învățătură | ?învățământul în limba română | ?școala grecească | ?educația în Principate
+
 # 31 — Constantin Brâncoveanu
-!Constantin Brâncoveanu | !stilul brâncovenesc | ?1714 | ?reforma culturală | ?ctitorii brâncovenești
+!Constantin Brâncoveanu | !stilul brâncovenesc | ?1714 | ?reforma culturală | ?ctitorii brâncovenești | ?Constantin Brâncoveanu 1688-1714 | ?epoca brâncovenească | ?Mănăstirea Hurezi | ?politica brâncovenească | ?relațiile cu Austria | ?relațiile cu Poarta | ?tipăriturile brâncovenești | ?martiriul Brâncovenilor
+
 # 32 — Dimitrie Cantemir
-!Dimitrie Cantemir | !Descriptio Moldaviae | ?1711 | ?opera lui Cantemir | ?Istoria ieroglifică
+!Dimitrie Cantemir | !Descriptio Moldaviae | ?1711 | ?opera lui Cantemir | ?Istoria ieroglifică | ?Dimitrie Cantemir 1710-1711 | ?Hronicul vechimei | ?alianța cu Petru cel Mare | ?tratatul de la Luțk | ?bătălia de la Stănilești | ?știința istorică românească
+
 # 33 — Diaconul Coresi
-!Diaconul Coresi | !tipăriturile lui Coresi | ?limba română veche | ?tipografia de la Brașov
+!Diaconul Coresi | !tipăriturile lui Coresi | ?limba română veche | ?tipografia de la Brașov | ?Coresi diaconul | ?tipografia lui Coresi | ?Catehismul românesc | ?Tetraevanghelul | ?cartea românească veche | ?Brașov secolul XVI | ?tipărituri în limba română | ?primele traduceri religioase
+
 # 34 — Marco Bandini
-!Marco Bandini | !Codex Bandini | ?vizitația apostolică | ?Moldova secolului XVII
+!Marco Bandini | !Codex Bandini | ?vizitația apostolică | ?Moldova secolului XVII | ?Marco Bandini episcop | ?Codex Bandinus | ?vizitația lui Bandini | ?1646-1648 | ?comunitățile catolice din Moldova | ?relațiile confesionale | ?misiunea catolică | ?observații etnografice
+
 # 35 — Mitropolitul Varlaam al Moldovei
-!Mitropolitul Varlaam | !Cazania lui Varlaam | ?Carte românească de învățătură
+!Mitropolitul Varlaam | !Cazania lui Varlaam | ?Carte românească de învățătură | ?Varlaam al Moldovei | ?Cazania 1643 | ?Cartea românească de învățătură | ?Răspuns la Catehismul calvinesc | ?tipar la Iași | ?mitropolia Moldovei | ?cultura bisericească
+
 # 36 — Mitropolitul Dosoftei al Moldovei
-!Mitropolitul Dosoftei | !Psaltirea în versuri | ?traduceri bisericești
+!Mitropolitul Dosoftei | !Psaltirea în versuri | ?traduceri bisericești | ?Dosoftei mitropolit | ?Dosoftei al Moldovei | ?Psaltirea în versuri 1673 | ?Viețile sfinților | ?limba literară românească | ?cărțile de cult | ?tipărirea psaltirii | ?literatura religioasă
+
 # 37 — Mitropolitul Antim Ivireanul
-!Antim Ivireanul | !Didahiile lui Antim | ?tipar muntean | ?mitropolitul Ungrovlahiei
+!Antim Ivireanul | !Didahiile lui Antim | ?tipar muntean | ?mitropolitul Ungrovlahiei | ?Antim Ivireanul mitropolit | ?Didahii | ?Didahiile | ?Antim al Ungrovlahiei | ?tiparul de la Snagov | ?tipărituri religioase | ?1716 | ?cultura brâncovenească | ?reforma tipografică
+
 # 38 — Nicolae și Constantin Mavrocordat
-!Nicolae Mavrocordat | !Constantin Mavrocordat | ?reformism fanariot | ?desființarea șerbiei | ?reforme fiscale
+!Nicolae Mavrocordat | !Constantin Mavrocordat | ?reformism fanariot | ?desființarea șerbiei | ?reforme fiscale | ?domniile fanariote | ?Nicolae Mavrocordat 1711 | ?Constantin Mavrocordat 1730 | ?reforma fiscală | ?reformele lui Constantin Mavrocordat | ?regimul fanariot | ?desființarea rumâniei | ?dezrobirea vecinilor | ?Moldova și Țara Românească
