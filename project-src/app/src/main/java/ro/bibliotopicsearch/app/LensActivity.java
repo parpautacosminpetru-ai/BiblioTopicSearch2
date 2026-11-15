@@ -40,6 +40,7 @@ import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -78,6 +79,23 @@ public final class LensActivity extends AppCompatActivity {
     private final Handler main = new Handler(Looper.getMainLooper());
 
     private volatile TopicMatcher.SearchPlan searchPlan;
+    private volatile DeterministicMultiIndexMatcher.Plan evidencePlan;
+    private LiveDetectionPipeline<Text, LiveFrame> livePipeline;
+    private volatile LiveEvidenceAnalyzer.Snapshot latestEvidence;
+
+    private static final class LiveFrame {
+        final List<MatchHit> hits;
+        final int words;
+        final int generation;
+        final LiveEvidenceAnalyzer.Snapshot evidence;
+        LiveFrame(List<MatchHit> hits, int words, int generation,
+                  LiveEvidenceAnalyzer.Snapshot evidence) {
+            this.hits = hits;
+            this.words = words;
+            this.generation = generation;
+            this.evidence = evidence;
+        }
+    }
     private volatile Text latestOcrText;
     private volatile PageStabilityTracker.Observation latestPageStability;
     private volatile String manualPageOverride = "";
@@ -93,6 +111,7 @@ public final class LensActivity extends AppCompatActivity {
     private final Runnable clearStale = () -> {
         if (overlay != null && ocrEnabled && !destroyed) {
             overlay.clearHits();
+            latestEvidence = null;
             setStatus("OCR live • caut text", Color.rgb(76, 190, 123));
         }
     };
@@ -108,6 +127,7 @@ public final class LensActivity extends AppCompatActivity {
         archiveKeysEnabled = AppPrefs.archiveKeys(this);
         stabilitySourceId = IndexCoreSourceRegistry.activeSourceId(this);
         buildUi();
+        initializeLiveDetection();
 
         // Start persistent storage outside the UI thread. Initial OCR frames may be
         // intentionally skipped by the index until loading is complete.
@@ -135,6 +155,8 @@ public final class LensActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         destroyed = true;
+        queryGeneration.incrementAndGet();
+        if (livePipeline != null) livePipeline.close();
         if (cameraController != null) {
             cameraController.clearImageAnalysisAnalyzer();
             cameraController.unbind();
@@ -279,6 +301,9 @@ public final class LensActivity extends AppCompatActivity {
         archiveKeysButton = button(archiveKeysEnabled ? "PEDALĂ ●" : "PEDALĂ ○");
         archiveKeysButton.setOnClickListener(v -> toggleArchiveKeys());
         archive.addView(archiveKeysButton, new LinearLayout.LayoutParams(0, dp(38), 1f));
+        Button evidenceButton = button("INDICI");
+        evidenceButton.setOnClickListener(v -> openLensEvidence());
+        archive.addView(evidenceButton, new LinearLayout.LayoutParams(0, dp(38), 1f));
         top.addView(archive);
 
         status = new TextView(this);
@@ -375,18 +400,47 @@ public final class LensActivity extends AppCompatActivity {
                             }
                         });
                     }
-                    TopicMatcher.SearchPlan plan = searchPlan;
-                    List<MatchHit> hits = plan == null
-                            ? Collections.emptyList()
-                            : TopicMatcher.find(text, plan);
-                    int words = countWords(text);
-                    runOnUiThread(() -> {
-                        if (!destroyed) applyFrame(hits, words);
-                    });
+                    // Never perform heavy topic matching on the CameraX analyzer.
+                    if (livePipeline != null) livePipeline.offer(text);
                 }
         );
         if (ocrEnabled) attachAnalyzer();
         cameraController.bindToLifecycle(this);
+    }
+
+    private void initializeLiveDetection() {
+        livePipeline = new LiveDetectionPipeline<>(
+                260L,
+                this::runOnUiThread,
+                text -> {
+                    TopicMatcher.SearchPlan plan = searchPlan;
+                    DeterministicMultiIndexMatcher.Plan indices = evidencePlan;
+                    int generation = queryGeneration.get();
+                    if (plan == null || indices == null) return null;
+                    List<MatchHit> hits = TopicMatcher.find(text, plan);
+                    List<String> blocks = new ArrayList<>();
+                    for (Text.TextBlock block : text.getTextBlocks()) blocks.add(block.getText());
+                    LiveEvidenceAnalyzer.Snapshot evidence =
+                            LiveEvidenceAnalyzer.inspect(blocks, indices);
+                    return new LiveFrame(hits, countWords(text), generation, evidence);
+                },
+                new LiveDetectionPipeline.Listener<LiveFrame>() {
+                    @Override public void onResult(LiveFrame frame) {
+                        if (frame == null || destroyed || !ocrEnabled
+                                || frame.generation != queryGeneration.get()) return;
+                        latestEvidence = frame.evidence;
+                        applyFrame(frame.hits, frame.words);
+                    }
+
+                    @Override public void onError(Exception failure) {
+                        android.util.Log.w("BiblioLens", "Live detection error", failure);
+                        if (!destroyed && ocrEnabled) {
+                            setStatus("OCR activ • rezultat omis după eroare",
+                                    Color.rgb(230, 155, 72));
+                        }
+                    }
+                }
+        );
     }
 
     private void attachAnalyzer() {
@@ -415,7 +469,11 @@ public final class LensActivity extends AppCompatActivity {
         if (destroyed) return;
         final int generation = queryGeneration.incrementAndGet();
         final String query = querySnapshot == null ? "" : querySnapshot;
+        searchPlan = null;
+        evidencePlan = null;
+        latestEvidence = null;
         queryExecutor.execute(() -> {
+            if (destroyed || generation != queryGeneration.get()) return;
             try {
                 TopicMap aliases = TopicMapStore.load(getApplicationContext());
                 TopicMatcher.setIntersectionThemeMap(aliases);
@@ -425,11 +483,15 @@ public final class LensActivity extends AppCompatActivity {
                         LensPalette.get(getApplicationContext(), LensPalette.Role.TARGET)
                 );
                 TopicMatcher.SearchPlan compiled = TopicMatcher.compile(getApplicationContext(), lensMap);
+                // The live inspector always searches the user's full active index.
+                DeterministicMultiIndexMatcher.Plan indices =
+                        DeterministicMultiIndexMatcher.compile(aliases);
                 if (!destroyed && generation == queryGeneration.get() && query.equals(activeQuery)) {
+                    evidencePlan = indices;
                     searchPlan = compiled;
                 }
-            } catch (RuntimeException ignored) {
-                // Keep the previous valid plan; typing/search UI must remain responsive.
+            } catch (RuntimeException failure) {
+                android.util.Log.w("BiblioLens", "Index compile failed", failure);
             }
         });
     }
