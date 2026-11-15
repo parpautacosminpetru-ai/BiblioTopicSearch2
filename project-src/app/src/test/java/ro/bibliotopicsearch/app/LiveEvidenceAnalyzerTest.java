@@ -81,4 +81,20 @@ public final class LiveEvidenceAnalyzerTest {
         assertTrue(result.pairs.isEmpty());
         assertEquals(3, result.groups.get(0).count());
     }
+
+    @Test public void printedBookIndexCandidatesKeepExactOcrLines() {
+        LiveEvidenceAnalyzer.Snapshot value = LiveEvidenceAnalyzer.inspect(
+                Collections.singletonList(
+                        "Armată ....... 12, 15, 19\nCler ... 43\nÎn 1848 au avut loc transformări."),
+                plan(index("Reformă", "reforma")));
+        int printed = 0;
+        for (LiveEvidenceAnalyzer.Candidate c : value.candidates) {
+            if (!c.type.startsWith("INDEX TIPĂRIT")) continue;
+            printed++;
+            assertEquals("INDEX TIPĂRIT • VERIFICĂ", c.type);
+            assertTrue(c.quote.contains(c.original));
+        }
+        assertEquals(2, printed);
+    }
+
 }
