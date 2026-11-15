@@ -2,6 +2,11 @@ package ro.bibliotopicsearch.app;
 
 import android.graphics.Color;
 import android.graphics.RectF;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 public final class MatchHit {
     public RectF box;
@@ -9,6 +14,8 @@ public final class MatchHit {
     public final String searchTerm;
     public final TopicNode node;
     public final long detectedAt;
+    /** Other thematic indexes linked to precisely this OCR occurrence. */
+    private final List<MatchHit> associations = new ArrayList<>();
 
     public MatchHit(RectF box, String originalText, String searchTerm, TopicNode node, long detectedAt) {
         this.box = new RectF(box);
@@ -16,6 +23,7 @@ public final class MatchHit {
         this.searchTerm = searchTerm;
         this.node = stylePunctuation(node, searchTerm);
         this.detectedAt = detectedAt;
+        this.associations.add(this);
     }
 
     private static TopicNode stylePunctuation(TopicNode source, String mark) {
@@ -89,6 +97,27 @@ public final class MatchHit {
         }
 
         return styled;
+    }
+
+    /**
+     * Display ONE occurrence while retaining ALL its topic/term associations.
+     * Merges only duplicate matches at the same OCR word/phrase position, not
+     * repeated instances of the same word elsewhere on the page.
+     */
+    public void attach(MatchHit other) {
+        if (other == null) return;
+        Set<String> existing = new LinkedHashSet<>();
+        for (MatchHit item : associations) {
+            existing.add(item.node.path + "\u001f" + item.searchTerm);
+        }
+        for (MatchHit item : other.associations) {
+            String key = item.node.path + "\u001f" + item.searchTerm;
+            if (existing.add(key)) associations.add(item);
+        }
+    }
+
+    public List<MatchHit> associations() {
+        return Collections.unmodifiableList(associations);
     }
 
     public String identityKey() {
