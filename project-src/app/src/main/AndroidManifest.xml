@@ -66,6 +66,11 @@
             android:exported="false" />
 
         <activity
+            android:name=".UniversalIndexActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
             android:name=".DetectionRulesActivity"
             android:screenOrientation="portrait"
             android:exported="false" />
