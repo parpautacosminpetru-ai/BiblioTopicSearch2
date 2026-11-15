@@ -1,16 +1,23 @@
 # S01 — Modernitatea românească: societate și elite
-!geneza modernității românești | ?secolul al XVIII-lea românesc | ?societatea românească modernă | ?modernitate politică | ?modelul apusean | ?boierimea românească | ?burghezia românească | ?elită politică | ?conștiință națională | ?românii și Europa
+!geneza modernității românești | ?secolul al XVIII-lea românesc | ?societatea românească modernă | ?modernitate politică | ?modelul apusean | ?boierimea românească | ?burghezia românească | ?elită politică | ?conștiință națională | ?românii și Europa | ?iluminismul românesc | ?geneza modernității | ?societatea fanariotă | ?secolul luminilor în Principate | ?boierimea moldovenească | ?reformismul politic | ?burghezie autohtonă | ?naționalism românesc | ?națiune și modernitate | ?occidentalizarea României
+
 # S02 — Geneza chestiunii române (1774–1858)
-!chestiunea română | !cauza românească | ?1774-1858 | ?chestiunea orientală | ?Principatele Române | ?suzeranitatea otomană | ?protectorat rusesc | ?drept de intervenție | ?autonomia Principatelor | ?Marile Puteri
+!chestiunea română | !cauza românească | ?1774-1858 | ?chestiunea orientală | ?Principatele Române | ?suzeranitatea otomană | ?protectorat rusesc | ?drept de intervenție | ?autonomia Principatelor | ?Marile Puteri | ?Pacea de la Kuciuk-Kainargi | ?1774 | ?Tratatul de la Adrianopol | ?1829 | ?Tratatul de la Paris 1856 | ?cauza Principatelor | ?problema românească | ?intervenție rusească | ?diplomația europeană în Principate | ?suzeranitate și autonomie
+
 # S03 — Regimul fanariot și reformismul
-!regimul fanariot | !Constantin Mavrocordat | ?instaurarea domniilor fanariote | ?reformism fanariot | ?fanariotism | ?domni pământeni | ?cultura greacă în Principate | ?boieri fanarioți | ?despotism luminat
+!regimul fanariot | !Constantin Mavrocordat | ?instaurarea domniilor fanariote | ?reformism fanariot | ?fanariotism | ?domni pământeni | ?cultura greacă în Principate | ?boieri fanarioți | ?despotism luminat | ?Alexandru Ipsilanti | ?Nicolae Mavrocordat | ?desființarea șerbiei | ?reformele domnilor fanarioți | ?boieri pământeni | ?grecizare culturală | ?grecizarea Principatelor | ?începuturile capitalismului românesc
+
 # S04 — Transilvania (1700–1850); Școala Ardeleană
-!Inochentie Micu Klein | !Școala Ardeleană | !Supplex Libellus Valachorum | ?reformism iosefin | ?românii din Transilvania | ?Imperiul Habsburgic | ?răscoala lui Horea | ?identitate națională ardeleană | ?Biserica Română Unită | ?revoluția din Transilvania
+!Inochentie Micu Klein | !Școala Ardeleană | !Supplex Libellus Valachorum | ?reformism iosefin | ?românii din Transilvania | ?Imperiul Habsburgic | ?răscoala lui Horea | ?identitate națională ardeleană | ?Biserica Română Unită | ?revoluția din Transilvania | ?Horea Cloșca Crișan | ?Răscoala din 1784 | ?Iosif al II-lea | ?Supplex Libellus Vallachorum | ?Inocențiu Micu-Klein | ?Petru Maior | ?Gheorghe Șincai | ?Samuil Micu | ?Biserica Unită | ?românii ardeleni la 1848
+
 # S05 — Construcție politică, 1821–1848
-!Tudor Vladimirescu | !Regulamentul Organic | !mișcarea eteristă | ?1821 | ?domnia pământeană | ?partida națională | ?programe de emancipare | ?ocupația rusă | ?protectorat proconsular | ?Alexandru Dimitrie Ghica
+!Tudor Vladimirescu | !Regulamentul Organic | !mișcarea eteristă | ?1821 | ?domnia pământeană | ?partida națională | ?programe de emancipare | ?ocupația rusă | ?protectorat proconsular | ?Alexandru Dimitrie Ghica | ?Revoluția din 1821 | ?Filiki Eteria | ?Alexandru Ipsilanti | ?domni pământeni 1822 | ?Grigore Ghica | ?Regulamentele organice | ?partida națională moldoveană | ?Ion Câmpineanu | ?emanciparea Principatelor | ?ocupația militară rusă
+
 # S06 — Revoluția română de la 1848
-!Revoluția de la 1848 | !Petițiunea-proclamațiune | ?guvernul provizoriu | ?revoluționarii pașoptiști | ?criza regimului regulamentar | ?petiții politice | ?Țara Românească la 1848 | ?Moldova la 1848 | ?gândire politică pașoptistă | ?revoluție și progres
+!Revoluția de la 1848 | !Petițiunea-proclamațiune | ?guvernul provizoriu | ?revoluționarii pașoptiști | ?criza regimului regulamentar | ?petiții politice | ?Țara Românească la 1848 | ?Moldova la 1848 | ?gândire politică pașoptistă | ?revoluție și progres | ?Proclamația de la Islaz | ?Petițiunea-proclamațiune de la Iași | ?Simion Bărnuțiu | ?Avram Iancu | ?Nicolae Bălcescu | ?Mihail Kogălniceanu | ?Adunarea de la Blaj | ?guvernul revoluționar muntean | ?libertatea națională | ?Constituția din 1848
+
 # S07 — Unirea Principatelor și statul național (1848–1866)
-!Unirea Principatelor | !Adunările ad-hoc | !Alexandru Ioan Cuza | !Războiul Crimeei | ?1856-1859 | ?garanția colectivă | ?Conferința de la Paris | ?fapt împlinit | ?Constituția din 1866 | ?liberali și conservatori | ?statul național român
+!Unirea Principatelor | !Adunările ad-hoc | !Alexandru Ioan Cuza | !Războiul Crimeei | ?1856-1859 | ?garanția colectivă | ?Conferința de la Paris | ?fapt împlinit | ?Constituția din 1866 | ?liberali și conservatori | ?statul național român | ?Divanurile ad-hoc | ?dubla alegere a lui Cuza | ?24 ianuarie 1859 | ?1859 | ?Convenția de la Paris | ?Statutul dezvoltător al Convenției de la Paris | ?reforma agrară a lui Cuza | ?secularizarea averilor mănăstirești | ?Unirea Moldovei cu Țara Românească | ?Puterile Garante | ?Guvernul Kogălniceanu
+
 # Repere din bibliografia selectivă — fără vibrație
--Keith Hitchins | -Gheorghe Platon | -Dan Berindei | -Leonid Boicu | -Cristian Ploscaru | -Nicolae Isar | -Apostol Stan | -Cornelia Bodea | -David Prodan | -Neagu Djuvara
+-Keith Hitchins | -Gheorghe Platon | -Dan Berindei | -Leonid Boicu | -Cristian Ploscaru | -Nicolae Isar | -Apostol Stan | -Cornelia Bodea | -David Prodan | -Neagu Djuvara | -Nicolae Platon | -Vasile Cristian | -Mihai Cojocariu | -Dumitru Vitcu | -Vlad Georgescu | -Simion Retegan
