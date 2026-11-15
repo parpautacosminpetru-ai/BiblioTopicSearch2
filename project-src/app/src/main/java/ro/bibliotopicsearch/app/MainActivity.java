@@ -1091,7 +1091,7 @@ public final class MainActivity extends AppCompatActivity {
                 "OCURENȚE • " + snapshot.groups.size() + " indici / " + snapshot.occurrences + " apariții",
                 "COOCURENȚE • " + snapshot.cooccurrences() + " perechi în aceeași propoziție",
                 "SUPRAPUNERI • " + snapshot.overlaps() + " perechi pe același fragment",
-                "CANDIDAȚI • " + snapshot.candidates.size() + " forme cronologice"
+                "CANDIDAȚI • " + snapshot.candidates.size() + " intrări din OCR"
         };
         new AlertDialog.Builder(this)
                 .setTitle("INDICI • selectează ce verifici")
@@ -1184,7 +1184,7 @@ public final class MainActivity extends AppCompatActivity {
 
     private void showEvidenceCandidates(LiveEvidenceAnalyzer.Snapshot snapshot) {
         if (snapshot.candidates.isEmpty()) {
-            showEvidenceMessage("CANDIDAȚI", "Nicio formă cronologică nouă identificată în cadrul curent.");
+            showEvidenceMessage("CANDIDAȚI", "Nu am găsit candidați noi în cadrul curent.");
             return;
         }
         int limit = Math.min(100, snapshot.candidates.size());
