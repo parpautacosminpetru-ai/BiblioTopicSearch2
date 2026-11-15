@@ -235,8 +235,9 @@ public final class DeterministicMultiIndexMatcher {
                     if (exactTokens.isEmpty() || familyTokens.isEmpty()) continue;
                     // Do not compile duplicate spellings under the same canonical
                     // topic node. Keep homonyms from different nodes separate.
-                    String formKey = node.path + "\u0000" + String.join("\u0001", exactTokens);
-                    if (!registeredForms.add(formKey)) continue;
+                    StringBuilder formKey = new StringBuilder(node.path).append('\u0000');
+                    for (String token : exactTokens) formKey.append(token).append('\u0001');
+                    if (!registeredForms.add(formKey.toString())) continue;
 
                     PatternRecord pattern = new PatternRecord(node, term, exactTokens.size());
                     exact.add(exactTokens, pattern);
