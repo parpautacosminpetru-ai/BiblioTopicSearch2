@@ -314,9 +314,12 @@ public final class UniversalIndexStore extends SQLiteOpenHelper {
              SQLiteStatement variant = db.compileStatement(
                 "INSERT OR IGNORE INTO variants (concept_id,folded,original) VALUES (?,?,?)")) {
             for (int year = 1; year <= 2100; year++) {
+                // Bare 1–999 are extremely ambiguous (chapters, lists, folios).
+                // Require an explicit "anul" expression for these years.
+                String forms = (year >= 1000 ? year + "|" : "")
+                        + "anul " + year + "|în anul " + year;
                 writeConcept(concept, variant, "CHRON:YEAR:" + year, "An " + year,
-                        "CRONOLOGIE", "GENERAT • verificare contextuală",
-                        String.valueOf(year) + "|anul " + year + "|în anul " + year);
+                        "CRONOLOGIE", "GENERAT • verificare contextuală", forms);
             }
             for (int century = 1; century <= 21; century++) {
                 String roman = roman(century);
@@ -397,8 +400,13 @@ public final class UniversalIndexStore extends SQLiteOpenHelper {
 
     private static void writeExportRow(Writer writer, String id, String label,
             String category, String source, List<String> variants) throws IOException {
+        StringBuilder aliases = new StringBuilder();
+        for (String value : variants) {
+            if (aliases.length() > 0) aliases.append('|');
+            aliases.append(value);
+        }
         writer.write(csv(id) + "," + csv(label) + "," + csv(category) + ","
-                + csv(String.join("|",variants)) + "," + csv(source) + "\n");
+                + csv(aliases.toString()) + "," + csv(source) + "\n");
     }
     private static String csv(String field) {
         return "\"" + (field == null ? "" : field).replace("\"","\"\"") + "\"";
