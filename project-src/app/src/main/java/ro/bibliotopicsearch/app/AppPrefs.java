@@ -25,11 +25,11 @@ public final class AppPrefs {
     }
 
     public static MatchMode getMatchMode(Context context) {
-        String value = prefs(context).getString("match_mode", MatchMode.PREFIX.name());
+        String value = prefs(context).getString("match_mode", MatchMode.EXACT.name());
         try {
             return MatchMode.valueOf(value);
         } catch (Exception ignored) {
-            return MatchMode.PREFIX;
+            return MatchMode.EXACT;
         }
     }
 
@@ -59,6 +59,18 @@ public final class AppPrefs {
 
     public static void setPrecision(Context context, int value) {
         prefs(context).edit().putInt("precision", Math.max(0, Math.min(100, value))).apply();
+    }
+
+    /**
+     * The live Ctrl+F detector is preview-only. Pausing it must NOT finish an
+     * archival/research session or navigate away from the camera.
+     */
+    public static boolean detectorOcrEnabled(Context context) {
+        return prefs(context).getBoolean("detector_ocr_enabled", true);
+    }
+
+    public static void setDetectorOcrEnabled(Context context, boolean enabled) {
+        prefs(context).edit().putBoolean("detector_ocr_enabled", enabled).apply();
     }
 
     public static boolean ocrEnabled(Context context) {
@@ -249,8 +261,19 @@ public final class AppPrefs {
         setFloatingLabels(context, value);
     }
 
+    public static DeterministicAlertGate.Mode getAlertMode(Context context) {
+        String setting = prefs(context).getString("alert_mode", "ECHILIBRAT");
+        try { return DeterministicAlertGate.Mode.valueOf(setting); }
+        catch (RuntimeException ignored) { return DeterministicAlertGate.Mode.ECHILIBRAT; }
+    }
+
+    public static void setAlertMode(Context context, DeterministicAlertGate.Mode value) {
+        prefs(context).edit().putString("alert_mode",
+                (value == null ? DeterministicAlertGate.Mode.ECHILIBRAT : value).name()).apply();
+    }
+
     public static boolean haptic(Context context) {
-        return prefs(context).getBoolean("haptic", false);
+        return prefs(context).getBoolean("haptic", true);
     }
 
     public static void setHaptic(Context context, boolean value) {

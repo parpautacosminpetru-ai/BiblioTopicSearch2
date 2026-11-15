@@ -100,8 +100,7 @@ public final class MainActivity extends AppCompatActivity {
     private int zoomLevel = 0;
     private Bitmap frozenBitmap;
     private ToneGenerator toneGenerator;
-    private long lastFeedbackAt = 0L;
-    private String lastFeedbackSignature = "";
+    private final DeterministicAlertGate alertGate = new DeterministicAlertGate();
     private boolean floatingLabelsEnabled = false;
     private final Set<String> visibleNodePaths = new HashSet<>();
     private final Set<String> knownNodePaths = new HashSet<>();
@@ -120,7 +119,8 @@ public final class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        ocrEnabled = AppPrefs.ocrEnabled(this);
+        BundledThemeInstaller.ensureInstalled(this);
+        ocrEnabled = AppPrefs.detectorOcrEnabled(this);
         floatingLabelsEnabled = AppPrefs.floatingLabels(this);
         textualLayerEnabled = AppPrefs.textualLayer(this);
         semanticLayerEnabled = AppPrefs.semanticLayer(this);
@@ -263,17 +263,24 @@ public final class MainActivity extends AppCompatActivity {
         torchButton = toolbarButton("LUMINĂ");
         Button settingsButton = toolbarButton("SETĂRI");
 
-        toolbar.addView(ocrButton, toolbarLp());
+        LinearLayout quick = new LinearLayout(this);
+        quick.setGravity(Gravity.CENTER_VERTICAL);
+        quick.addView(ocrButton, new LinearLayout.LayoutParams(0, dp(48), 1.3f));
+        quick.addView(libraryButton, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        quick.addView(torchButton, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        quick.addView(freezeButton, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        top.addView(quick);
+
+        Button advancedToggle = toolbarButton("OPȚIUNI ▾");
+        top.addView(advancedToggle, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(36)));
+        toolbar.addView(themeLayerButton, toolbarLp());
         toolbar.addView(textualButton, toolbarLp());
         toolbar.addView(semanticButton, toolbarLp());
-        toolbar.addView(themeLayerButton, toolbarLp());
         toolbar.addView(zoomButton, toolbarLp());
         toolbar.addView(nodesButton, toolbarLp());
         toolbar.addView(labelsButton, toolbarLp());
-        toolbar.addView(libraryButton, toolbarLp());
-        toolbar.addView(freezeButton, toolbarLp());
         toolbar.addView(saveButton, toolbarLp());
-        toolbar.addView(torchButton, toolbarLp());
         toolbar.addView(settingsButton, toolbarLp());
         toolScroll.addView(toolbar, new HorizontalScrollView.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)
@@ -281,6 +288,12 @@ public final class MainActivity extends AppCompatActivity {
         top.addView(toolScroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(50)
         ));
+        toolScroll.setVisibility(View.GONE);
+        advancedToggle.setOnClickListener(v -> {
+            boolean opened = toolScroll.getVisibility() != View.VISIBLE;
+            toolScroll.setVisibility(opened ? View.VISIBLE : View.GONE);
+            advancedToggle.setText(opened ? "OPȚIUNI ▴" : "OPȚIUNI ▾");
+        });
 
         nodePanel = new LinearLayout(this);
         nodePanel.setOrientation(LinearLayout.VERTICAL);
@@ -363,6 +376,7 @@ public final class MainActivity extends AppCompatActivity {
                         runOnUiThread(() -> {
                             if (!ocrEnabled || frozen) return;
                             overlayView.clearHits();
+                            maybeFeedback(Collections.emptyList());
                             latestAllHits = Collections.emptyList();
                             updateLegend(Collections.emptyList());
                             setStatus("OCR live • niciun text citit încă", Color.rgb(78, 201, 126));
@@ -377,7 +391,8 @@ public final class MainActivity extends AppCompatActivity {
                         searchPlan = activePlan;
                     }
 
-                    List<MatchHit> hits = TopicMatcher.find(text, activePlan);
+                    List<MatchHit> hits = collapseDuplicateOccurrences(
+                            TopicMatcher.findLexicalOnly(text, activePlan));
                     int recognizedWords = countRecognizedWords(text);
                     int searchableTerms = activePlan.termCount();
                     runOnUiThread(() -> applyHits(hits, recognizedWords, searchableTerms));
@@ -396,7 +411,7 @@ public final class MainActivity extends AppCompatActivity {
 
     private void toggleOcr() {
         ocrEnabled = !ocrEnabled;
-        AppPrefs.setOcrEnabled(this, ocrEnabled);
+        AppPrefs.setDetectorOcrEnabled(this, ocrEnabled);
         mainHandler.removeCallbacks(staleOverlayClear);
 
         if (cameraController != null) {
@@ -440,7 +455,7 @@ public final class MainActivity extends AppCompatActivity {
     private TopicMap buildActiveSearchMap() {
         java.util.List<TopicMap> layers = new java.util.ArrayList<>();
         if (themeLayerEnabled) {
-            if (userTopicMap == null) userTopicMap = TopicMapStore.load(this);
+            if (userTopicMap == null) userTopicMap = TopicMapStore.loadForDetector(this);
             layers.add(userTopicMap);
         }
         if (textualLayerEnabled) layers.add(BuiltInMaps.textual(this));
@@ -449,12 +464,16 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void reloadSearchLayers() {
-        MapProfile activeProfile = TopicLibraryStore.getActive(this);
-        userTopicMap = TopicMapStore.load(this);
+        userTopicMap = TopicMapStore.loadForDetector(this);
         TopicMatcher.setIntersectionThemeMap(userTopicMap);
+        alertGate.reset();
         topicMap = buildActiveSearchMap();
         searchPlan = TopicMatcher.compile(this, topicMap);
-        syncVisibleNodes(activeProfile.id);
+        StringBuilder selectedKey = new StringBuilder();
+        for (MapProfile profile : TopicLibraryStore.selectedForScan(this)) {
+            selectedKey.append(profile.id).append('/');
+        }
+        syncVisibleNodes(selectedKey.toString());
         latestAllHits = Collections.emptyList();
         if (overlayView != null) overlayView.clearHits();
         updateLegend(Collections.emptyList());
@@ -631,7 +650,23 @@ public final class MainActivity extends AppCompatActivity {
         if (source == null || source.isEmpty()) return Collections.emptyList();
         List<MatchHit> out = new java.util.ArrayList<>();
         for (MatchHit hit : source) {
-            if (hit != null && hit.node != null && visibleNodePaths.contains(hit.node.path)) out.add(hit);
+            if (hit == null) continue;
+            MatchHit displayed = null;
+            for (MatchHit association : hit.associations()) {
+                if (association.node != null && visibleNodePaths.contains(association.node.path)) {
+                    displayed = association;
+                    break;
+                }
+            }
+            if (displayed == null) continue;
+            if (displayed == hit) out.add(hit);
+            else {
+                MatchHit representative = new MatchHit(
+                        displayed.box, displayed.originalText, displayed.searchTerm,
+                        displayed.node, displayed.detectedAt);
+                representative.attach(hit);
+                out.add(representative);
+            }
         }
         return out;
     }
@@ -697,17 +732,17 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void updateHeader() {
-        MapProfile active = TopicLibraryStore.getActive(this);
         int activeNodes = activeNodeCount(topicMap);
         int terms = activeTermCount(topicMap);
-        if (mapTitle != null) mapTitle.setText(active.folder + "  ›  " + active.name + "   ▾");
+        int selectedCount = TopicLibraryStore.selectedForScan(this).size();
+        if (mapTitle != null) mapTitle.setText(selectedCount + " tematici active  ▾");
         if (mapMetrics != null) {
             StringBuilder layers = new StringBuilder();
             if (themeLayerEnabled) layers.append("ȚINTĂ ");
             if (textualLayerEnabled) layers.append("TEXT ");
             if (semanticLayerEnabled) layers.append("SEM ");
             if (layers.length() == 0) layers.append("NICIUN STRAT");
-            mapMetrics.setText(activeNodes + " noduri • " + terms + " termeni • " + layers.toString().trim());
+            mapMetrics.setText(activeNodes + " noduri • " + terms + " termeni • " + AppPrefs.getAlertMode(this).name());
         }
     }
 
@@ -724,6 +759,7 @@ public final class MainActivity extends AppCompatActivity {
         List<MatchHit> visibleHits = filterVisibleHits(latestAllHits);
         overlayView.updateHits(visibleHits, AppPrefs.precision(this), floatingLabelsEnabled);
         updateLegend(visibleHits);
+        maybeFeedback(visibleHits);
 
         Set<String> allNodes = new HashSet<>();
         for (MatchHit hit : latestAllHits) allNodes.add(hit.node.path);
@@ -746,7 +782,6 @@ public final class MainActivity extends AppCompatActivity {
                             visibleHits.size() + " afișate • " + shownNodes.size() + "/" + allNodes.size() + " noduri",
                     Color.rgb(98, 211, 255)
             );
-            if (!visibleHits.isEmpty()) maybeFeedback(visibleHits, shownNodes);
         }
     }
 
@@ -764,27 +799,59 @@ public final class MainActivity extends AppCompatActivity {
         return count;
     }
 
-    private void maybeFeedback(List<MatchHit> hits, Set<String> nodes) {
-        long now = System.currentTimeMillis();
-        String signature = nodes.toString() + "|" + Math.min(9, hits.size());
-        if (signature.equals(lastFeedbackSignature) && now - lastFeedbackAt < 1200L) return;
-        if (now - lastFeedbackAt < 650L) return;
-        lastFeedbackSignature = signature;
-        lastFeedbackAt = now;
+    /** Filtering applies to haptics only: no matching highlight is discarded. */
+    /**
+     * Same phrase and same OCR rectangle -> one visual hit, associated with
+     * every relevant thematic map. Different positions remain separate hits.
+     */
+    private static List<MatchHit> collapseDuplicateOccurrences(List<MatchHit> source) {
+        java.util.Map<String, MatchHit> unique = new java.util.LinkedHashMap<>();
+        if (source == null) return new java.util.ArrayList<>();
+        for (MatchHit hit : source) {
+            if (hit == null || hit.node == null || hit.box == null) continue;
+            String lexical = TopicMatcher.normalize(hit.originalText, true);
+            String key = lexical + "|" + Math.round(hit.box.left / 4f)
+                    + "|" + Math.round(hit.box.top / 4f)
+                    + "|" + Math.round(hit.box.right / 4f)
+                    + "|" + Math.round(hit.box.bottom / 4f);
+            MatchHit previous = unique.get(key);
+            if (previous == null) unique.put(key, hit);
+            else previous.attach(hit);
+        }
+        return new java.util.ArrayList<>(unique.values());
+    }
+
+    private void maybeFeedback(List<MatchHit> hits) {
+        List<DeterministicAlertGate.Evidence> frame = new java.util.ArrayList<>();
+        if (hits != null) {
+            for (MatchHit hit : hits) {
+                if (hit == null) continue;
+                for (MatchHit association : hit.associations()) {
+                    if (association.node == null
+                            || !visibleNodePaths.contains(association.node.path)) continue;
+                    String profileId = association.node.sourceProfileId.isEmpty()
+                            ? association.node.path : association.node.sourceProfileId;
+                    frame.add(new DeterministicAlertGate.Evidence(
+                            profileId, association.node.path,
+                            association.searchTerm, association.originalText));
+                }
+            }
+        }
+        if (!alertGate.shouldAlert(frame, AppPrefs.getAlertMode(this),
+                android.os.SystemClock.elapsedRealtime())) return;
 
         if (AppPrefs.haptic(this)) {
             Vibrator vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
             if (vibrator != null && vibrator.hasVibrator()) {
-                int amplitude = Math.min(150, 45 + nodes.size() * 18 + hits.size() * 4);
                 if (Build.VERSION.SDK_INT >= 26) {
-                    vibrator.vibrate(VibrationEffect.createOneShot(24L, amplitude));
+                    vibrator.vibrate(VibrationEffect.createOneShot(28L, 95));
                 } else {
-                    vibrator.vibrate(24L);
+                    vibrator.vibrate(28L);
                 }
             }
         }
         if (AppPrefs.sound(this) && toneGenerator != null) {
-            toneGenerator.startTone(ToneGenerator.TONE_PROP_BEEP, 45);
+            toneGenerator.startTone(ToneGenerator.TONE_PROP_BEEP, 40);
         }
     }
 
@@ -863,6 +930,14 @@ public final class MainActivity extends AppCompatActivity {
         message.append("Nod: ").append(hit.node.path)
                 .append("\nTermen căutat: ").append(hit.searchTerm)
                 .append("\nText OCR: ").append(hit.originalText);
+        if (hit.associations().size() > 1) {
+            message.append("\n\nAceeași apariție este relevantă pentru:");
+            java.util.Set<String> names = new java.util.LinkedHashSet<>();
+            for (MatchHit association : hit.associations()) {
+                if (association.node != null) names.add(association.node.path);
+            }
+            for (String name : names) message.append("\n• ").append(name);
+        }
         if (entry != null) {
             message.append("\n\nDEFINIȚIE\n").append(entry.definition);
             if (!entry.synonyms.isEmpty()) message.append("\n\nSinonime: ").append(entry.synonyms);

@@ -1,0 +1,77 @@
+name: Public direct APK download — BTS 2.3 TEME COMPLETE
+# Publish only after SQL, lexical thematic coverage and Java unit checks pass.
+
+on:
+  push:
+    branches:
+      - feature/bibliotopicsearch-2-deterministic-detector-20261114
+    paths:
+      - .github/workflows/publish-v2-beta-direct.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate-build-release:
+    if: github.repository == 'parpautacosminpetru-ai/BiblioTopicSearch2' && github.ref == 'refs/heads/feature/bibliotopicsearch-2-deterministic-detector-20261114'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - uses: android-actions/setup-android@v4
+      - name: Install SDK
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;35.0.0"
+      - name: Test theme catalog, SQL, and Java
+        run: |
+          python3 -m unittest discover -s project-src/sql-tests -p 'test_*.py'
+          gradle --no-daemon -p project-src :app:testDebugUnitTest
+      - name: Build new distinct Android package
+        run: gradle --no-daemon -p project-src :app:assembleDebug
+      - name: Verify actual APK contains seven maps and launcher classes
+        run: |
+          python3 - <<'PY'
+          from zipfile import ZipFile
+          from pathlib import Path
+          apk = Path("project-src/app/build/outputs/apk/debug/app-debug.apk")
+          assert apk.stat().st_size > 10_000_000
+          with ZipFile(apk) as z:
+              assert z.testzip() is None
+              assets = sorted(x for x in z.namelist() if x.startswith("assets/themes/") and x.endswith(".txt"))
+              assert len(assets) == 7, assets
+              assert all(z.read(a).startswith(b"# ") and len(z.read(a)) > 300 for a in assets)
+              print("VERIFIED: 7 bundled themes in compiled APK")
+          PY
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging project-src/app/build/outputs/apk/debug/app-debug.apk \
+            | grep -F "package: name='ro.bibliotopicsearch.teme2026.acoperire'"
+          cp project-src/app/build/outputs/apk/debug/app-debug.apk BiblioTopicSearch_2.3.0_Beta5_TEME_COMPLETE.apk
+          sha256sum BiblioTopicSearch_2.3.0_Beta5_TEME_COMPLETE.apk > BiblioTopicSearch_2.3.0_Beta5_TEME_COMPLETE.apk.sha256
+      - name: Publish public direct-download APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=v2.3.0-beta5
+          NOTES="Expanded lexical university curriculum from nine supplied documents: seven maps, 144 independently classified subject nodes, at least ten terms for every subject, 2223 subject/term associations and 2144 unique expressions. Strict subtopic-only contextual haptics; visible documentation screen for ! direct, ? contextual, - visual. OCR phrase matching crosses one soft line break within same block. A bare year never triggers vibration. Build test verified seven bundled assets, SQL catalog integrity and Java unit tests. Distinct Android application BTS 2 - TEME COMPLETE. This is a DEBUG-signed beta and not guaranteed error-free on all camera pages. Data from previous app packages is not automatically migrated."
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" \
+              BiblioTopicSearch_2.3.0_Beta5_TEME_COMPLETE.apk \
+              BiblioTopicSearch_2.3.0_Beta5_TEME_COMPLETE.apk.sha256 \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" \
+              BiblioTopicSearch_2.3.0_Beta5_TEME_COMPLETE.apk \
+              BiblioTopicSearch_2.3.0_Beta5_TEME_COMPLETE.apk.sha256 \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "BiblioTopicSearch 2.3 Beta 5 — toate subiectele, reguli explicite" \
+              --notes "$NOTES" --prerelease
+          fi

@@ -1,0 +1,47 @@
+# I — Seminar introductiv; periodizarea modernității
+!Europa modernă | ?epoca modernă | ?începuturile modernității | ?Vechiul Regim | ?Ancien Régime | ?modernitate europeană | ?cronologia epocii moderne | ?secolele XVI-XIX | ?societatea modernă | ?cultura politică modernă | ?transformări instituționale | ?Europa preindustrială | ?modernizarea statului
+
+# II.1 — Laicizarea societății; drepturi naturale; Țările de Jos
+!Revoluția din Țările de Jos | ?laicizarea societății | ?secularizarea politicului | ?drepturi naturale | ?revoltă neerlandeză | ?Provinciile Unite | ?independența Olandei | ?reforma protestantă | ?Revolta Olandeză | ?Războiul de Optzeci de Ani | ?Republica Provinciilor Unite | ?Filip al II-lea | ?abjurarea monarhului | ?libertate de conștiință | ?Edictul de la Nantes | ?secularizarea societății
+
+# II.2 — Statul modern, Anglia și Franța
+!Revoluția Glorioasă | !Bill of Rights | ?constituționalism englez | ?monarhie parlamentară | ?parlamentul englez | ?monarhia franceză | ?Franța prerevoluționară | ?aristocrația franceză | ?instituții statale | ?Revoluția engleză 1688 | ?Glorious Revolution | ?1688 | ?1689 | ?William de Orania | ?Maria Stuart | ?Parlamentul Angliei | ?drepturi parlamentare | ?monarhia Stuart | ?monarhia din Franța
+
+# II.3 — Legitimitate politică și forme de monarhie
+!monarhie constituțională | !monarhie absolută | ?legitimitate dinastică | ?legitimitate politică | ?suveranitate monarhică | ?drept divin al regilor | ?teoria dreptului divin | ?suveranitatea regală | ?constituționalism monarhic | ?principiul separației puterilor | ?puterea absolută | ?legitimitate constituțională | ?putere arbitrară
+
+# III.1 — Imperii moderne și hegemonii
+!Carol Quintul | !Filip al II-lea al Spaniei | ?monarhie universală | ?Imperiul Spaniol | ?hegemonia engleză | ?hegemonia franceză | ?imperii coloniale | ?Carol al V-lea | ?Carol V | ?Carlos V | ?Habsburgii spanioli | ?Filip II | ?monarhia habsburgică | ?hegemonie europeană | ?rutele coloniale | ?Imperiul colonial spaniol
+
+# III.2 — Absolutism economic: Colbert, Turgot, Necker
+!Jean-Baptiste Colbert | !Jacques Turgot | !Jacques Necker | ?colbertism | ?mercantilism francez | ?reforme fiscale | ?reforme economice | ?fiziocrație | ?Colbert | ?Turgot | ?Necker | ?monopoluri economice | ?fiscalitate franceză | ?politica manufacturilor | ?colbertism francez | ?reglementarea comerțului
+
+# III.3 — Capitalism și societate modernă
+!expansiunea capitalismului | ?acumulare de capital | ?comerț atlantic | ?burghezie comercială | ?economie de piață | ?capitalism comercial | ?comerț colonial | ?capitalismul timpuriu | ?expansiune colonială | ?comerț triunghiular | ?capital mercantil | ?capitalism atlantic | ?revoluția comercială | ?acumulare mercantilă | ?burghezie și aristocrație
+
+# IV — Absolutismul în secolele XVII-XVIII
+!Jean Bodin | !Jacques Bossuet | ?teoria suveranității | ?absolutism monarhic | ?suveranitatea regelui | ?legitimarea puterii | ?limitele monarhiei | ?Bodin și suveranitatea | ?Bossuet și dreptul divin | ?Jean Bodin Cele șase cărți ale Republicii | ?Jacques Bénigne Bossuet | ?monarhia lui Ludovic XIV | ?absolutism francez | ?ideologia monarhiei
+
+# V.1–V.2 — Revoluția franceză: radicalizare și legitimitate
+!Revoluția franceză | ?1789 | ?Adunarea Națională | ?criza monarhiei franceze | ?Declarația drepturilor omului | ?suveranitate populară | ?Stările Generale | ?Ludovic al XVI-lea | ?Adunarea Constituantă | ?Căderea Bastiliei | ?14 iulie 1789 | ?Declarația drepturilor omului și cetățeanului | ?criza financiară franceză | ?convocarea Stărilor Generale
+
+# V.3–V.6 — Iacobinism, cetățenie și moștenirea revoluției
+!radicalism iacobin | !iacobinism | ?Comitetul Salvării Publice | ?teroare revoluționară | ?cetățeanul francez | ?reacția europeană | ?moștenirea revoluției | ?Maximilien Robespierre | ?Girondinii | ?Montagnarzii | ?Convenția Națională | ?teroarea iacobină | ?Republica Franceză | ?cetățenia politică | ?revoluționarii radicali | ?1793
+
+# VI.1 — Napoleon: mitul salvatorului
+!Napoleon Bonaparte | ?mitul salvatorului | ?cezarism napoleonian | ?republicanism francez | ?mitul napoleonian | ?Napoleon I | ?generalul Bonaparte | ?18 Brumar | ?18 Brumaire | ?lovitura de stat de la 1799 | ?Bonapartism | ?mitologie napoleoniană | ?Republica și Consulatul
+
+# VI.2–VI.4 — Consulatul, Imperiul și declinul lui Napoleon
+!Consulatul francez | !Imperiul napoleonian | ?1799 | ?1804 | ?codul napoleonian | ?războaie napoleoniene | ?campania din Rusia | ?căderea lui Napoleon | ?primul consul | ?Primul Imperiu Francez | ?Napoleon împărat | ?Blocada continentală | ?Austerlitz | ?Waterloo | ?1815 | ?abdicarea lui Napoleon | ?Codul civil francez | ?campaniile napoleoniene
+
+# VII.1 — Pacea Westfalică (1648)
+!Pacea din Westfalia | ?1648 | ?tratatele de la Münster | ?tratatele de la Osnabrück | ?sistemul westfalic | ?suveranitate statală | ?Tratatele Westfalice | ?Pacea de la Münster | ?Pacea de la Osnabrück | ?Războiul de Treizeci de Ani | ?sistemul internațional westfalic | ?pace confesională
+
+# VII.2 — Marele Război al Nordului
+!Marele Război al Nordului | ?1700-1721 | ?Carol al XII-lea | ?Petru cel Mare | ?declinul Suediei | ?Poltava | ?Războiul Nordului | ?bătălia de la Poltava | ?Pacea de la Nystad | ?Petru I al Rusiei | ?Carol XII al Suediei | ?declinul puterii suedeze | ?ascensiunea Rusiei
+
+# VII.3–VII.5 — Relații internaționale moderne
+!problema orientală | ?expansiunea Rusiei | ?expansiunea Austriei | ?Imperiul Otoman | ?războaiele revoluționare | ?echilibrul european | ?Europa centrală și orientală | ?Războaiele Revoluției franceze | ?coalițiile antinapoleoniene | ?Imperiul Rus | ?Imperiul Habsburgic | ?expansiunea Rusiei către Marea Neagră | ?Congresul de la Viena | ?Concertul european | ?echilibru de putere | ?chestiunea orientală
+
+# Repere bibliografice — doar evidențiere
+-François Furet | -Albert Soboul | -Edmund Burke | -Fernand Braudel | -Immanuel Wallerstein | -Jean Bérenger | -Paul Kennedy | -Roger Chartier | -Serge Bernstein | -Pierre Milza | -Gheorghe Cliveti | -Guy Hermet | -Hubert Méthivier | -Alexis de Tocqueville | -Max Weber

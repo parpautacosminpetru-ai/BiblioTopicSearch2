@@ -66,6 +66,11 @@
             android:exported="false" />
 
         <activity
+            android:name=".DetectionRulesActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
             android:name=".SettingsActivity"
             android:screenOrientation="portrait"
             android:exported="false" />
@@ -92,6 +97,11 @@
 
         <activity
             android:name=".ResearchHomeActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
+            android:name=".DetectorHomeActivity"
             android:screenOrientation="portrait"
             android:exported="true">
             <intent-filter>

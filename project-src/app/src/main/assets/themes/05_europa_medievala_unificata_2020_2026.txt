@@ -1,0 +1,71 @@
+# C01 — Marile migrații și tranziția de la Antichitate
+!marile migrații | !invaziile germanice | ?Imperiul Roman de Apus | ?căderea Romei | ?migrația hunilor | ?vandalii | ?ostrogoții | ?vizigoții | ?burgunzii | ?Antichitate târzie | ?sfârșitul Antichității | ?476 | ?Imperiul Roman târziu | ?huni | ?goți | ?migrația vandalilor | ?Odoacru | ?etnogeneză germanică | ?barbarii în Europa
+
+# C02 — Regatele germanice și Europa postromană
+!regatul ostrogot | !regatul vizigot | !Italia longobardă | ?sinteza romano-germanică | ?regate germanice | ?Teodoric cel Mare | ?regatul longobard | ?Ostrogotia | ?Regatul Vizigot Toledo | ?Alaric | ?longobarzii în Italia | ?cucerirea Italiei | ?regatele romano-barbare
+
+# C03 — Francii merovingieni și ascensiunea Carolingienilor
+!Clovis | !Dagobert | !Pepin de Herstal | ?Merovingieni | ?franci salieni | ?Carol Martel | ?Pepin cel Scurt | ?Dinastia merovingiană | ?major domus | ?majordomii franci | ?bătălia de la Poitiers | ?732 | ?regatul franc
+
+# C04 — Imperiul Carolingian și anul 800
+!Imperiul Carolingian | !încoronarea lui Carol cel Mare | ?800 | ?Carol cel Mare | ?Ludovic cel Pios | ?renașterea carolingiană | ?expansiunea francă | ?renovatio imperii | ?Pipin al III-lea | ?Carolingieni | ?Ludovic I cel Pios | ?Verdun 843 | ?Tratatul de la Verdun | ?missi dominici | ?capitularele carolingiene
+
+# C05 — Ottonienii și restaurarea imperială
+!Otto I | !Otto II | !Otto III | ?962 | ?Imperiul romano-german | ?Francia Răsăriteană | ?restaurația ottoniană | ?Otto cel Mare | ?Sfântul Imperiu Roman | ?regalitatea ottoniană | ?episcopatul imperial | ?Imperiul Ottonian | ?Ottonieni | ?succesiunea lui Otto
+
+# C06 — Britania anglo-saxonă și Iberia maură
+!cucerirea normandă | ?1066 | ?regatele anglo-saxone | ?Spania maură | ?Al-Andalus | ?conviețuire religioasă în Spania | ?Heptarhia anglo-saxonă | ?Alfred cel Mare | ?Eduard Mărturisitorul | ?Anglia înainte de 1066 | ?maurii din Spania | ?emiratele spaniole | ?Califatul de Cordoba
+
+# C07 — Instituții feudale, regalitate, vasalitate și feud
+!societatea feudală | !senioria medievală | ?vasalitate | ?feud | ?beneficiu feudal | ?imunități | ?dependență personală | !vasalitate medievală | !regii taumaturgi | ?beneficiu | ?imunitate feudală | ?senior și vasal | ?sacralitatea regalității | ?Fulbert de Chartres | ?încoronarea lui Otto I | ?feudo-vasalitate | ?jurământ de fidelitate | ?omagiu feudal | ?învestitura feudală | ?seniorie rurală | ?domeniu seniorial | ?regele taumaturg | ?sacralizarea monarhiei | ?relații personale feudale | ?beneficium
+
+# C08 — Regnum, sacerdotium, reforma gregoriană și Învestitura
+!Cearta pentru Învestitură | !reforma gregoriană | ?regnum | ?sacerdotium | ?Inocențiu al III-lea | ?Frederic al II-lea Hohenstaufen | !regnum et sacerdotium | ?putere temporală | ?putere spirituală | ?Respublica Christiana | ?hierocrație pontificală | ?teocrație papală | !Frederic al II-lea de Hohenstaufen | ?1198-1216 | ?1220-1250 | ?hegemonie imperială | ?imperiu și papalitate | ?disputa investiției | ?Papa Grigore al VII-lea | ?Henric al IV-lea | ?Canossa | ?1077 | ?Concordatul de la Worms | ?1122 | ?Inocențiu III | ?hierocrație | ?Papalitate și Imperiu | ?conflictul pentru învestitură
+
+# C09 — Centralizarea regatelor: Franța, Anglia și Europa Centrală
+!Filip al II-lea August | !Filip al IV-lea cel Frumos | !Reconquista | ?Războiul de O Sută de Ani | ?centralizarea monarhiilor | ?monarhia normandă | !centralizare monarhică | ?reconstrucție statală | ?suveranitate teritorială | ?monarhie medievală | ?regalitate capetiană | ?instituții monarhice | ?primii capețieni | ?suveranitatea Franței | ?politica regală franceză | ?1337-1453 | ?organizarea normandă | ?criza monarhiei engleze | ?centralizarea Angliei | !Reconquista iberică | ?Polonia medievală | ?Boemia medievală | ?Ungaria medievală | ?formațiuni monarhice | ?simbolism regal | ?Capețienii | ?Filip August | ?Filip cel Frumos | ?Magna Carta | ?1215 | ?Ioan fără de Țară | ?Henric al II-lea Plantagenet | ?Războiul de 100 de ani | ?Castilia și Aragon
+
+# C10 — Criza Papalității, Marea Schismă și tranziția spre modernitate
+!Marea Schismă Occidentală | !papalitatea de la Avignon | ?1378-1417 | ?conciliarism | ?criza Bisericii | ?renașterea europeană | !captivitatea de la Avignon | ?1309-1378 | ?criza papalității | ?erezii medievale | !emergența modernității | ?secolele XV-XVI | ?forme ale modernității | ?Renaștere | ?transformări economice | ?transformări politice | ?Papalitatea la Avignon | ?papalitatea avignoneză | ?schisma papală | ?conciliul de la Konstanz | ?1414-1418 | ?criza universalismului | ?Renașterea timpurie
+
+# S01 — Izvoare, periodizare și istoriografie medievală
+?istoriografie medievală | ?izvoare medievale | ?periodizarea Evului Mediu | ?Antichitatea târzie | ?Occidentul medieval | ?civilizația medievală occidentală | ?surse istorice medievale | ?istoria Europei de Apus | ?bibliografia Evului Mediu | ?bibliografie medievală | ?studii medievale | ?seminar medieval | ?istoria medievală | ?istoriografie a Evului Mediu | ?surse literare medievale | ?anale medievale | ?hagiografie | ?cronici latine | ?surse diplomatice
+
+# S02 — Imperiul și Biserica în secolele VI–IX
+!Gelasius I | ?Imperiul și Biserica | ?putere politică și ecleziastică | ?ideea imperială | ?tranziția la Evul Mediu | ?creștinismul occidental | ?Vita Karoli Magni | ?doctrina celor două săbii | ?Auctoritas sacrata pontificum | ?Carol cel Mare și clerul | ?biserica francă | ?creștinarea germanicilor | ?putere ecleziastică | ?universalism creștin
+
+# S03 — Apariția islamului și relațiile cu Europa
+!Mahomed și Coranul | !Marele Califat | ?Islamul timpuriu | ?expansiunea islamică | ?cucerirea arabă | ?civilizația islamică | ?Cordoba | ?Hijra | ?Hegira | ?622 | ?profetul Mahomed | ?expansiunea califatului | ?omeiazi | ?abasizi | ?islamul în Peninsula Iberică | ?califatul omeiad | ?Pirenii și Islamul
+
+# S04 — Vikingii, slavii și nordul Europei
+!Marea Moravie | ?vikingii în Europa | ?migrația slavilor | ?expansiunea normandă | ?creștinarea vikingilor | ?legile anglo-saxone | ?Legea salică | ?Athelstan | ?Mercia | ?vikingii scandinavi | ?Normanzii | ?expansiune vikingă | ?Rusia Kieveană | ?Moravia Mare | ?Chiril și Metodiu | ?creștinarea slavilor | ?Dunărea de Jos | ?invaziile normande
+
+# S05 — Economia și transformările societății medievale
+!economia medievală | !orașul medieval | ?agricultura medievală | ?meșteșuguri medievale | ?circulație monetară | ?negoțul medieval | ?vămi medievale | ?bâlciuri și târguri | ?drumuri comerciale | !creștinătatea occidentală | ?secolele X-XIV | ?transformări sociale medievale | ?expansiune economică medievală | ?creșterea populației | ?comerț mediteranean | ?instituții occidentale | ?arătura medievală | ?asolament trienal | ?revoluția agrară medievală | ?breslele medievale | ?negustori și bancheri | ?comerțul cu mirodenii | ?târguri medievale | ?moneda carolingiană | ?orașele din Evul Mediu
+
+# S06 — Cele trei ordine, ierarhii și categorii sociale
+!cele trei ordine | !Adalberon de Laon | ?nobilul medieval | ?cavalerul medieval | ?clerul medieval | ?țăranul medieval | ?orășeanul medieval | ?ierarhie feudală | ?oratores bellatores laboratores | ?cei care se roagă | ?cei care luptă | ?cei care muncesc | ?tripartiția socială | ?clerici și laici | ?nobilimea feudală | ?obștea rurală
+
+# S07 — Mentalități, imaginar și simboluri medievale
+!mentalități colective | !imaginar medieval | ?percepția timpului | ?percepția spațiului | ?atitudinea față de muncă | ?gesturi medievale | ?simbolism medieval | ?regim alimentar medieval | ?ciuma medievală | ?familia medievală | ?alteritatea medievală | !mentalul colectiv medieval | !imaginarul medieval | ?revelații medievale | ?visele medievale | ?Purgatoriu | ?ritualuri medievale | ?școala Annales | ?Jacques Le Goff | ?percepția morții | ?ritualurile medievale | ?sacru și profan | ?lumea de dincolo | ?imaginar religios medieval | ?gesturi și simboluri | ?timpul Bisericii
+
+# S08 — Viața cotidiană, familia, mortalitatea și alteritatea
+!Purgatoriul | !Moartea Neagră | ?durata vieții medievale | ?atitudini față de moarte | ?căsătorie medievală | ?condiția femeii | ?vrăjitorie medievală | ?evreii medievali | ?musulmanii în Occident | ?alimentație medievală | ?maladii medievale | ?epidemii medievale | ?durata vieții | ?atitudinea față de moarte | ?viața privată medievală | ?Moartea Neagră 1347 | ?1348 | ?ciumă bubonică | ?igiena medievală | ?viața privată | ?familia feudală | ?copilăria medievală | ?viața femeilor | ?vrăjitoarea | ?imaginea celuilalt
+
+# S09 — Cruciadele, Bizanțul și lumea mediteraneană
+!Prima Cruciadă | !Cruciada a patra | !Pacea lui Dumnezeu | ?război sfânt | ?stăpâniri latine | ?state cruciate | ?Regatul Ierusalimului | ?Bizanț și cruciați | ?Islam și cruciade | ?războiul sfânt | ?cucerirea Constantinopolului | ?statele latine din Răsărit | ?cruciați și Bizanț | ?Urban al II-lea | ?Clermont 1095 | ?prima cruciadă 1096 | ?cucerirea Ierusalimului 1099 | ?Cruciada a IV-a 1204 | ?Templieri | ?Ordinul Ospitalierilor | ?statele cruciate | ?Cruciadele medievale
+
+# S10 — Intelectualii medievali, universitățile și aristotelismul
+!nașterea universităților | !Universitatea din Paris | ?scolastică medievală | ?intelectualul medieval | ?Aristotel în Occident | ?aristotelism medieval | ?Toma de Aquino | ?renașterea secolului al XII-lea | !geneza universităților | ?universitatea medievală | ?scolastica | ?intelectuali medievali | ?scolasticism | ?școlile catedrale | ?universitas | ?Abelard | ?Toma d'Aquino | ?Albert cel Mare | ?filozofie scolastică | ?recepția aristotelică | ?intelectualii secolului XII
+
+# S11 — Descoperiri geografice și expansiunea europeană
+!marile descoperiri geografice | !Cristofor Columb | !Vasco da Gama | ?expansiunea maritimă | ?imperii coloniale | ?comerțul atlantic | ?descoperirea Americii | ?explorări portugheze | !descoperirile geografice | ?Henric Navigatorul | ?Bartolomeu Dias | ?Pedro Álvares Cabral | ?1492 | ?navigația atlantică | ?rutele către India | ?imperiul colonial portughez | ?cucerirea Americii
+
+# S12 — Renașterea, umanismul și originile capitalismului
+!umanismul Renașterii | ?geneza capitalismului | ?economia mondială | ?schimbări culturale | ?transformări sociale | ?centre și periferii | ?umanism | ?Renașterea italiană | ?umanismul civic | ?Niccolò Machiavelli | ?Erasmus din Rotterdam | ?tiparul lui Gutenberg | ?Fernand Braudel | ?acumularea primitivă | ?capitalismul european
+
+# S13 — Reforma protestantă: luteranism și calvinism
+!Martin Luther | !Jean Calvin | !Reforma protestantă | ?luteranism | ?calvinism | ?confesiuni protestante | ?Reforma în Germania | !Reforma lutherană | ?cele 95 de teze | ?1517 | ?Wittenberg | ?Reforma lui Luther | ?Geneva calvinistă | ?sola scriptura | ?sola fide
+
+# Bibliografie selectivă — reper vizual, fără alerte
+-Alexandru-Florin Platon | -Laurențiu Rădvan | -Bogdan-Petru Maleon | -Marc Bloch | -Jacques Le Goff | -Georges Duby | -Henri Pirenne | -Steven Runciman | -Michel Pastoureau | -Michel Senellart | -Jean Favier | -Fernand Braudel | -Max Weber | -Robert Fossier | -Peter Brown | -Michel Mollat du Jourdin | -André Vauchez | -Philippe Ariès | -Jean-Claude Schmitt | -Christopher Dyer | -Robert I Moore

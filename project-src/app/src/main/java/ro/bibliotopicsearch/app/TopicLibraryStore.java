@@ -72,6 +72,48 @@ public final class TopicLibraryStore {
         return getActive(context).id;
     }
 
+    /** Selection for live scanning is independent of the map open in the editor. */
+    public static List<MapProfile> selectedForScan(Context context) {
+        List<String> selectedIds = selectedIdsForScan(context);
+        List<MapProfile> out = new ArrayList<>();
+        for (MapProfile map : list(context)) {
+            if (selectedIds.contains(map.id)) out.add(map);
+        }
+        return out;
+    }
+
+    public static boolean isSelectedForScan(Context context, String id) {
+        return selectedIdsForScan(context).contains(id);
+    }
+
+    /** Keep at least one enabled map; selection is persisted across sessions. */
+    public static boolean setSelectedForScan(Context context, String id, boolean enabled) {
+        ensureInitialized(context);
+        if (id == null || !readIds(prefs(context)).contains(id)) return false;
+        List<String> ids = selectedIdsForScan(context);
+        if (enabled && !ids.contains(id)) ids.add(id);
+        else if (!enabled && ids.contains(id)) {
+            if (ids.size() == 1) return false;
+            ids.remove(id);
+        }
+        prefs(context).edit().putString("scan_ids", joinIds(ids)).apply();
+        return true;
+    }
+
+    private static List<String> selectedIdsForScan(Context context) {
+        ensureInitialized(context);
+        SharedPreferences p = prefs(context);
+        String raw = p.getString("scan_ids", null);
+        List<String> valid = readIds(p);
+        List<String> chosen = new ArrayList<>();
+        if (raw != null) for (String part : raw.split(",")) {
+            String id = part.trim();
+            if (valid.contains(id) && !chosen.contains(id)) chosen.add(id);
+        }
+        if (chosen.isEmpty()) chosen.add(getActiveId(context));
+        return chosen;
+    }
+
     public static MapProfile get(Context context, String id) {
         ensureInitialized(context);
         SharedPreferences p = prefs(context);
@@ -132,8 +174,13 @@ public final class TopicLibraryStore {
         if (!ids.contains(id)) return false;
         if (ids.size() <= 1) return false;
 
+        List<String> chosen = selectedIdsForScan(context);
         ids.remove(id);
+        chosen.remove(id);
+        String oldActiveId = p.getString("active_id", DEFAULT_ID);
+        if (chosen.isEmpty()) chosen.add(id.equals(oldActiveId) ? ids.get(0) : oldActiveId);
         SharedPreferences.Editor e = p.edit()
+                .putString("scan_ids", joinIds(chosen))
                 .putString("ids", joinIds(ids))
                 .remove(key(id, "name"))
                 .remove(key(id, "folder"))

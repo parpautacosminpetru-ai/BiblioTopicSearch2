@@ -7,12 +7,12 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "ro.bibliotopicsearch.app"
+        applicationId = "ro.bibliotopicsearch.teme2026.acoperire"
         minSdk = 23
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 20
-        versionName = "1.11.1"
+        versionCode = 31
+        versionName = "2.3.0-beta5-complet"
     }
 
     compileOptions {
