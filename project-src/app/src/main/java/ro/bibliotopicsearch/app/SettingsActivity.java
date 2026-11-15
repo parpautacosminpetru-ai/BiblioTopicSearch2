@@ -52,9 +52,9 @@ public final class SettingsActivity extends AppCompatActivity {
         root.addView(heading("DETECTOR • SETĂRI", 22));
         root.addView(label("Alertare deterministă"));
         RadioGroup alerts = new RadioGroup(this);
-        RadioButton explore = radio("Explorare • fiecare termen distinct");
-        RadioButton balanced = radio("Echilibrat • sintagmă sau 2 termeni din aceeași temă");
-        RadioButton strict = radio("Strict • sintagmă de 3+ cuvinte sau 3 indicii");
+        RadioButton explore = radio("Explorare • priorități sau termeni neetichetați ≥5 litere");
+        RadioButton balanced = radio("Echilibrat • priorități, expresii neetichetate sau 2 indicii din ACELAȘI SUBIECT");
+        RadioButton strict = radio("Strict • priorități, expresii 3+ cuvinte sau 3 indicii din ACELAȘI SUBIECT");
         alerts.addView(explore);
         alerts.addView(balanced);
         alerts.addView(strict);
@@ -70,9 +70,13 @@ public final class SettingsActivity extends AppCompatActivity {
                     : DeterministicAlertGate.Mode.ECHILIBRAT;
             AppPrefs.setAlertMode(this, chosen);
         });
-        root.addView(body("Fără AI: reguli fixe. !termen = alertă imediată; "
-                + "?termen = doar context; -termen = evidențiere fără vibrație. "
-                + "Aceeași potrivire nu vibrează la fiecare cadru."));
+        root.addView(body("! = termen distinctiv, alertă directă la potrivire exactă. "
+                + "? / ~ = indiciu contextual: în ECHILIBRAT trebuie 2 termeni diferiți "
+                + "în cadrul ACELUIAȘI subiect, iar în STRICT 3. "
+                + "- = evidențiere, niciodată vibrație (ex. bibliografie). "
+                + "Un an izolat nu generează vibrație. "
+                + "Identitatea apariției este păstrată pentru fiecare tematică; "
+                + "o singură vibrație per cadru, cu rearmare după 2 cadre fără potrivire și 2,2 secunde."));
         root.addView(sectionGap());
 
         root.addView(sectionGap());
