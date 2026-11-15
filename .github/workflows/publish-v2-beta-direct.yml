@@ -1,4 +1,4 @@
-name: Public direct APK download — BTS 2.2 TEME 2026
+name: Public direct APK download — BTS 2.3 TEME COMPLETE
 
 on:
   push:
@@ -49,26 +49,28 @@ jobs:
               assert all(z.read(a).startswith(b"# ") and len(z.read(a)) > 300 for a in assets)
               print("VERIFIED: 7 bundled themes in compiled APK")
           PY
-          cp project-src/app/build/outputs/apk/debug/app-debug.apk BiblioTopicSearch_2.2.0_Beta4_TEME_2026.apk
-          sha256sum BiblioTopicSearch_2.2.0_Beta4_TEME_2026.apk > BiblioTopicSearch_2.2.0_Beta4_TEME_2026.apk.sha256
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging project-src/app/build/outputs/apk/debug/app-debug.apk \
+            | grep -F "package: name='ro.bibliotopicsearch.teme2026.acoperire'"
+          cp project-src/app/build/outputs/apk/debug/app-debug.apk BiblioTopicSearch_2.3.0_Beta5_TEME_COMPLETE.apk
+          sha256sum BiblioTopicSearch_2.3.0_Beta5_TEME_COMPLETE.apk > BiblioTopicSearch_2.3.0_Beta5_TEME_COMPLETE.apk.sha256
       - name: Publish public direct-download APK
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG=v2.2.0-beta4
-          NOTES="TEST BUILD for correcting missing themes. Distinct Android application 'BTS 2 - TEME 2026' avoids conflicts with old beta APKs. Seven curated university maps are embedded and imported automatically. Start screen shows 7/7 status and a RESTAUREAZĂ CELE 7 TEMATICI action. Includes 144 unique topic sections, 1027 unique phrases. SQL and Java unit tests run in this workflow. Actual phone OCR and emulator behavior still require validation. User data does not automatically migrate from previous package versions."
+          TAG=v2.3.0-beta5
+          NOTES="Expanded lexical university curriculum from nine supplied documents: seven maps, 144 independently classified subject nodes, at least ten terms for every subject, 2223 subject/term associations and 2144 unique expressions. Strict subtopic-only contextual haptics; visible documentation screen for ! direct, ? contextual, - visual. OCR phrase matching crosses one soft line break within same block. A bare year never triggers vibration. Build test verified seven bundled assets, SQL catalog integrity and Java unit tests. Distinct Android application BTS 2 - TEME COMPLETE. This is a DEBUG-signed beta and not guaranteed error-free on all camera pages. Data from previous app packages is not automatically migrated."
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh release upload "$TAG" \
-              BiblioTopicSearch_2.2.0_Beta4_TEME_2026.apk \
-              BiblioTopicSearch_2.2.0_Beta4_TEME_2026.apk.sha256 \
+              BiblioTopicSearch_2.3.0_Beta5_TEME_COMPLETE.apk \
+              BiblioTopicSearch_2.3.0_Beta5_TEME_COMPLETE.apk.sha256 \
               --repo "$GITHUB_REPOSITORY" --clobber
           else
             gh release create "$TAG" \
-              BiblioTopicSearch_2.2.0_Beta4_TEME_2026.apk \
-              BiblioTopicSearch_2.2.0_Beta4_TEME_2026.apk.sha256 \
+              BiblioTopicSearch_2.3.0_Beta5_TEME_COMPLETE.apk \
+              BiblioTopicSearch_2.3.0_Beta5_TEME_COMPLETE.apk.sha256 \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "BiblioTopicSearch 2.2 Beta 4 — TEME 2026 vizibile și restaurabile" \
+              --title "BiblioTopicSearch 2.3 Beta 5 — toate subiectele, reguli explicite" \
               --notes "$NOTES" --prerelease
           fi
