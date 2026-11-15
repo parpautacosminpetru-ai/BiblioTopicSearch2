@@ -25,3 +25,29 @@ Nu decide dacă un pasaj este important istoric; nu deduce sinonime automat; nu 
 - Teste unitare: DeterministicAlertGateTest pentru filtrul pe tematici, marcaje, rearmare, potrivire exactă și cadre repetate.
 - Compilarea și testarea Android rulează prin GitHub Actions la pull request.
 - Artefactul CI este un APK de tip DEBUG pentru testare, nu un release semnat pentru magazin. Nu presupune că un APK vechi poate fi suprascris dacă a fost semnat cu alt certificat.
+
+## Teme universitare 2026 — încorporate automat și fără dubluri
+
+Nouă documente furnizate (două DOCX și șapte PDF) sunt transformate în
+**șapte** hărți tematice importate automat la prima pornire.
+
+1. Studiul izvoarelor / Științe speciale, 2026
+2. Europa modernă, 2026
+3. Istoria Bizanțului, 2026
+4. Istoria modernă a românilor, 2026–2027
+5. Europa medievală **UNIFICATĂ** din programele 2020, „Seminar Tematică” și partea a II-a 2026
+6. Introducere în istoriografie, 2026
+7. Stat, societate și mentalități în spațiul românesc, toate cele 38 de subiecte
+
+Fiecare profil de tematică are termeni normalizați fără apariții duplicate
+la nivelul acelui profil. În detectorul OCR, aceeași potrivire la aceleași
+coordonate apare într-o singură evidențiere, chiar dacă o sintagmă aparține
+mai multor discipline. Asocierea cu toate disciplinele este păstrată în
+detaliile atingerii acelei evidențieri și în filtrul de alertare.
+
+Toate cele șapte profiluri sunt bifate la prima pornire. Aplicația nu
+suprascrie hărțile create sau modificate de utilizator și nu creează din
+nou hărțile deja instalate. Datele personale/academice rămân offline.
+
+Testul `project-src/sql-tests/test_theme_assets.py` verifică numărul hărților,
+unicitatea internă a termenilor și păstrarea celor 38 de subiecte.
