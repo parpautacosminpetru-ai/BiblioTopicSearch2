@@ -134,6 +134,9 @@ public final class MainActivity extends AppCompatActivity {
     private String visibleProfileId = "";
     private List<MatchHit> latestAllHits = Collections.emptyList();
     private String lastLegendSignature = "";
+    private static final int MAX_NODE_CHIPS = 60;
+    private static final int MAX_LEGEND_CHIPS = 24;
+    private int nodePage;
 
     private final Runnable staleOverlayClear = () -> {
         if (!frozen && ocrEnabled && overlayView != null) {
@@ -720,11 +723,25 @@ public final class MainActivity extends AppCompatActivity {
         nodeChips.addView(none, chipLp());
 
         if (topicMap == null) return;
-        for (TopicNode node : topicMap.nodes) {
-            if (!node.enabled) continue;
+        List<TopicNode> active = new ArrayList<>();
+        for (TopicNode node : topicMap.nodes) if (node.enabled) active.add(node);
+        final int pages = Math.max(1, (active.size() + MAX_NODE_CHIPS - 1) / MAX_NODE_CHIPS);
+        nodePage = Math.min(nodePage, pages - 1);
+        final int from = nodePage * MAX_NODE_CHIPS;
+        final int to = Math.min(active.size(), from + MAX_NODE_CHIPS);
+
+        if (pages > 1) {
+            Button previous = nodeChip("◀ " + (nodePage + 1) + "/" + pages, false);
+            previous.setEnabled(nodePage > 0);
+            previous.setOnClickListener(v -> { nodePage--; rebuildNodeChips(); });
+            nodeChips.addView(previous, chipLp());
+        }
+
+        for (int i = from; i < to; i++) {
+            TopicNode node = active.get(i);
             boolean visible = visibleNodePaths.contains(node.path);
             StringBuilder prefix = new StringBuilder();
-            for (int i = 1; i < node.level; i++) prefix.append("↳");
+            for (int depth = 1; depth < node.level; depth++) prefix.append("↳");
             String text = (visible ? "● " : "○ ") + prefix + node.title;
             Button chip = nodeChip(text, visible);
             chip.setOnClickListener(v -> {
@@ -734,6 +751,12 @@ public final class MainActivity extends AppCompatActivity {
                 redrawVisibleHits();
             });
             nodeChips.addView(chip, chipLp());
+        }
+        if (pages > 1) {
+            Button next = nodeChip("▶ " + (nodePage + 1) + "/" + pages, false);
+            next.setEnabled(nodePage < pages - 1);
+            next.setOnClickListener(v -> { nodePage++; rebuildNodeChips(); });
+            nodeChips.addView(next, chipLp());
         }
     }
 
@@ -797,7 +820,9 @@ public final class MainActivity extends AppCompatActivity {
             return;
         }
 
+        int rendered = 0;
         for (Map.Entry<String, MatchHit> entry : first.entrySet()) {
+            if (rendered >= MAX_LEGEND_CHIPS) break;
             MatchHit hit = entry.getValue();
             int count = counts.get(entry.getKey());
             String original = hit.originalText == null ? "" : hit.originalText.trim();
@@ -805,6 +830,13 @@ public final class MainActivity extends AppCompatActivity {
             TextView item = legendText(label, hit.node.color);
             item.setOnClickListener(v -> showHitDetails(hit));
             legendPanel.addView(item, legendLp());
+            rendered++;
+        }
+        if (first.size() > rendered) {
+            TextView rest = legendText("+" + (first.size() - rendered) + " indici • vezi INDICI",
+                    Color.rgb(69, 92, 113));
+            rest.setOnClickListener(v -> openLiveInspector());
+            legendPanel.addView(rest, legendLp());
         }
     }
 
