@@ -40,6 +40,7 @@ import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -78,6 +79,23 @@ public final class LensActivity extends AppCompatActivity {
     private final Handler main = new Handler(Looper.getMainLooper());
 
     private volatile TopicMatcher.SearchPlan searchPlan;
+    private volatile DeterministicMultiIndexMatcher.Plan evidencePlan;
+    private LiveDetectionPipeline<Text, LiveFrame> livePipeline;
+    private volatile LiveEvidenceAnalyzer.Snapshot latestEvidence;
+
+    private static final class LiveFrame {
+        final List<MatchHit> hits;
+        final int words;
+        final int generation;
+        final LiveEvidenceAnalyzer.Snapshot evidence;
+        LiveFrame(List<MatchHit> hits, int words, int generation,
+                  LiveEvidenceAnalyzer.Snapshot evidence) {
+            this.hits = hits;
+            this.words = words;
+            this.generation = generation;
+            this.evidence = evidence;
+        }
+    }
     private volatile Text latestOcrText;
     private volatile PageStabilityTracker.Observation latestPageStability;
     private volatile String manualPageOverride = "";
@@ -93,6 +111,7 @@ public final class LensActivity extends AppCompatActivity {
     private final Runnable clearStale = () -> {
         if (overlay != null && ocrEnabled && !destroyed) {
             overlay.clearHits();
+            latestEvidence = null;
             setStatus("OCR live • caut text", Color.rgb(76, 190, 123));
         }
     };
@@ -108,6 +127,7 @@ public final class LensActivity extends AppCompatActivity {
         archiveKeysEnabled = AppPrefs.archiveKeys(this);
         stabilitySourceId = IndexCoreSourceRegistry.activeSourceId(this);
         buildUi();
+        initializeLiveDetection();
 
         // Start persistent storage outside the UI thread. Initial OCR frames may be
         // intentionally skipped by the index until loading is complete.
@@ -135,6 +155,8 @@ public final class LensActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         destroyed = true;
+        queryGeneration.incrementAndGet();
+        if (livePipeline != null) livePipeline.close();
         if (cameraController != null) {
             cameraController.clearImageAnalysisAnalyzer();
             cameraController.unbind();
@@ -279,6 +301,9 @@ public final class LensActivity extends AppCompatActivity {
         archiveKeysButton = button(archiveKeysEnabled ? "PEDALĂ ●" : "PEDALĂ ○");
         archiveKeysButton.setOnClickListener(v -> toggleArchiveKeys());
         archive.addView(archiveKeysButton, new LinearLayout.LayoutParams(0, dp(38), 1f));
+        Button evidenceButton = button("INDICI");
+        evidenceButton.setOnClickListener(v -> openLensEvidence());
+        archive.addView(evidenceButton, new LinearLayout.LayoutParams(0, dp(38), 1f));
         top.addView(archive);
 
         status = new TextView(this);
@@ -375,18 +400,47 @@ public final class LensActivity extends AppCompatActivity {
                             }
                         });
                     }
-                    TopicMatcher.SearchPlan plan = searchPlan;
-                    List<MatchHit> hits = plan == null
-                            ? Collections.emptyList()
-                            : TopicMatcher.find(text, plan);
-                    int words = countWords(text);
-                    runOnUiThread(() -> {
-                        if (!destroyed) applyFrame(hits, words);
-                    });
+                    // Never perform heavy topic matching on the CameraX analyzer.
+                    if (livePipeline != null) livePipeline.offer(text);
                 }
         );
         if (ocrEnabled) attachAnalyzer();
         cameraController.bindToLifecycle(this);
+    }
+
+    private void initializeLiveDetection() {
+        livePipeline = new LiveDetectionPipeline<>(
+                260L,
+                this::runOnUiThread,
+                text -> {
+                    TopicMatcher.SearchPlan plan = searchPlan;
+                    DeterministicMultiIndexMatcher.Plan indices = evidencePlan;
+                    int generation = queryGeneration.get();
+                    if (plan == null || indices == null) return null;
+                    List<MatchHit> hits = TopicMatcher.find(text, plan);
+                    List<String> blocks = new ArrayList<>();
+                    for (Text.TextBlock block : text.getTextBlocks()) blocks.add(block.getText());
+                    LiveEvidenceAnalyzer.Snapshot evidence =
+                            LiveEvidenceAnalyzer.inspect(blocks, indices);
+                    return new LiveFrame(hits, countWords(text), generation, evidence);
+                },
+                new LiveDetectionPipeline.Listener<LiveFrame>() {
+                    @Override public void onResult(LiveFrame frame) {
+                        if (frame == null || destroyed || !ocrEnabled
+                                || frame.generation != queryGeneration.get()) return;
+                        latestEvidence = frame.evidence;
+                        applyFrame(frame.hits, frame.words);
+                    }
+
+                    @Override public void onError(Exception failure) {
+                        android.util.Log.w("BiblioLens", "Live detection error", failure);
+                        if (!destroyed && ocrEnabled) {
+                            setStatus("OCR activ • rezultat omis după eroare",
+                                    Color.rgb(230, 155, 72));
+                        }
+                    }
+                }
+        );
     }
 
     private void attachAnalyzer() {
@@ -415,7 +469,11 @@ public final class LensActivity extends AppCompatActivity {
         if (destroyed) return;
         final int generation = queryGeneration.incrementAndGet();
         final String query = querySnapshot == null ? "" : querySnapshot;
+        searchPlan = null;
+        evidencePlan = null;
+        latestEvidence = null;
         queryExecutor.execute(() -> {
+            if (destroyed || generation != queryGeneration.get()) return;
             try {
                 TopicMap aliases = TopicMapStore.load(getApplicationContext());
                 TopicMatcher.setIntersectionThemeMap(aliases);
@@ -425,11 +483,15 @@ public final class LensActivity extends AppCompatActivity {
                         LensPalette.get(getApplicationContext(), LensPalette.Role.TARGET)
                 );
                 TopicMatcher.SearchPlan compiled = TopicMatcher.compile(getApplicationContext(), lensMap);
+                // The live inspector always searches the user's full active index.
+                DeterministicMultiIndexMatcher.Plan indices =
+                        DeterministicMultiIndexMatcher.compile(aliases);
                 if (!destroyed && generation == queryGeneration.get() && query.equals(activeQuery)) {
+                    evidencePlan = indices;
                     searchPlan = compiled;
                 }
-            } catch (RuntimeException ignored) {
-                // Keep the previous valid plan; typing/search UI must remain responsive.
+            } catch (RuntimeException failure) {
+                android.util.Log.w("BiblioLens", "Index compile failed", failure);
             }
         });
     }
@@ -670,6 +732,105 @@ public final class LensActivity extends AppCompatActivity {
         if (zoomLabel == null) return;
         LensDisplayPolicy.Level level = LensUiState.level(this);
         zoomLabel.setText((level.ordinal() + 1) + "/5\n" + level.labelRo());
+    }
+
+    /**
+     * Read-only LIVE evidence. Every dialog uses one captured snapshot, never
+     * mixes OCR text from two frames or rewrites its original quotation.
+     */
+    private void openLensEvidence() {
+        final LiveEvidenceAnalyzer.Snapshot snapshot = latestEvidence;
+        if (snapshot == null) {
+            showLensEvidenceMessage("INDICI", "Indexurile se pregătesc sau camera nu a citit încă text.");
+            return;
+        }
+        String[] options = {
+                "OCURENȚE • " + snapshot.groups.size() + " indici / " + snapshot.occurrences + " apariții",
+                "COOCURENȚE • " + snapshot.cooccurrences(),
+                "SUPRAPUNERI • " + snapshot.overlaps(),
+                "CANDIDAȚI CRONOLOGICI • " + snapshot.candidates.size()
+        };
+        new AlertDialog.Builder(this).setTitle("INDICI • ce vrei să vezi?")
+                .setItems(options, (dialog, which) -> {
+                    if (which == 0) {
+                        if (snapshot.groups.isEmpty()) {
+                            showLensEvidenceMessage("OCURENȚE", "Niciun indice prezent în cadrul OCR.");
+                            return;
+                        }
+                        int count = Math.min(100, snapshot.groups.size());
+                        String[] rows = new String[count];
+                        for (int i = 0; i < count; i++) {
+                            LiveEvidenceAnalyzer.Group group = snapshot.groups.get(i);
+                            rows[i] = group.title + " • " + group.count() + " apariții";
+                        }
+                        new AlertDialog.Builder(this).setTitle("OCURENȚE (primele " + count + ")")
+                                .setItems(rows, (d, index) -> {
+                                    LiveEvidenceAnalyzer.Group group = snapshot.groups.get(index);
+                                    StringBuilder detail = new StringBuilder("Index: ")
+                                            .append(group.indexId).append("\n")
+                                            .append(group.count()).append(" ocurențe distincte");
+                                    int n = Math.min(30, group.occurrences.size());
+                                    for (int j = 0; j < n; j++) {
+                                        LiveEvidenceAnalyzer.Spot spot = group.occurrences.get(j);
+                                        detail.append("\n\n").append(spot.position())
+                                                .append("\n«").append(spot.quote).append("»");
+                                    }
+                                    showLensEvidenceMessage(group.title, detail.toString());
+                                }).setNegativeButton("ÎNCHIDE", null).show();
+                    } else if (which == 1 || which == 2) {
+                        boolean overlaps = which == 2;
+                        List<LiveEvidenceAnalyzer.Pair> pairs = new ArrayList<>();
+                        for (LiveEvidenceAnalyzer.Pair pair : snapshot.pairs) {
+                            if (pair.thematicOverlap == overlaps) pairs.add(pair);
+                        }
+                        if (pairs.isEmpty()) {
+                            showLensEvidenceMessage(overlaps ? "SUPRAPUNERI" : "COOCURENȚE",
+                                    "Nu s-au găsit perechi de acest tip.");
+                            return;
+                        }
+                        int count = Math.min(100, pairs.size());
+                        String[] rows = new String[count];
+                        for (int i = 0; i < count; i++) rows[i] = pairs.get(i).label();
+                        new AlertDialog.Builder(this)
+                                .setTitle((overlaps ? "SUPRAPUNERI" : "COOCURENȚE")
+                                        + (snapshot.pairsLimited ? " • listă limitată" : ""))
+                                .setItems(rows, (d, index) -> {
+                                    LiveEvidenceAnalyzer.Pair pair = pairs.get(index);
+                                    showLensEvidenceMessage(pair.label(), "CITAT OCR EXACT:\n«"
+                                            + pair.quote + "»\n\n"
+                                            + "«" + pair.left.original + "» / «" + pair.right.original + "»"
+                                            + (pair.thematicOverlap ? "\nAceeași zonă OCR."
+                                            : "\nSegment exact între indicii: «"
+                                            + pair.exactBetween + "»"
+                                            + (pair.visibleConnector.isEmpty() ? ""
+                                            : "\nConector vizibil: «" + pair.visibleConnector + "»"))
+                                            + "\n\nCoocurența nu demonstrează o relație istorică sau sintactică.");
+                                }).setNegativeButton("ÎNCHIDE", null).show();
+                    } else {
+                        if (snapshot.candidates.isEmpty()) {
+                            showLensEvidenceMessage("CANDIDAȚI", "Nicio formă cronologică nouă în OCR.");
+                            return;
+                        }
+                        int count = Math.min(100, snapshot.candidates.size());
+                        String[] rows = new String[count];
+                        for (int i = 0; i < count; i++) {
+                            LiveEvidenceAnalyzer.Candidate item = snapshot.candidates.get(i);
+                            rows[i] = item.type + " • «" + item.original + "»";
+                        }
+                        new AlertDialog.Builder(this).setTitle("CANDIDAȚI • nevalidați")
+                                .setItems(rows, (d, index) -> {
+                                    LiveEvidenceAnalyzer.Candidate item = snapshot.candidates.get(index);
+                                    showLensEvidenceMessage(item.type, "«" + item.quote + "»\n\n"
+                                            + "Candidat determinist. Nu este introdus automat în index.");
+                                }).setNegativeButton("ÎNCHIDE", null).show();
+                    }
+                }).setNegativeButton("ÎNCHIDE", null).show();
+    }
+
+    private void showLensEvidenceMessage(String title, String message) {
+        if (destroyed || isFinishing()) return;
+        new AlertDialog.Builder(this).setTitle(title).setMessage(message)
+                .setPositiveButton("ÎNCHIDE", null).show();
     }
 
     private void showTargetDetails(MatchHit hit) {

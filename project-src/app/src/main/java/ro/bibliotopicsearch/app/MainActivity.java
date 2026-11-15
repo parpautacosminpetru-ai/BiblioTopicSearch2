@@ -47,6 +47,7 @@ import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -55,6 +56,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public final class MainActivity extends AppCompatActivity {
     private static final int REQ_CAMERA = 101;
@@ -78,6 +80,7 @@ public final class MainActivity extends AppCompatActivity {
     private Button semanticButton;
     private Button themeLayerButton;
     private Button zoomButton;
+    private Button evidenceButton;
     private LinearLayout nodePanel;
     private LinearLayout nodeChips;
     private LinearLayout legendPanel;
@@ -86,8 +89,32 @@ public final class MainActivity extends AppCompatActivity {
     private TextRecognizer recognizer;
     private MlKitAnalyzer analyzer;
     private final ExecutorService analysisExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService planExecutor = Executors.newSingleThreadExecutor();
+    private final AtomicInteger planGeneration = new AtomicInteger(0);
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private volatile TopicMatcher.SearchPlan searchPlan;
+    private volatile DeterministicMultiIndexMatcher.Plan evidencePlan;
+    private LiveDetectionPipeline<Text, LiveFrame> livePipeline;
+    private volatile boolean destroyed;
+    private LiveEvidenceAnalyzer.Snapshot latestEvidence;
+
+    private static final class LiveFrame {
+        final List<MatchHit> hits;
+        final int words;
+        final int terms;
+        final int generation;
+        final LiveEvidenceAnalyzer.Snapshot evidence;
+
+        LiveFrame(List<MatchHit> hits, int words, int terms, int generation,
+                  LiveEvidenceAnalyzer.Snapshot evidence) {
+            this.hits = hits;
+            this.words = words;
+            this.terms = terms;
+            this.generation = generation;
+            this.evidence = evidence;
+        }
+    }
+
 
     private TopicMap topicMap;
     private TopicMap userTopicMap;
@@ -107,10 +134,14 @@ public final class MainActivity extends AppCompatActivity {
     private String visibleProfileId = "";
     private List<MatchHit> latestAllHits = Collections.emptyList();
     private String lastLegendSignature = "";
+    private static final int MAX_NODE_CHIPS = 60;
+    private static final int MAX_LEGEND_CHIPS = 24;
+    private int nodePage;
 
     private final Runnable staleOverlayClear = () -> {
         if (!frozen && ocrEnabled && overlayView != null) {
             overlayView.clearHits();
+            latestEvidence = null;
             updateLegend(Collections.emptyList());
             setStatus("OCR live • caut text nou", Color.rgb(78, 201, 126));
         }
@@ -129,6 +160,7 @@ public final class MainActivity extends AppCompatActivity {
         buildUi();
         toneGenerator = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 22);
         overlayView.setOnHitTapListener(this::showHitDetails);
+        initializeLiveDetection();
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED) {
@@ -150,6 +182,10 @@ public final class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        destroyed = true;
+        planGeneration.incrementAndGet();
+        if (livePipeline != null) livePipeline.close();
+        planExecutor.shutdownNow();
         if (cameraController != null) {
             cameraController.clearImageAnalysisAnalyzer();
             cameraController.unbind();
@@ -257,6 +293,7 @@ public final class MainActivity extends AppCompatActivity {
         zoomButton = toolbarButton("LUPĂ");
         nodesButton = toolbarButton("NODURI");
         labelsButton = toolbarButton("ETICHETE");
+        evidenceButton = toolbarButton("INDICI");
         Button libraryButton = toolbarButton("TEME");
         freezeButton = toolbarButton("CADRU");
         saveButton = toolbarButton("SALVEAZĂ");
@@ -280,6 +317,7 @@ public final class MainActivity extends AppCompatActivity {
         toolbar.addView(zoomButton, toolbarLp());
         toolbar.addView(nodesButton, toolbarLp());
         toolbar.addView(labelsButton, toolbarLp());
+        toolbar.addView(evidenceButton, toolbarLp());
         toolbar.addView(saveButton, toolbarLp());
         toolbar.addView(settingsButton, toolbarLp());
         toolScroll.addView(toolbar, new HorizontalScrollView.LayoutParams(
@@ -336,6 +374,7 @@ public final class MainActivity extends AppCompatActivity {
             nodesButton.setText(nodePanel.getVisibility() == View.VISIBLE ? "ÎNCHIDE NODURI" : "NODURI");
         });
         labelsButton.setOnClickListener(v -> toggleFloatingLabels());
+        evidenceButton.setOnClickListener(v -> openLiveInspector());
         libraryButton.setOnClickListener(v -> openLibrary());
         settingsButton.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         freezeButton.setOnClickListener(v -> toggleFreeze());
@@ -378,29 +417,56 @@ public final class MainActivity extends AppCompatActivity {
                             overlayView.clearHits();
                             maybeFeedback(Collections.emptyList());
                             latestAllHits = Collections.emptyList();
+                            latestEvidence = null;
                             updateLegend(Collections.emptyList());
                             setStatus("OCR live • niciun text citit încă", Color.rgb(78, 201, 126));
                         });
                         return;
                     }
 
-                    TopicMatcher.SearchPlan activePlan = searchPlan;
-                    if (activePlan == null) {
-                        TopicMap activeMap = topicMap == null ? buildActiveSearchMap() : topicMap;
-                        activePlan = TopicMatcher.compile(MainActivity.this, activeMap);
-                        searchPlan = activePlan;
-                    }
-
-                    List<MatchHit> hits = collapseDuplicateOccurrences(
-                            TopicMatcher.findLexicalOnly(text, activePlan));
-                    int recognizedWords = countRecognizedWords(text);
-                    int searchableTerms = activePlan.termCount();
-                    runOnUiThread(() -> applyHits(hits, recognizedWords, searchableTerms));
+                    if (livePipeline != null) livePipeline.offer(text);
                 }
         );
 
         if (ocrEnabled) attachAnalyzer();
         cameraController.bindToLifecycle(this);
+    }
+
+    private void initializeLiveDetection() {
+        livePipeline = new LiveDetectionPipeline<>(
+                260L,
+                this::runOnUiThread,
+                text -> {
+                    TopicMatcher.SearchPlan plan = searchPlan;
+                    DeterministicMultiIndexMatcher.Plan indices = evidencePlan;
+                    int version = planGeneration.get();
+                    if (plan == null || indices == null) return null;
+
+                    List<MatchHit> hits = collapseDuplicateOccurrences(TopicMatcher.findLexicalOnly(text, plan));
+                    List<String> blocks = new ArrayList<>();
+                    for (Text.TextBlock block : text.getTextBlocks()) blocks.add(block.getText());
+                    LiveEvidenceAnalyzer.Snapshot evidence =
+                            LiveEvidenceAnalyzer.inspect(blocks, indices);
+                    return new LiveFrame(hits, countRecognizedWords(text),
+                            plan.termCount(), version, evidence);
+                },
+                new LiveDetectionPipeline.Listener<LiveFrame>() {
+                    @Override public void onResult(LiveFrame frame) {
+                        if (frame == null || destroyed || !ocrEnabled || frozen
+                                || frame.generation != planGeneration.get()) return;
+                        latestEvidence = frame.evidence;
+                        applyHits(frame.hits, frame.words, frame.terms);
+                    }
+
+                    @Override public void onError(Exception failure) {
+                        android.util.Log.w("BiblioTopicSearch", "Eroare detecție OCR", failure);
+                        if (!destroyed && ocrEnabled && !frozen) {
+                            setStatus("OCR activ • rezultat omis după eroare",
+                                    Color.rgb(244, 188, 77));
+                        }
+                    }
+                }
+        );
     }
 
     private void attachAnalyzer() {
@@ -468,7 +534,11 @@ public final class MainActivity extends AppCompatActivity {
         TopicMatcher.setIntersectionThemeMap(userTopicMap);
         alertGate.reset();
         topicMap = buildActiveSearchMap();
-        searchPlan = TopicMatcher.compile(this, topicMap);
+        final TopicMap snapshotMap = topicMap;
+        final int generation = planGeneration.incrementAndGet();
+        searchPlan = null;
+        evidencePlan = null;
+        latestEvidence = null;
         StringBuilder selectedKey = new StringBuilder();
         for (MapProfile profile : TopicLibraryStore.selectedForScan(this)) {
             selectedKey.append(profile.id).append('/');
@@ -480,6 +550,30 @@ public final class MainActivity extends AppCompatActivity {
         updateHeader();
         rebuildNodeChips();
         redrawVisibleHits();
+        setStatus("Pregătesc indexurile în fundal…", Color.rgb(244, 188, 77));
+
+        planExecutor.execute(() -> {
+            if (destroyed || generation != planGeneration.get()) return;
+            try {
+                TopicMatcher.SearchPlan compiled = TopicMatcher.compile(getApplicationContext(), snapshotMap);
+                DeterministicMultiIndexMatcher.Plan indices =
+                        DeterministicMultiIndexMatcher.compile(snapshotMap);
+                runOnUiThread(() -> {
+                    if (destroyed || generation != planGeneration.get()) return;
+                    evidencePlan = indices;
+                    searchPlan = compiled;
+                    setStatus("Indexurile sunt pregătite • OCR live", Color.rgb(78, 201, 126));
+                });
+            } catch (RuntimeException error) {
+                android.util.Log.e("BiblioTopicSearch", "Nu pot compila indexul", error);
+                runOnUiThread(() -> {
+                    if (!destroyed && generation == planGeneration.get()) {
+                        setStatus("Indexul nu s-a încărcat; verifică tematicile",
+                                Color.rgb(230, 92, 92));
+                    }
+                });
+            }
+        });
     }
 
     private void toggleTextualLayer() {
@@ -629,11 +723,25 @@ public final class MainActivity extends AppCompatActivity {
         nodeChips.addView(none, chipLp());
 
         if (topicMap == null) return;
-        for (TopicNode node : topicMap.nodes) {
-            if (!node.enabled) continue;
+        List<TopicNode> active = new ArrayList<>();
+        for (TopicNode node : topicMap.nodes) if (node.enabled) active.add(node);
+        final int pages = Math.max(1, (active.size() + MAX_NODE_CHIPS - 1) / MAX_NODE_CHIPS);
+        nodePage = Math.min(nodePage, pages - 1);
+        final int from = nodePage * MAX_NODE_CHIPS;
+        final int to = Math.min(active.size(), from + MAX_NODE_CHIPS);
+
+        if (pages > 1) {
+            Button previous = nodeChip("◀ " + (nodePage + 1) + "/" + pages, false);
+            previous.setEnabled(nodePage > 0);
+            previous.setOnClickListener(v -> { nodePage--; rebuildNodeChips(); });
+            nodeChips.addView(previous, chipLp());
+        }
+
+        for (int i = from; i < to; i++) {
+            TopicNode node = active.get(i);
             boolean visible = visibleNodePaths.contains(node.path);
             StringBuilder prefix = new StringBuilder();
-            for (int i = 1; i < node.level; i++) prefix.append("↳");
+            for (int depth = 1; depth < node.level; depth++) prefix.append("↳");
             String text = (visible ? "● " : "○ ") + prefix + node.title;
             Button chip = nodeChip(text, visible);
             chip.setOnClickListener(v -> {
@@ -643,6 +751,12 @@ public final class MainActivity extends AppCompatActivity {
                 redrawVisibleHits();
             });
             nodeChips.addView(chip, chipLp());
+        }
+        if (pages > 1) {
+            Button next = nodeChip("▶ " + (nodePage + 1) + "/" + pages, false);
+            next.setEnabled(nodePage < pages - 1);
+            next.setOnClickListener(v -> { nodePage++; rebuildNodeChips(); });
+            nodeChips.addView(next, chipLp());
         }
     }
 
@@ -706,7 +820,9 @@ public final class MainActivity extends AppCompatActivity {
             return;
         }
 
+        int rendered = 0;
         for (Map.Entry<String, MatchHit> entry : first.entrySet()) {
+            if (rendered >= MAX_LEGEND_CHIPS) break;
             MatchHit hit = entry.getValue();
             int count = counts.get(entry.getKey());
             String original = hit.originalText == null ? "" : hit.originalText.trim();
@@ -714,6 +830,13 @@ public final class MainActivity extends AppCompatActivity {
             TextView item = legendText(label, hit.node.color);
             item.setOnClickListener(v -> showHitDetails(hit));
             legendPanel.addView(item, legendLp());
+            rendered++;
+        }
+        if (first.size() > rendered) {
+            TextView rest = legendText("+" + (first.size() - rendered) + " indici • vezi INDICI",
+                    Color.rgb(69, 92, 113));
+            rest.setOnClickListener(v -> openLiveInspector());
+            legendPanel.addView(rest, legendLp());
         }
     }
 
@@ -919,6 +1042,145 @@ public final class MainActivity extends AppCompatActivity {
         torchEnabled = !torchEnabled;
         cameraController.enableTorch(torchEnabled);
         torchButton.setText(torchEnabled ? "STINGE" : "LUMINĂ");
+    }
+
+    /**
+     * Progressive LIVE inspection. The selection holds one immutable frame
+     * snapshot, so a new camera frame cannot silently change the quotation.
+     */
+    private void openLiveInspector() {
+        final LiveEvidenceAnalyzer.Snapshot snapshot = latestEvidence;
+        if (snapshot == null) {
+            new AlertDialog.Builder(this)
+                    .setTitle("INDICI • OCR LIVE")
+                    .setMessage("Nu există încă un cadru OCR analizat. Așteaptă stabilizarea paginii.")
+                    .setPositiveButton("ÎNCHIDE", null).show();
+            return;
+        }
+        String[] options = {
+                "OCURENȚE • " + snapshot.groups.size() + " indici / " + snapshot.occurrences + " apariții",
+                "COOCURENȚE • " + snapshot.cooccurrences() + " perechi în aceeași propoziție",
+                "SUPRAPUNERI • " + snapshot.overlaps() + " perechi pe același fragment",
+                "CANDIDAȚI • " + snapshot.candidates.size() + " forme cronologice"
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("INDICI • selectează ce verifici")
+                .setItems(options, (dialog, which) -> {
+                    if (which == 0) showEvidenceGroups(snapshot);
+                    else if (which == 1) showEvidencePairs(snapshot, false);
+                    else if (which == 2) showEvidencePairs(snapshot, true);
+                    else showEvidenceCandidates(snapshot);
+                })
+                .setNegativeButton("ÎNCHIDE", null)
+                .show();
+    }
+
+    private void showEvidenceGroups(LiveEvidenceAnalyzer.Snapshot snapshot) {
+        if (snapshot.groups.isEmpty()) {
+            showEvidenceMessage("OCURENȚE", "Niciun indice din tematicile active nu apare în acest cadru.");
+            return;
+        }
+        int limit = Math.min(100, snapshot.groups.size());
+        String[] rows = new String[limit];
+        for (int i = 0; i < limit; i++) {
+            LiveEvidenceAnalyzer.Group group = snapshot.groups.get(i);
+            rows[i] = group.title + " • " + group.count() + " ocurențe";
+        }
+        new AlertDialog.Builder(this).setTitle("OCURENȚE • "
+                        + snapshot.groups.size() + " indici"
+                        + (limit < snapshot.groups.size() ? " (primele " + limit + ")" : ""))
+                .setItems(rows, (dialog, index) -> {
+                    LiveEvidenceAnalyzer.Group group = snapshot.groups.get(index);
+                    StringBuilder details = new StringBuilder()
+                            .append("Index canonic: ").append(group.indexId)
+                            .append("\nOcurențe distincte în cadru: ").append(group.count())
+                            .append("\nPotriviri păstrate, nu confundate cu duplicate.\n");
+                    int count = Math.min(30, group.occurrences.size());
+                    for (int i = 0; i < count; i++) {
+                        LiveEvidenceAnalyzer.Spot spot = group.occurrences.get(i);
+                        details.append("\n").append(i + 1).append(". ")
+                                .append(spot.position())
+                                .append("\nOCR exact: «").append(spot.quote).append("»")
+                                .append("\nTermen: «").append(spot.original).append("»")
+                                .append(" • ").append(spot.matchKind);
+                    }
+                    if (count < group.count()) details.append("\n…alte ")
+                            .append(group.count() - count).append(" apariții.");
+                    details.append("\n\nOCR orientativ: verifică originalul înainte de citare.");
+                    showEvidenceMessage(group.title, details.toString());
+                }).setNegativeButton("ÎNCHIDE", null).show();
+    }
+
+    private void showEvidencePairs(LiveEvidenceAnalyzer.Snapshot snapshot, boolean overlapsOnly) {
+        List<LiveEvidenceAnalyzer.Pair> filtered = new ArrayList<>();
+        for (LiveEvidenceAnalyzer.Pair pair : snapshot.pairs) {
+            if (pair.thematicOverlap == overlapsOnly) filtered.add(pair);
+        }
+        String title = overlapsOnly ? "SUPRAPUNERI" : "COOCURENȚE";
+        if (filtered.isEmpty()) {
+            showEvidenceMessage(title, "Nu am detectat asemenea perechi în acest cadru OCR.");
+            return;
+        }
+        int limit = Math.min(100, filtered.size());
+        String[] rows = new String[limit];
+        for (int i = 0; i < limit; i++) {
+            LiveEvidenceAnalyzer.Pair pair = filtered.get(i);
+            rows[i] = pair.left.indexTitle + " / " + pair.right.indexTitle
+                    + " • bloc " + (pair.left.block + 1)
+                    + ", prop. " + (pair.left.sentence + 1);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(title + " • " + filtered.size()
+                        + (snapshot.pairsLimited ? " • listă limitată" : ""))
+                .setItems(rows, (dialog, index) -> {
+                    LiveEvidenceAnalyzer.Pair pair = filtered.get(index);
+                    String message = "INDICI:\n"
+                            + pair.left.indexId + " — «" + pair.left.original + "»"
+                            + " [" + pair.left.start + "–" + pair.left.end + "]\n"
+                            + pair.right.indexId + " — «" + pair.right.original + "»"
+                            + " [" + pair.right.start + "–" + pair.right.end + "]\n\n"
+                            + "CITAT OCR EXACT:\n«" + pair.quote + "»\n\n"
+                            + (pair.thematicOverlap
+                            ? "Aceeași zonă OCR corespunde unor indici diferiți. Nu este o relație demonstrată."
+                            : "INTERVAL TEXTUAL EXACT ÎNTRE INDICI:\n«"
+                            + pair.exactBetween + "»\n"
+                            + (pair.visibleConnector.isEmpty() ? "Nu am marcat un conector lexical."
+                            : "Conector vizibil: «" + pair.visibleConnector
+                            + "» (nu dovedește singur o subordonare)."))
+                            + "\n\nCoocurența nu constituie interpretare istorică.";
+                    showEvidenceMessage(pair.label(), message);
+                }).setNegativeButton("ÎNCHIDE", null).show();
+    }
+
+    private void showEvidenceCandidates(LiveEvidenceAnalyzer.Snapshot snapshot) {
+        if (snapshot.candidates.isEmpty()) {
+            showEvidenceMessage("CANDIDAȚI", "Nicio formă cronologică nouă identificată în cadrul curent.");
+            return;
+        }
+        int limit = Math.min(100, snapshot.candidates.size());
+        String[] rows = new String[limit];
+        for (int i = 0; i < limit; i++) {
+            LiveEvidenceAnalyzer.Candidate item = snapshot.candidates.get(i);
+            rows[i] = item.type + " • «" + item.original + "»";
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("CANDIDAȚI • nevalidați, neadăugați în index")
+                .setItems(rows, (dialog, index) -> {
+                    LiveEvidenceAnalyzer.Candidate item = snapshot.candidates.get(index);
+                    showEvidenceMessage(item.type,
+                            "Formă OCR: «" + item.original + "»"
+                                    + "\nBloc " + (item.block + 1)
+                                    + ", caractere " + item.start + "–" + item.end
+                                    + "\n\nCitat OCR exact:\n«" + item.quote + "»"
+                                    + "\n\nAcesta este doar un candidat determinist, nu un an/indice validat."
+                                    + " Nu este introdus automat în bibliotecă.");
+                }).setNegativeButton("ÎNCHIDE", null).show();
+    }
+
+    private void showEvidenceMessage(String title, String message) {
+        if (isFinishing() || destroyed) return;
+        new AlertDialog.Builder(this).setTitle(title).setMessage(message)
+                .setPositiveButton("ÎNCHIDE", null).show();
     }
 
     private void showHitDetails(MatchHit hit) {
