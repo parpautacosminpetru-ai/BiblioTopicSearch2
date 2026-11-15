@@ -31,6 +31,7 @@ public final class TopicLibraryActivity extends AppCompatActivity {
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        BundledThemeInstaller.ensureInstalled(this);
         buildUi();
     }
 
@@ -61,6 +62,16 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         summary = body("");
         summary.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         root.addView(summary);
+
+        Button restorePack = button("RESTAUREAZĂ CELE 7 TEMATICI INCLUSE");
+        restorePack.setOnClickListener(v -> {
+            int restored = BundledThemeInstaller.restoreMissing(this);
+            toast(restored < 0 ? "Nu s-au putut citi tematicile incluse."
+                    : restored == 0 ? "Cele 7 tematici sunt deja prezente."
+                    : "Restaurate: " + restored + " tematici.");
+            refresh();
+        });
+        root.addView(restorePack, new LinearLayout.LayoutParams(-1, dp(48)));
 
         filterEdit = new EditText(this);
         filterEdit.setHint("Caută hartă sau folder");
@@ -104,7 +115,9 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         List<MapProfile> maps = TopicLibraryStore.list(this);
         MapProfile active = TopicLibraryStore.getActive(this);
         summary.setText(TopicLibraryStore.selectedForScan(this).size() + "/" + maps.size()
-                + " tematici în detector • editare: " + active.name);
+                + " tematici în detector • incluse "
+                + BundledThemeInstaller.installedMapCount(this) + "/7"
+                + " • editare: " + active.name);
         libraryContainer.removeAllViews();
 
         String query = filterEdit == null ? "" : filterEdit.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);

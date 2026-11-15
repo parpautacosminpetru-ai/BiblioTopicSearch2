@@ -8,18 +8,15 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
 
 /**
- * Installs the seven verified, topic-specific maps supplied with BiblioTopicSearch 2.
+ * Offline, deterministic installation of the seven maps compiled from nine
+ * university documents. Works on first install AND offers a visible repair
+ * action when an earlier APK did not populate the local topic library.
  *
- * Nine syllabus files are consolidated to seven disciplines (three versions of
- * Europa medievala become ONE map). Installation is idempotent and never edits
- * user-created or user-edited maps. It runs only after the user's own preferences
- * have been initialized. No network and no auto-synced third-party content.
+ * Never erases user maps. Normal launch respects user deletion and selection;
+ * explicit restore adds only missing packaged profiles.
  */
 public final class BundledThemeInstaller {
     private static final String TAG = "BiblioThemeInstaller";
@@ -38,56 +35,104 @@ public final class BundledThemeInstaller {
 
     private BundledThemeInstaller() {}
 
+    public static int expectedMapCount() {
+        return PACKS.length;
+    }
+
+    public static String[] packNames() {
+        String[] names = new String[PACKS.length];
+        for (int i = 0; i < PACKS.length; i++) names[i] = PACKS[i][1];
+        return names;
+    }
+
+    public static int installedMapCount(Context context) {
+        List<MapProfile> maps = TopicLibraryStore.list(context);
+        int count = 0;
+        for (String[] pack : PACKS) {
+            for (MapProfile profile : maps) {
+                if (profile.name.equals(pack[1]) && profile.folder.equals(pack[2])
+                        && !profile.rawText.trim().isEmpty()) {
+                    count++;
+                    break;
+                }
+            }
+        }
+        return count;
+    }
+
     public static synchronized void ensureInstalled(Context context) {
         Context app = context.getApplicationContext();
-        SharedPreferences prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        if (prefs.getBoolean(INSTALLED_KEY, false)) return;
+        SharedPreferences p = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (p.getBoolean(INSTALLED_KEY, false)) {
+            // Recover a broken/empty installation, but do not undo intentional
+            // deletion when at least one of the curated maps still exists.
+            if (installedMapCount(app) == 0) restoreMissing(app);
+            return;
+        }
+        restoreMissing(app);
+    }
 
-        // Read and validate every asset before touching the profile library.
+    /**
+     * Restore ONLY absent or empty bundled profiles; return number repaired.
+     * Returns -1 on validation/I/O failure (shown to user by the UI).
+     */
+    public static synchronized int restoreMissing(Context context) {
+        Context app = context.getApplicationContext();
         String[] raw = new String[PACKS.length];
         try {
             for (int i = 0; i < PACKS.length; i++) {
                 raw[i] = loadAsset(app, PACKS[i][0]);
-                if (raw[i].trim().isEmpty() || !raw[i].startsWith("# ")) {
-                    throw new IOException("Invalid bundled theme: " + PACKS[i][0]);
+                if (raw[i].trim().isEmpty() || !raw[i].startsWith("# ")
+                        || !raw[i].contains("\n")) {
+                    throw new IOException("Missing/invalid theme asset: " + PACKS[i][0]);
                 }
             }
         } catch (IOException error) {
-            Log.e(TAG, "Curated themes not installed; source files remain unchanged", error);
-            return;
+            Log.e(TAG, "Bundled theme import failed; user maps preserved", error);
+            return -1;
         }
 
-        // Do not erase any existing maps or destroy a user's selected scan set.
-        MapProfile previousActive = TopicLibraryStore.getActive(app);
+        // Use the same shared library visible to the library screen and detector.
         List<MapProfile> before = TopicLibraryStore.list(app);
+        MapProfile active = TopicLibraryStore.getActive(app);
         boolean initialBlankDefault = before.size() == 1
-                && previousActive.rawText.trim().isEmpty()
-                && "default".equals(previousActive.id);
-
+                && "default".equals(active.id) && active.rawText.trim().isEmpty();
+        int repaired = 0;
         String firstImportedId = null;
+
         for (int i = 0; i < PACKS.length; i++) {
-            String name = PACKS[i][1];
-            String folder = PACKS[i][2];
-            String id = existingMapId(app, name, folder);
-            if (id == null) {
-                id = TopicLibraryStore.create(app, name, folder, raw[i]);
+            String[] pack = PACKS[i];
+            MapProfile existing = find(app, pack[1], pack[2]);
+            String id;
+            if (existing == null) {
+                id = TopicLibraryStore.create(app, pack[1], pack[2], raw[i]);
+                repaired++;
+                TopicLibraryStore.setSelectedForScan(app, id, true);
+            } else if (existing.rawText.trim().isEmpty()) {
+                id = existing.id;
+                TopicLibraryStore.update(app, id, pack[1], pack[2], raw[i]);
+                repaired++;
+                TopicLibraryStore.setSelectedForScan(app, id, true);
+            } else {
+                id = existing.id;
             }
             if (firstImportedId == null) firstImportedId = id;
-            TopicLibraryStore.setSelectedForScan(app, id, true);
         }
 
         if (initialBlankDefault && firstImportedId != null) {
             TopicLibraryStore.setActive(app, firstImportedId);
-            TopicLibraryStore.setSelectedForScan(app, previousActive.id, false);
+            TopicLibraryStore.setSelectedForScan(app, active.id, false);
         }
-        prefs.edit().putBoolean(INSTALLED_KEY, true).apply();
+
+        boolean complete = installedMapCount(app) == PACKS.length;
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putBoolean(INSTALLED_KEY, complete).commit();
+        return complete ? repaired : -1;
     }
 
-    private static String existingMapId(Context context, String name, String folder) {
+    private static MapProfile find(Context context, String name, String folder) {
         for (MapProfile profile : TopicLibraryStore.list(context)) {
-            if (profile.name.equals(name) && profile.folder.equals(folder)) {
-                return profile.id;
-            }
+            if (profile.name.equals(name) && profile.folder.equals(folder)) return profile;
         }
         return null;
     }

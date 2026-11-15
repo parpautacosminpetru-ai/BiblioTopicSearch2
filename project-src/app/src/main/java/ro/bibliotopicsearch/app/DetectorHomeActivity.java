@@ -61,6 +61,30 @@ public final class DetectorHomeActivity extends AppCompatActivity {
         root.addView(text(selected.size() + " tematici active • " + nodes
                 + " noduri • " + terms + " termeni", 16, Color.WHITE));
 
+        int installed = BundledThemeInstaller.installedMapCount(this);
+        int expected = BundledThemeInstaller.expectedMapCount();
+        TextView verified = text("TEMATICI INCLUSE: " + installed + " / " + expected
+                + (installed == expected ? "  ✓" : " — lipsesc, apasă RESTAUREAZĂ"), 
+                15, installed == expected ? Color.rgb(166, 229, 188) : Color.rgb(255, 183, 119));
+        verified.setPadding(0, dp(12), 0, dp(5));
+        root.addView(verified);
+        for (String name : BundledThemeInstaller.packNames()) {
+            root.addView(text("• " + name, 12, Color.rgb(184, 200, 209)));
+        }
+
+        Button restore = button("RESTAUREAZĂ CELE 7 TEMATICI", false);
+        restore.setOnClickListener(v -> {
+            int repaired = BundledThemeInstaller.restoreMissing(this);
+            String message = repaired < 0
+                    ? "Import nereușit: pachetele nu au putut fi citite."
+                    : repaired == 0 ? "Toate tematicile există deja."
+                    : "Au fost restaurate " + repaired + " tematici.";
+            android.widget.Toast.makeText(this, message,
+                    android.widget.Toast.LENGTH_LONG).show();
+            render();
+        });
+        addButton(restore);
+
         Button detector = button("PORNEȘTE DETECTORUL", true);
         detector.setOnClickListener(v -> startActivity(new Intent(this, MainActivity.class)));
         addButton(detector);
