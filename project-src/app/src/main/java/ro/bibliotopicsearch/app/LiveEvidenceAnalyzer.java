@@ -26,6 +26,16 @@ public final class LiveEvidenceAnalyzer {
             Pattern.compile("(?<![\\p{L}\\p{N}])(?:[1-9][0-9]{2,3})(?![\\p{L}\\p{N}])");
     private static final Pattern CENTURY = Pattern.compile(
             "(?iu)(?<!\\p{L})(?:secol(?:ul)?|sec\\.)\\s*(?:al\\s*)?(?:[IVXLCDM]{1,8}|[0-9]{1,2})(?:-lea|-a)?(?!\\p{L})");
+    /**
+     * Conservative patterns for an alphabetic back-of-book index. A single
+     * trailing number without dot leaders is deliberately insufficient.
+     * OCR candidates are never inserted into the canonical registry directly.
+     */
+    private static final Pattern PRINTED_INDEX = Pattern.compile(
+            "(?m)^\\s*([\\p{L}][\\p{L}\\p{M}\\p{N} '\\-’]{2,80}?)\\s*(?:" +
+                    "\\.{3,}\\s*\\d{1,4}(?:\\s*[,;–-]\\s*\\d{1,4}){0,25}" +
+                    "|\\s+\\d{1,4}(?:\\s*[,;]\\s*\\d{1,4}){1,25})\\s*$");
+
     private static final Pattern EXPLICIT_CONNECTOR = Pattern.compile(
             "(?iu)\\b(?:și|si|dar|iar|sau|deoarece|fiindcă|fiindca|pentru că|pentru ca|deși|desi|întrucât|intrucat|dacă|daca|care|căruia|caruia|cărora|carora|nu|nici|fără|fara|între|intre|dintre)\\b");
 
@@ -215,6 +225,7 @@ public final class LiveEvidenceAnalyzer {
             if (candidates.size() < MAX_CANDIDATES) {
                 addCandidates("POSIBIL AN", YEAR, raw, blockIndex, sentences, matches, candidates);
                 addCandidates("SECOL EXPLICIT", CENTURY, raw, blockIndex, sentences, matches, candidates);
+                addPrintedIndexCandidates(raw, blockIndex, matches, candidates);
             }
         }
 
@@ -246,6 +257,31 @@ public final class LiveEvidenceAnalyzer {
             if (sentence != null) {
                 out.add(new Candidate(type, matcher.group(),
                         raw.substring(sentence.start, sentence.end), block, matcher.start(), matcher.end()));
+            }
+        }
+    }
+
+    private static void addPrintedIndexCandidates(
+            String raw, int blockIndex,
+            List<DeterministicMultiIndexMatcher.Occurrence> known,
+            List<Candidate> candidates
+    ) {
+        Matcher m = PRINTED_INDEX.matcher(raw);
+        while (m.find() && candidates.size() < MAX_CANDIDATES) {
+            String term = m.group(1);
+            if (term == null || term.trim().length() < 3) continue;
+            int start = m.start(1), end = m.end(1);
+            boolean alreadyKnown = false;
+            for (DeterministicMultiIndexMatcher.Occurrence hit : known) {
+                if (hit.start() <= start && hit.end() >= end) {
+                    alreadyKnown = true;
+                    break;
+                }
+            }
+            if (!alreadyKnown) {
+                candidates.add(new Candidate("INDEX TIPĂRIT • VERIFICĂ",
+                        term.trim(), raw.substring(m.start(), m.end()).trim(),
+                        blockIndex, start, end));
             }
         }
     }
