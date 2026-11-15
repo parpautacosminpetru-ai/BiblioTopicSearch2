@@ -72,6 +72,29 @@ public final class DeterministicAlertGateTest {
                 DeterministicAlertGate.Mode.EXPLORARE, 32000));
     }
 
+    @Test public void twoContextCluesMustComeFromSameActualSubject() {
+        DeterministicAlertGate g = new DeterministicAlertGate();
+        assertFalse(g.shouldAlert(Arrays.asList(
+                new DeterministicAlertGate.Evidence("bizant", "C01", "?Constantinopol", "Constantinopol"),
+                new DeterministicAlertGate.Evidence("bizant", "C02", "?armata bizantină", "armata bizantină")),
+                BAL, 10000));
+        assertTrue(g.shouldAlert(Arrays.asList(
+                new DeterministicAlertGate.Evidence("bizant", "C02", "?armata bizantină", "armata bizantină"),
+                new DeterministicAlertGate.Evidence("bizant", "C02", "?flota bizantină", "flota bizantină")),
+                BAL, 12000));
+    }
+
+    @Test public void datesAndDuplicatesAreNotStrongEvidence() {
+        DeterministicAlertGate g = new DeterministicAlertGate();
+        assertFalse(g.shouldAlert(Collections.singletonList(
+                new DeterministicAlertGate.Evidence("romani", "S01", "!1691", "1691")),
+                BAL, 10000));
+        assertFalse(g.shouldAlert(Arrays.asList(
+                new DeterministicAlertGate.Evidence("romani", "S01", "?mitropolie", "mitropolie"),
+                new DeterministicAlertGate.Evidence("romani", "S01", "?mitropolie", "mitropolie")),
+                BAL, 12000));
+    }
+
     @Test public void manySignalsOnePulseOnly() {
         DeterministicAlertGate g = new DeterministicAlertGate();
         List<DeterministicAlertGate.Evidence> frame = Arrays.asList(
