@@ -6,9 +6,11 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -30,6 +32,46 @@ public final class DeterministicMultiIndexMatcher {
 
     private static volatile String cachedSignature = "";
     private static volatile Plan cachedPlan;
+
+    /**
+     * Every independent occurrence, with original OCR offsets. Equal text ranges
+     * in different topic nodes are retained as thematic overlap, not merged.
+     */
+    public static final class Occurrence {
+        private final String indexId;
+        private final String title;
+        private final String canonicalTerm;
+        private final String original;
+        private final int start;
+        private final int end;
+        private final DeterministicIndexIntersectionEngine.MatchKind matchKind;
+
+        private Occurrence(RawMatch match) {
+            this.indexId = match.node.path;
+            this.title = match.node.title;
+            this.canonicalTerm = match.term;
+            this.original = match.surface;
+            this.start = match.start;
+            this.end = match.end;
+            this.matchKind = match.kind;
+        }
+
+        public String indexId() { return indexId; }
+        public String title() { return title; }
+        public String canonicalTerm() { return canonicalTerm; }
+        public String original() { return original; }
+        public int start() { return start; }
+        public int end() { return end; }
+        public DeterministicIndexIntersectionEngine.MatchKind matchKind() { return matchKind; }
+    }
+
+    /** Every distinct occurrence; unlike matchText(), does not discard repetitions. */
+    public static List<Occurrence> allOccurrences(Plan plan, String text) {
+        if (plan == null || plan.isEmpty() || safe(text).isEmpty()) return Collections.emptyList();
+        List<Occurrence> out = new ArrayList<>();
+        for (RawMatch item : matchAll(plan, text)) out.add(new Occurrence(item));
+        return Collections.unmodifiableList(out);
+    }
 
     public static final class Plan {
         private final Automaton exact;
@@ -175,6 +217,7 @@ public final class DeterministicMultiIndexMatcher {
         Automaton family = new Automaton();
         int terms = 0;
         int nodes = 0;
+        Set<String> registeredForms = new HashSet<>();
 
         if (map != null && map.nodes != null) {
             for (TopicNode node : map.nodes) {
@@ -190,6 +233,10 @@ public final class DeterministicMultiIndexMatcher {
                     List<String> exactTokens = foldedTokens(term);
                     List<String> familyTokens = familyTokens(term);
                     if (exactTokens.isEmpty() || familyTokens.isEmpty()) continue;
+                    // Do not compile duplicate spellings under the same canonical
+                    // topic node. Keep homonyms from different nodes separate.
+                    String formKey = node.path + "\u0000" + String.join("\u0001", exactTokens);
+                    if (!registeredForms.add(formKey)) continue;
 
                     PatternRecord pattern = new PatternRecord(node, term, exactTokens.size());
                     exact.add(exactTokens, pattern);
