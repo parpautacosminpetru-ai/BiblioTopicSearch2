@@ -20,6 +20,7 @@ public final class DetectorHomeActivity extends AppCompatActivity {
 
     @Override protected void onCreate(@Nullable Bundle state) {
         super.onCreate(state);
+        BundledThemeInstaller.ensureInstalled(this);
         render();
     }
 
