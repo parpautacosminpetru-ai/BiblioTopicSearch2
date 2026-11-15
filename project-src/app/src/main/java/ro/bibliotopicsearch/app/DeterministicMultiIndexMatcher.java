@@ -360,7 +360,27 @@ public final class DeterministicMultiIndexMatcher {
         scan(plan.exact, source, text, false, dedupe);
         scan(plan.family, source, text, true, dedupe);
 
-        List<RawMatch> out = new ArrayList<>(dedupe.values());
+        // A nested variant (e.g. "1848" inside "anul 1848") is not a
+        // second occurrence of the same canonical concept. Keep the maximal
+        // source span while preserving independent repeated spans and all
+        // concepts with distinct IDs.
+        List<RawMatch> ranked = new ArrayList<>(dedupe.values());
+        ranked.sort(Comparator
+                .comparingInt((RawMatch value) -> -(value.end - value.start))
+                .thenComparingInt(value -> value.start));
+        List<RawMatch> out = new ArrayList<>();
+        for (RawMatch candidate : ranked) {
+            boolean nested = false;
+            for (RawMatch existing : out) {
+                if (existing.node.path.equals(candidate.node.path)
+                        && existing.start <= candidate.start
+                        && existing.end >= candidate.end) {
+                    nested = true;
+                    break;
+                }
+            }
+            if (!nested) out.add(candidate);
+        }
         out.sort(Comparator
                 .comparingInt((RawMatch value) -> value.start)
                 .thenComparingInt(value -> value.end)
