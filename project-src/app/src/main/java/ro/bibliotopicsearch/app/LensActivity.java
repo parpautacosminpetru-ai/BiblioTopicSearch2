@@ -756,7 +756,7 @@ public final class LensActivity extends AppCompatActivity {
                 "OCURENȚE • " + snapshot.groups.size() + " indici / " + snapshot.occurrences + " apariții",
                 "COOCURENȚE • " + snapshot.cooccurrences(),
                 "SUPRAPUNERI • " + snapshot.overlaps(),
-                "CANDIDAȚI CRONOLOGICI • " + snapshot.candidates.size()
+                "CANDIDAȚI DIN OCR • " + snapshot.candidates.size()
         };
         new AlertDialog.Builder(this).setTitle("INDICI • ce vrei să vezi?")
                 .setItems(options, (dialog, which) -> {
@@ -828,8 +828,28 @@ public final class LensActivity extends AppCompatActivity {
                         new AlertDialog.Builder(this).setTitle("CANDIDAȚI • nevalidați")
                                 .setItems(rows, (d, index) -> {
                                     LiveEvidenceAnalyzer.Candidate item = snapshot.candidates.get(index);
-                                    showLensEvidenceMessage(item.type, "«" + item.quote + "»\n\n"
-                                            + "Candidat determinist. Nu este introdus automat în index.");
+                                    new AlertDialog.Builder(this)
+                                            .setTitle(item.type + " • " + item.original)
+                                            .setMessage("Citat OCR exact:\n«" + item.quote + "»\n\n"
+                                                    + "Candidatul trebuie validat de cercetător.")
+                                            .setNegativeButton("ÎNCHIDE", null)
+                                            .setPositiveButton("TRIMITE ÎN INBOX", (d2,w2) -> {
+                                                queryExecutor.execute(() -> {
+                                                    try {
+                                                        UniversalIndexStore.get(getApplicationContext())
+                                                                .addToInbox(item.type,item.original,item.quote);
+                                                        runOnUiThread(() -> {
+                                                            if (!destroyed) {
+                                                                android.widget.Toast.makeText(this,
+                                                                        "Candidat salvat în inbox.",
+                                                                        android.widget.Toast.LENGTH_SHORT).show();
+                                                            }
+                                                        });
+                                                    } catch (RuntimeException error) {
+                                                        android.util.Log.e("BiblioLens", "Inbox error",error);
+                                                    }
+                                                });
+                                            }).show();
                                 }).setNegativeButton("ÎNCHIDE", null).show();
                     }
                 }).setNegativeButton("ÎNCHIDE", null).show();
