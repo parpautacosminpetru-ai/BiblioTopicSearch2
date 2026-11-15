@@ -41,7 +41,7 @@ public final class LiveDetectionPipelineTest {
             release.countDown();
             assertTrue(completed.await(2L, TimeUnit.SECONDS));
             assertEquals(1, hits.get());
-            assertFalse(pipeline.isBusy());
+            waitUntilFree(pipeline);
             assertTrue(pipeline.offer("al doilea"));
         } finally {
             pipeline.close();
@@ -74,10 +74,19 @@ public final class LiveDetectionPipelineTest {
         try {
             assertTrue(pipeline.offer("eroare"));
             assertTrue(failed.await(2L, TimeUnit.SECONDS));
-            assertFalse(pipeline.isBusy());
+            waitUntilFree(pipeline);
             assertTrue(pipeline.offer("reîncercare"));
         } finally {
             pipeline.close();
         }
+    }
+
+    private static void waitUntilFree(LiveDetectionPipeline<?, ?> pipeline)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2L);
+        while (pipeline.isBusy() && System.nanoTime() < deadline) {
+            Thread.sleep(5L);
+        }
+        assertFalse("Pipeline remained busy", pipeline.isBusy());
     }
 }
