@@ -1,0 +1,50 @@
+name: Build OCR Focus APK (11 August)
+on:
+  push:
+    branches:
+      - fix/aug11-ocr-focus-overlay
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Extract source ZIP
+        run: |
+          mkdir -p project
+          unzip -q BiblioTopicSearch_FINAL.zip -d project
+          test -f project/app/build.gradle.kts
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install Android platform
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;35.0.0"
+      - name: Build APK
+        run: gradle --no-daemon -p project :app:assembleDebug
+      - name: Package
+        run: |
+          mkdir -p output
+          cp project/app/build/outputs/apk/debug/app-debug.apk output/BiblioTopicSearch_OCR_Focus_11_August.apk
+          ls -lh output/
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BiblioTopicSearch-OCR-Focus-APK
+          path: output/BiblioTopicSearch_OCR_Focus_11_August.apk
+          if-no-files-found: error
