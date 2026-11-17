@@ -29,12 +29,15 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
-      - name: Android SDK
-        uses: android-actions/setup-android@v3
       - name: Install Android platform
+        shell: bash
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-36" "build-tools;35.0.0"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          SDKMGR=$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -n 1)
+          test -n "$SDKMGR"
+          echo "Using $SDKMGR"
+          yes | "$SDKMGR" --licenses >/dev/null || true
+          "$SDKMGR" --install "platforms;android-36" "build-tools;35.0.0"
       - name: Build APK
         run: gradle --no-daemon -p project :app:assembleDebug
       - name: Package
