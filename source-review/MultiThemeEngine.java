@@ -4,6 +4,8 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.google.mlkit.vision.text.Text;
 
@@ -24,6 +26,7 @@ import java.util.Set;
  * Apartenenta la teme se propaga dupa potrivire; interpretarea ramane umana.
  */
 public final class MultiThemeEngine {
+    public static final String ALL = "__toate__";
     public static final String OVERVIEW = "__rezumat__";
     public static final String INTERSECTIONS = "__intersectii__";
     public static final String FILTER_PREFS = "bibliotopicsearch_theme_selection";
@@ -53,20 +56,22 @@ public final class MultiThemeEngine {
         final TopicMatcher.SearchPlan sharedSearchPlan;
         final Map<String, List<Membership>> memberships;
         final boolean stripDiacritics;
+        final CategoryIndex categoryIndex;
 
         Plan(List<Theme> themes, int termCount, int membershipCount,
              TopicMatcher.SearchPlan search, Map<String,List<Membership>> members,
-             boolean strip) {
+             boolean strip, CategoryIndex index) {
             this.themes=Collections.unmodifiableList(themes);
             this.termCount=termCount;
             this.membershipCount=membershipCount;
             this.sharedSearchPlan=search;
             this.memberships=members;
             this.stripDiacritics=strip;
+            this.categoryIndex=index;
         }
 
         public boolean hasLens(String id) {
-            if (OVERVIEW.equals(id) || INTERSECTIONS.equals(id)) return true;
+            if (ALL.equals(id) || OVERVIEW.equals(id) || INTERSECTIONS.equals(id)) return true;
             for(Theme theme:themes) if(theme.id.equals(id)) return true;
             return false;
         }
@@ -93,7 +98,7 @@ public final class MultiThemeEngine {
             if(excluded.contains(profile.id)) continue;
             TopicMap map=TopicMapStore.parseForProfile(
                     context,profile.id,profile.name,profile.rawText);
-            themes.add(new Theme(profile.id,profile.name));
+            int before=links;
             for(TopicNode node:map.nodes) {
                 if(!node.enabled) continue;
                 List<String> words=node.terms.isEmpty() ?
@@ -117,11 +122,23 @@ public final class MultiThemeEngine {
                     }
                 }
             }
+            if(links>before)themes.add(new Theme(profile.id,profile.name));
+        }
+        CategoryIndex categories=CategoryIndex.load(context,strip);
+        for(String term:categories.extraTerms()) {
+            if(!uniqueTerms.containsKey(term)) {
+                TopicNode extra=new TopicNode("Index intern",term,0);
+                extra.enabled=true;
+                extra.color=CategoryIndex.category(CategoryIndex.ALTE).color;
+                extra.symbol="•";
+                extra.terms.add(term);
+                uniqueTerms.put(term,extra);
+            }
         }
         TopicMap common=new TopicMap("Index comun","",
                 new ArrayList<>(uniqueTerms.values()));
         return new Plan(themes,uniqueTerms.size(),links,
-                TopicMatcher.compile(context,common),membership,strip);
+                TopicMatcher.compile(context,common),membership,strip,categories);
     }
 
     private static String normalize(String value, boolean strip) {
@@ -138,12 +155,14 @@ public final class MultiThemeEngine {
         final MatchHit hit;
         final Set<String> themes=new LinkedHashSet<>();
         final Set<String> nodes=new LinkedHashSet<>();
+        final Set<String> categoryIds=new LinkedHashSet<>();
         Occurrence(String key,MatchHit hit) {this.key=key;this.hit=hit;}
     }
 
     public static final class Scan {
         private final Map<String,List<MatchHit>> perTheme;
         private final Map<String,Occurrence> occurrences;
+        private final List<MatchHit> allHits;
         private final List<MatchHit> lineHits;
         private final List<MatchHit> blockHits;
         private final Set<String> lineKeys;
@@ -153,11 +172,12 @@ public final class MultiThemeEngine {
         public final int blockIntersections;
 
         Scan(Map<String,List<MatchHit>> perTheme,Map<String,Occurrence> occur,
-             List<MatchHit> lineHits,List<MatchHit> blockHits,
+             List<MatchHit> allHits,List<MatchHit> lineHits,List<MatchHit> blockHits,
              Set<String> lineKeys,Set<String> blockKeys,
              int intersectedLines,int intersectedBlocks) {
             this.perTheme=perTheme;
             this.occurrences=occur;
+            this.allHits=allHits;
             this.lineHits=lineHits;
             this.blockHits=blockHits;
             this.lineKeys=lineKeys;
@@ -168,17 +188,47 @@ public final class MultiThemeEngine {
         }
 
         public List<MatchHit> visible(String id,boolean lineOnly) {
+            return visible(id,CategoryIndex.ALL,lineOnly);
+        }
+
+        public List<MatchHit> visible(String id,String category,boolean lineOnly) {
             if(OVERVIEW.equals(id))return Collections.emptyList();
-            if(INTERSECTIONS.equals(id))return lineOnly ? lineHits : blockHits;
-            List<MatchHit> result=perTheme.get(id);
-            return result==null ? Collections.emptyList():result;
+            List<MatchHit> source;
+            if(ALL.equals(id))source=allHits;
+            else if(INTERSECTIONS.equals(id))source=lineOnly?lineHits:blockHits;
+            else source=perTheme.containsKey(id)?perTheme.get(id):Collections.emptyList();
+            if(CategoryIndex.ALL.equals(category))return source;
+            List<MatchHit> result=new ArrayList<>();
+            for(MatchHit hit:source) {
+                Occurrence occ=occurrences.get(keyFor(hit));
+                if(occ!=null && occ.categoryIds.contains(category))result.add(hit);
+            }
+            return result;
         }
 
         public int count(String id,boolean lineOnly) {
-            if(OVERVIEW.equals(id))return uniqueMatches;
-            if(INTERSECTIONS.equals(id))return lineOnly?lineHits.size():blockHits.size();
-            List<MatchHit> results=perTheme.get(id);
-            return results==null?0:results.size();
+            return count(id,CategoryIndex.ALL,lineOnly);
+        }
+
+        public int count(String id,String category,boolean lineOnly) {
+            if(OVERVIEW.equals(id))return CategoryIndex.ALL.equals(category)?
+                    uniqueMatches:visible(ALL,category,lineOnly).size();
+            return visible(id,category,lineOnly).size();
+        }
+
+        public int themeCount(MatchHit hit) {
+            Occurrence occ=occurrences.get(keyFor(hit));
+            return occ==null?0:occ.themes.size();
+        }
+
+        public String displayCategory(MatchHit hit,String selected) {
+            Occurrence occ=occurrences.get(keyFor(hit));
+            if(occ==null)return CategoryIndex.ALTE;
+            if(!CategoryIndex.ALL.equals(selected)&&occ.categoryIds.contains(selected))
+                return selected;
+            for(CategoryIndex.Category c:CategoryIndex.categories())
+                if(occ.categoryIds.contains(c.id))return c.id;
+            return CategoryIndex.ALTE;
         }
 
         public String suggestions(MatchHit hit,Plan plan) {
@@ -197,7 +247,9 @@ public final class MultiThemeEngine {
             if(item==null)return "Potrivire OCR — verifică manual pagina.";
             StringBuilder out=new StringBuilder("Hărți în care este indexat acest termen:\n");
             for(String id:item.themes)out.append("• ").append(plan.nameFor(id)).append("\n");
-            out.append("Categorii: ");
+            out.append("Categorii lexicale: ");
+            for(String cat:item.categoryIds)out.append(CategoryIndex.label(cat)).append("; ");
+            out.append("\nNoduri ale indexului: ");
             boolean first=true;
             for(String node:item.nodes) {
                 if(!first)out.append("; ");
@@ -223,6 +275,11 @@ public final class MultiThemeEngine {
                 sb.append(theme.name).append(": ")
                   .append(count(theme.id,lineOnly)).append(" potriviri\n");
             }
+            sb.append("\nCATEGORII\n");
+            for(CategoryIndex.Category cat:CategoryIndex.categories()) {
+                sb.append(cat.label).append(": ")
+                  .append(count(ALL,cat.id,lineOnly)).append(" ocurențe\n");
+            }
             return sb.toString();
         }
     }
@@ -237,23 +294,56 @@ public final class MultiThemeEngine {
             for(MatchHit found:TopicMatcher.find(text,plan.sharedSearchPlan)) {
                 List<Membership> targets=plan.memberships.get(
                         normalize(found.searchTerm,plan.stripDiacritics));
-                if(targets==null||targets.isEmpty())continue;
                 String key=keyFor(found);
                 Occurrence occurrence=occurrences.get(key);
                 if(occurrence==null) {
-                    Membership first=targets.get(0);
+                    TopicNode representative=targets==null||targets.isEmpty()?
+                            found.node:targets.get(0).node;
                     MatchHit display=new MatchHit(found.box,found.originalText,
-                            found.searchTerm,first.node,found.detectedAt);
+                            found.searchTerm,representative,found.detectedAt);
                     occurrence=new Occurrence(key,display);
                     occurrences.put(key,occurrence);
                 }
-                for(Membership target:targets) {
+                if(targets!=null)for(Membership target:targets) {
                     occurrence.themes.add(target.themeId);
                     occurrence.nodes.add(target.node.path);
                     Map<String,MatchHit> hits=byTheme.get(target.themeId);
                     if(hits!=null && !hits.containsKey(key)) {
                         hits.put(key,new MatchHit(found.box,found.originalText,
                                 found.searchTerm,target.node,found.detectedAt));
+                    }
+                }
+                occurrence.categoryIds.addAll(plan.categoryIndex.classify(
+                        found.searchTerm,occurrence.nodes));
+            }
+        }
+
+        // Anii apar în index chiar dacă n-au fost adăugați manual ca termeni.
+        if(text!=null && plan!=null) {
+            Pattern years=Pattern.compile("(?<![0-9])(?:1[5-9][0-9]{2}|20[0-9]{2})(?![0-9])");
+            TopicNode timeNode=new TopicNode("Index intern > Ani","Ani",0);
+            timeNode.enabled=true;
+            timeNode.color=CategoryIndex.category(CategoryIndex.ANI).color;
+            timeNode.symbol="A";
+            for(Text.TextBlock block:text.getTextBlocks()) {
+                for(Text.Line line:block.getLines()) {
+                    for(Text.Element element:line.getElements()) {
+                        Rect bounds=element.getBoundingBox();
+                        if(bounds==null)continue;
+                        String raw=element.getText();
+                        if(raw==null)continue;
+                        Matcher matcher=years.matcher(raw);
+                        if(!matcher.find())continue;
+                        MatchHit yearHit=new MatchHit(new RectF(bounds),raw,
+                                matcher.group(),timeNode,System.currentTimeMillis());
+                        String key=keyFor(yearHit);
+                        Occurrence occ=occurrences.get(key);
+                        if(occ==null) {
+                            occ=new Occurrence(key,yearHit);
+                            occurrences.put(key,occ);
+                        }
+                        occ.categoryIds.add(CategoryIndex.ANI);
+                        occ.nodes.add("Index cronologic");
                     }
                 }
             }
@@ -280,7 +370,9 @@ public final class MultiThemeEngine {
         }
         List<MatchHit> lineHits=new ArrayList<>();
         List<MatchHit> blockHits=new ArrayList<>();
+        List<MatchHit> allHits=new ArrayList<>();
         for(Occurrence o:occurrences.values()) {
+            allHits.add(o.hit);
             if(byLine.contains(o.key))lineHits.add(o.hit);
             if(byBlock.contains(o.key) || byLine.contains(o.key))blockHits.add(o.hit);
         }
@@ -288,7 +380,7 @@ public final class MultiThemeEngine {
         for(Map.Entry<String,Map<String,MatchHit>> entry:byTheme.entrySet()) {
             ready.put(entry.getKey(),new ArrayList<>(entry.getValue().values()));
         }
-        return new Scan(ready,occurrences,lineHits,blockHits,byLine,byBlock,
+        return new Scan(ready,occurrences,allHits,lineHits,blockHits,byLine,byBlock,
                 matchedLines,matchedBlocks);
     }
 

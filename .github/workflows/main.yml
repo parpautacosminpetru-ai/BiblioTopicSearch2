@@ -3,7 +3,7 @@ name: Build BiblioTopicSearch APK
 on:
   workflow_dispatch:
   push:
-    branches: [feature/bibliotopicsearch-pro]
+    branches: [feature/bibliotopicsearch-parallel-all]
   pull_request:
     branches: [main]
 

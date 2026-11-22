@@ -1,20 +1,24 @@
-# BiblioTopicSearch2 PRO — OCR euristic cu lentile tematice
+# BiblioTopicSearch2 — index tematic + categorii (versiune de test)
 
-Versiune **1.2.0 de test**, bazată pe aplicația Android offline din august 2026.
+## Funcții
 
-## Ce este nou
-- Interfață mai lizibilă: cameră centrală, stare OCR, lentile mari, controale separate de text.
-- **Filtru de hărți:** alegi ce teme sunt analizate, fără să ștergi hărțile sau termenii.
-- **Index global:** un concept repetat în mai multe hărți este căutat o singură dată; rezultatul este asociat tuturor nodurilor relevante.
-- **REZUMAT** fără highlight, **INTERSECȚII** cu regulă de linie sau bloc OCR, plus o lentilă pentru fiecare temă.
-- **ÎNGHEAȚĂ** recunoaște din nou, o singură dată, exact imaginea înghețată; comutarea lentilelor nu rescanează cadrul.
-- **FIȘE**: după ce verifici contextul, poți salva local sursa, pagina, termenul, temele, fragmentul OCR corectat și observația personală; export CSV manual.
-- Fără permisiune Internet, fără trimiterea imaginilor către un model AI. Interpretarea rămâne exclusiv la utilizator.
+- **TOATE** cercetează toate hărțile active simultan, fără rescannarea paginii.
+- Filtre independente pentru **TEME** și **CATEGORII**: Ani, Locuri, Persoane, Instituții, Evenimente, Concepte, Altele.
+- **INDEX INTERN**: dicționar lexical editabil; formă pe linie `PERSOANE | Carol I | Mihail Kogălniceanu` etc. Termenii pot fi asociați și mai multor categorii.
+- Culori stabile pe categorii, sublinieri discrete. Punct lângă termen când aparține mai multor teme.
+- Motor global: un singur OCR și o singură căutare a fiecărui termen distinct, cu distribuire către toate temele indexate.
+- Ani cu patru cifre recunoscuți și dacă nu apar într-o hartă.
+- **IMPORT ZIP**: permite importarea celor 7 TXT din `BiblioTopicSearch2_7_harti_Romania_Moderna.zip`, fără a suprascrie hărțile existente.
+- **INTERSECȚII**: termeni diferiți în aceeași linie sau același bloc OCR, configurabil. Doar propunere de verificare manuală.
+- **CADRU**: OCR pe imaginea înghețată; după fixare poți comuta tema și categoria. Fișe de cercetare locale și export CSV.
 
-## Limite
-- Coapariția termenilor pe aceeași linie sau în același bloc OCR este **semnal lexical**, nu dovadă de relație sintactică ori cauzală.
-- Blocurile OCR nu corespund întotdeauna paragrafelor reale; rezultatele OCR pot conține erori.
-- Nu a fost încă testată în mod practic pe un telefon fizic; APK-ul este compilat prin GitHub Actions.
-- Semnarea GitHub Actions produce un **APK debug**, nu un release semnat cu o cheie de distribuție.
-- Fișele și configurațiile sunt păstrate pe dispozitiv; exportă-le înainte de a dezinstala aplicația.
+## Validare și limite
 
+- APK compilat ca **debug**, fără semnătură permanentă pentru distribuție.
+- Necesar test real pe Android pentru alinierea coordonatelor și performanța cu multe hărți.
+- Dicționarul este o euristică lexicală, nu clasificare semantică validată; termenii ambigui trebuie revizuiți.
+- O apariție nu dovedește o relație istorică. Interpretarea revine utilizatorului.
+
+## Import rapid
+
+Deschide aplicația → **IMPORT ZIP** → selectează `BiblioTopicSearch2_7_harti_Romania_Moderna.zip` → **TOATE** → alege o categorie. Nu e necesară scanare nouă pentru a schimba lentila unui cadru înghețat.
