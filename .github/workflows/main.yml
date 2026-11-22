@@ -3,7 +3,7 @@ name: Build BiblioTopicSearch APK
 on:
   workflow_dispatch:
   push:
-    branches: [feature/ocr-multitema-lentile]
+    branches: [feature/bibliotopicsearch-pro]
   pull_request:
     branches: [main]
 
