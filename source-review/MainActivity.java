@@ -636,6 +636,8 @@ public final class MainActivity extends AppCompatActivity {
         categoryButtons.put(id,button);
         button.setOnClickListener(v->{
             selectedCategory=id;
+            if(MultiThemeEngine.OVERVIEW.equals(selectedLens))
+                selectedLens=MultiThemeEngine.ALL;
             renderLens();
             if(frozen)setStatus("Tip: "+CategoryIndex.label(id)+" • "+
                     (lastScan==null?0:lastScan.count(selectedLens,id,onlySameLine))+
@@ -696,7 +698,8 @@ public final class MainActivity extends AppCompatActivity {
 
     private void importThemeZip() {
         Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.setType("application/zip");
+        // Permite arhive ZIP care au MIME diferite în diverse aplicații de fișiere.
+        intent.setType("*/*");
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         startActivityForResult(intent,REQ_IMPORT_ZIP);
     }
