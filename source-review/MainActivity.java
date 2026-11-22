@@ -77,7 +77,6 @@ public final class MainActivity extends AppCompatActivity {
     private static final int REQ_SAVE_FRAME = 501;
     private static final int REQ_EXPORT_NOTES = 502;
     private static final int REQ_IMPORT_ZIP = 503;
-    private static final int REQ_IMPORT_ZIP = 503;
     private static final int INK = Color.rgb(10,24,34);
     private static final int SURFACE = Color.rgb(16,36,48);
     private static final int PRIMARY = Color.rgb(0,151,151);
