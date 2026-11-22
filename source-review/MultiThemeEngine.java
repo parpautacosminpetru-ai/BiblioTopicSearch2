@@ -264,15 +264,17 @@ public final class MultiThemeEngine {
         int matchedLines=0,matchedBlocks=0;
         if(text!=null)for(Text.TextBlock block:text.getTextBlocks()) {
             List<Occurrence> group=inside(occurrences.values(),block.getBoundingBox());
-            if(intersects(group)) {
+            Set<String> blockParticipants=intersectionParticipants(group);
+            if(!blockParticipants.isEmpty()) {
                 matchedBlocks++;
-                for(Occurrence item:group)byBlock.add(item.key);
+                byBlock.addAll(blockParticipants);
             }
             for(Text.Line line:block.getLines()) {
                 List<Occurrence> lineItems=inside(occurrences.values(),line.getBoundingBox());
-                if(intersects(lineItems)) {
+                Set<String> lineParticipants=intersectionParticipants(lineItems);
+                if(!lineParticipants.isEmpty()) {
                     matchedLines++;
-                    for(Occurrence item:lineItems)byLine.add(item.key);
+                    byLine.addAll(lineParticipants);
                 }
             }
         }
@@ -300,16 +302,30 @@ public final class MultiThemeEngine {
         return out;
     }
 
-    private static boolean intersects(List<Occurrence> items) {
-        Set<String> termSet=new HashSet<>();
-        Set<String> nodes=new HashSet<>();
-        Set<String> themes=new HashSet<>();
-        for(Occurrence o:items) {
-            termSet.add(o.hit.originalText.toLowerCase(Locale.ROOT).trim());
-            nodes.addAll(o.nodes);
-            themes.addAll(o.themes);
+    private static Set<String> intersectionParticipants(List<Occurrence> items) {
+        Set<String> out=new LinkedHashSet<>();
+        for(int i=0;i<items.size();i++) {
+            Occurrence a=items.get(i);
+            for(int j=i+1;j<items.size();j++) {
+                Occurrence b=items.get(j);
+                // Nu numărăm o expresie și unul din propriile cuvinte ca două dovezi.
+                if(overlapFraction(a.hit.box,b.hit.box)>0.75f)continue;
+                if(a.hit.originalText.trim().equalsIgnoreCase(
+                        b.hit.originalText.trim()))continue;
+                if(a.nodes.equals(b.nodes) && a.themes.equals(b.themes))continue;
+                out.add(a.key);
+                out.add(b.key);
+            }
         }
-        return termSet.size()>=2 && (nodes.size()>=2 || themes.size()>=2);
+        return out;
+    }
+
+    private static float overlapFraction(RectF a,RectF b) {
+        float w=Math.max(0,Math.min(a.right,b.right)-Math.max(a.left,b.left));
+        float h=Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top));
+        float minArea=Math.min(Math.max(0,a.width()*a.height()),
+                Math.max(0,b.width()*b.height()));
+        return minArea<=0?0:(w*h)/minArea;
     }
 
     private static String keyFor(MatchHit h) {

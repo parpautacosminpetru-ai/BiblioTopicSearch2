@@ -117,6 +117,7 @@ public final class MainActivity extends AppCompatActivity {
     private final Runnable staleOverlayClear = () -> {
         if (!frozen && ocrEnabled && overlayView != null) {
             lastScan = null;
+            lastOcrText = null;
             overlayView.clearHits();
             refreshLensButtons();
             setStatus("OCR live • caut text nou", Color.rgb(78, 201, 126));
@@ -690,7 +691,8 @@ public final class MainActivity extends AppCompatActivity {
             recognizer.process(InputImage.fromBitmap(screenshot,0))
                     .addOnSuccessListener(result->{
                         MultiThemeEngine.Plan plan=multiPlan;
-                        if(plan==null || !frozen || generation!=frozenGeneration)return;
+                        if(plan==null || !frozen || generation!=frozenGeneration ||
+                                analysisExecutor.isShutdown() || isDestroyed())return;
                         analysisExecutor.execute(()->{
                             MultiThemeEngine.Scan scan=MultiThemeEngine.scan(result,plan);
                             runOnUiThread(()->{
@@ -724,7 +726,8 @@ public final class MainActivity extends AppCompatActivity {
             overlayView.clearHits();
             freezeImage.setImageDrawable(null);
             freezeImage.setVisibility(View.GONE);
-            if(frozenBitmap!=null && !frozenBitmap.isRecycled())frozenBitmap.recycle();
+            // ML Kit poate încă procesa această imagine; o eliberăm prin GC
+            // după terminarea procesării asincrone, evitând reciclarea prematură.
             frozenBitmap=null;
             lastRenderedLens="";
             refreshLensButtons();
@@ -780,7 +783,13 @@ public final class MainActivity extends AppCompatActivity {
                 .setTitle("Potrivire OCR")
                 .setMessage(message.toString())
                 .setPositiveButton("Închide",null)
-                .setNeutralButton("FIȘĂ",(d,w)->editResearchNote(hit))
+                .setNeutralButton("FIȘĂ",(d,w)->{
+                    if(!frozen || frozenAnalyzing) {
+                        toast("Îngheață mai întâi pagina pentru o fișă verificabilă.");
+                        return;
+                    }
+                    editResearchNote(hit);
+                })
                 .show();
     }
 
