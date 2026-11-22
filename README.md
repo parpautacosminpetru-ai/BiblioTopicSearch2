@@ -1,26 +1,20 @@
-# BiblioTopicSearch2 — Lentile multitematice
+# BiblioTopicSearch2 PRO — OCR euristic cu lentile tematice
 
-Versiune experimentală pe baza snapshotului din 10 august 2026 (`89342b0b79df`).
+Versiune **1.2.0 de test**, bazată pe aplicația Android offline din august 2026.
 
-Arhiva de la rădăcină (`BiblioTopicSearch_FINAL.zip`) conține codul Android actualizat. GitHub Actions o dezarhivează și construiește APK-ul.
+## Ce este nou
+- Interfață mai lizibilă: cameră centrală, stare OCR, lentile mari, controale separate de text.
+- **Filtru de hărți:** alegi ce teme sunt analizate, fără să ștergi hărțile sau termenii.
+- **Index global:** un concept repetat în mai multe hărți este căutat o singură dată; rezultatul este asociat tuturor nodurilor relevante.
+- **REZUMAT** fără highlight, **INTERSECȚII** cu regulă de linie sau bloc OCR, plus o lentilă pentru fiecare temă.
+- **ÎNGHEAȚĂ** recunoaște din nou, o singură dată, exact imaginea înghețată; comutarea lentilelor nu rescanează cadrul.
+- **FIȘE**: după ce verifici contextul, poți salva local sursa, pagina, termenul, temele, fragmentul OCR corectat și observația personală; export CSV manual.
+- Fără permisiune Internet, fără trimiterea imaginilor către un model AI. Interpretarea rămâne exclusiv la utilizator.
 
+## Limite
+- Coapariția termenilor pe aceeași linie sau în același bloc OCR este **semnal lexical**, nu dovadă de relație sintactică ori cauzală.
+- Blocurile OCR nu corespund întotdeauna paragrafelor reale; rezultatele OCR pot conține erori.
+- Nu a fost încă testată în mod practic pe un telefon fizic; APK-ul este compilat prin GitHub Actions.
+- Semnarea GitHub Actions produce un **APK debug**, nu un release semnat cu o cheie de distribuție.
+- Fișele și configurațiile sunt păstrate pe dispozitiv; exportă-le înainte de a dezinstala aplicația.
 
-## Lentile multitematice — versiunea de lucru (noiembrie 2026)
-
-- Aplicația citește textul **o singură dată** cu OCR, apoi aplică planurile compilate pentru **toate hărțile din bibliotecă**. Căutarea funcționează offline.
-- Bara orizontală de lentile conține **REZUMAT** (număr de potriviri, fără culori suprapuse), **INTERSECȚII** (coapariții de termeni diferiți în aceeași linie / același bloc OCR) și câte o lentilă pentru fiecare hartă. O singură lentilă colorează textul.
-- Dacă un termen aparține mai multor hărți, este detectat în fiecare, dar numărul de **ocurențe fizice** îl numără o singură dată. Atingerea termenului explică temele și nodurile asociate.
-- Butonul **CADRU** păstrează temporar imaginea **separată** de rezultatele OCR; poți comuta lentilele pe pagina înghețată. **SALVEAZĂ** produce la cerere PNG-ul cu evidențierile lentilei active.
-- Semnalizarea unei intersecții este exclusiv **lexicală / geometrică**, nu afirmă relații sintactice, cauzale sau istorice. Un „bloc OCR” poate să nu corespundă cu un paragraf. Verifică întotdeauna contextul manual.
-- Versiunea nu persistă automat imaginile sau transcrierea OCR și nu atribuie automat pasajele unei teme ca dovezi validate.
-
-
-## Reguli de verificare
-
-1. Căutarea se face pe o singură recunoaștere OCR, dar în toate hărțile disponibile.
-2. Numerele din bare sunt potriviri, nu evaluări istorice.
-3. **REZUMAT** nu colorează cuvintele. Lentilele tematice arată doar propriile rezultate.
-4. **INTERSECȚII** necesită minimum doi termeni diferiți, în bloc sau pe aceeași linie OCR, plus apartenențe la cel puțin două teme/noduri.
-5. Cadrele înghețate se pot comuta între lentile; salvarea rămâne exclusiv manuală.
-
-Codul-sursă modificat este expus în `source-review/` pentru revizuire, pe lângă arhiva completă.

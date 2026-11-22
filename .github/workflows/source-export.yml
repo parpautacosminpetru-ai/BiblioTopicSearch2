@@ -12,9 +12,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Assemble source project
+        run: |
+          mkdir -p project
+          unzip -q BiblioTopicSearch_FINAL.zip -d project
+          cp source-review/*.java project/app/src/main/java/ro/bibliotopicsearch/app/
+          sed -i 's/versionCode = 2/versionCode = 3/; s/versionName = "1.1.0"/versionName = "1.2.0"/' project/app/build.gradle.kts
+          (cd project && zip -qr ../BiblioTopicSearch_PRO_source.zip .)
       - name: Publish Android project ZIP
         uses: actions/upload-artifact@v4
         with:
           name: BiblioTopicSearch-Source
-          path: BiblioTopicSearch_FINAL.zip
+          path: BiblioTopicSearch_PRO_source.zip
           if-no-files-found: error
