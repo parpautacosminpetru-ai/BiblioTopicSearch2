@@ -1,0 +1,20 @@
+name: Export Android source
+on:
+  push:
+    branches:
+      - feature/bibliotopicsearch-pro
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Publish Android project ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: BiblioTopicSearch-Source
+          path: BiblioTopicSearch_FINAL.zip
+          if-no-files-found: error
