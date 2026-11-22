@@ -456,6 +456,14 @@ public final class MainActivity extends AppCompatActivity {
         setStatus(recognizedWords+" cuvinte OCR  ·  "+scan.uniqueMatches+
                 " ocurențe  ·  "+scan.count(MultiThemeEngine.INTERSECTIONS,onlySameLine)+
                 " intersecții",Color.rgb(75,211,184));
+        if(!MultiThemeEngine.OVERVIEW.equals(selectedLens)) {
+            List<MatchHit> visible=scan.visible(selectedLens,onlySameLine);
+            if(!visible.isEmpty()) {
+                Set<String> nodes=new HashSet<>();
+                for(MatchHit hit:visible)nodes.add(hit.node.path);
+                maybeFeedback(visible,nodes);
+            }
+        }
     }
 
     private void rebuildLensButtons() {
