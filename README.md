@@ -22,3 +22,6 @@
 ## Import rapid
 
 Deschide aplicația → **IMPORT ZIP** → selectează `BiblioTopicSearch2_7_harti_Romania_Moderna.zip` → **TOATE** → alege o categorie. Nu e necesară scanare nouă pentru a schimba lentila unui cadru înghețat.
+
+## Instalare sigură
+Acest APK de test folosește ID-ul de aplicație `ro.bibliotopicsearch.app.parallel`, diferit de aplicația originală. Cele două pot coexista. Datele se păstrează separat; importă hărțile ZIP în noua aplicație. Nu dezinstala aplicația veche înainte să verifici noua versiune.
