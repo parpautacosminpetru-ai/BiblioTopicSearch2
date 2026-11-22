@@ -50,7 +50,15 @@ import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
+import java.io.InputStream;
+import java.io.ByteArrayOutputStream;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipEntry;
 import java.io.OutputStream;
+import java.io.InputStream;
+import java.io.ByteArrayOutputStream;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipEntry;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -68,6 +76,7 @@ public final class MainActivity extends AppCompatActivity {
     private static final int REQ_CAMERA = 101;
     private static final int REQ_SAVE_FRAME = 501;
     private static final int REQ_EXPORT_NOTES = 502;
+    private static final int REQ_IMPORT_ZIP = 503;
     private static final int INK = Color.rgb(10,24,34);
     private static final int SURFACE = Color.rgb(16,36,48);
     private static final int PRIMARY = Color.rgb(0,151,151);
@@ -76,6 +85,7 @@ public final class MainActivity extends AppCompatActivity {
     private PreviewView previewView;
     private ImageView freezeImage;
     private OverlayView overlayView;
+    private AllMatchesView allMatchesView;
     private TextView mapTitle;
     private TextView mapMetrics;
     private TextView statusDot;
@@ -101,7 +111,10 @@ public final class MainActivity extends AppCompatActivity {
     private volatile MultiThemeEngine.Plan multiPlan;
     private MultiThemeEngine.Scan lastScan;
     private Text lastOcrText;
-    private String selectedLens = MultiThemeEngine.OVERVIEW;
+    private String selectedLens = MultiThemeEngine.ALL;
+    private String selectedCategory = CategoryIndex.ALL;
+    private LinearLayout categoryStrip;
+    private final Map<String,Button> categoryButtons = new LinkedHashMap<>();
     private LinearLayout lensStrip;
     private final Map<String, Button> lensButtons = new LinkedHashMap<>();
 
@@ -119,7 +132,9 @@ public final class MainActivity extends AppCompatActivity {
             lastScan = null;
             lastOcrText = null;
             overlayView.clearHits();
+            if(allMatchesView!=null)allMatchesView.clearHits();
             refreshLensButtons();
+            refreshCategoryButtons();
             setStatus("OCR live • caut text nou", Color.rgb(78, 201, 126));
         }
     };
@@ -131,6 +146,7 @@ public final class MainActivity extends AppCompatActivity {
         buildUi();
         toneGenerator = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 22);
         overlayView.setOnHitTapListener(this::showHitDetails);
+        allMatchesView.setOnHitTapListener(this::showHitDetails);
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED) {
@@ -147,7 +163,8 @@ public final class MainActivity extends AppCompatActivity {
         onlySameLine = getSharedPreferences("bts2_view", MODE_PRIVATE)
                 .getBoolean("only_same_line", true);
         multiPlan = MultiThemeEngine.compile(this);
-        if (!multiPlan.hasLens(selectedLens)) selectedLens = MultiThemeEngine.OVERVIEW;
+        if (!multiPlan.hasLens(selectedLens)) selectedLens = MultiThemeEngine.ALL;
+        if(!CategoryIndex.known(selectedCategory))selectedCategory=CategoryIndex.ALL;
         if (frozen && lastOcrText != null) {
             lastScan = MultiThemeEngine.scan(lastOcrText, multiPlan);
         } else if (!frozen) {
@@ -155,6 +172,7 @@ public final class MainActivity extends AppCompatActivity {
         }
         updateHeader();
         rebuildLensButtons();
+        rebuildCategoryButtons();
         updateRuleButton();
         updateNotesButton();
         updateOcrButton();
@@ -191,6 +209,8 @@ public final class MainActivity extends AppCompatActivity {
 
         overlayView=new OverlayView(this);
         root.addView(overlayView,match());
+        allMatchesView=new AllMatchesView(this);
+        root.addView(allMatchesView,match());
 
         LinearLayout top=new LinearLayout(this);
         top.setOrientation(LinearLayout.VERTICAL);
@@ -227,6 +247,9 @@ public final class MainActivity extends AppCompatActivity {
         filterButton=smallTopButton("FILTRE");
         mapRow.addView(filterButton);
         filterButton.setOnClickListener(v->showThemeFilter());
+        Button importButton=smallTopButton("IMPORT ZIP");
+        mapRow.addView(importButton);
+        importButton.setOnClickListener(v->importThemeZip());
         top.addView(mapRow);
 
         mapMetrics=new TextView(this);
@@ -257,6 +280,27 @@ public final class MainActivity extends AppCompatActivity {
         lensScroll.addView(lensStrip);
         top.addView(lensScroll,new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,dp(52)));
+
+        LinearLayout categoryHeading=new LinearLayout(this);
+        categoryHeading.setGravity(Gravity.CENTER_VERTICAL);
+        TextView catTitle=new TextView(this);
+        catTitle.setText("CATEGORII • detectate simultan");
+        catTitle.setTextColor(Color.rgb(164,202,216));
+        catTitle.setTextSize(10.5f);
+        catTitle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        categoryHeading.addView(catTitle,new LinearLayout.LayoutParams(0,dp(36),1f));
+        Button indexButton=smallTopButton("INDEX INTERN");
+        categoryHeading.addView(indexButton);
+        indexButton.setOnClickListener(v->editCategoryIndex());
+        top.addView(categoryHeading);
+        HorizontalScrollView categoryScroll=new HorizontalScrollView(this);
+        categoryScroll.setHorizontalScrollBarEnabled(false);
+        categoryStrip=new LinearLayout(this);
+        categoryStrip.setOrientation(LinearLayout.HORIZONTAL);
+        categoryStrip.setGravity(Gravity.CENTER_VERTICAL);
+        categoryScroll.addView(categoryStrip);
+        top.addView(categoryScroll,new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,dp(48)));
 
         LinearLayout statusRow=new LinearLayout(this);
         statusRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -425,7 +469,8 @@ public final class MainActivity extends AppCompatActivity {
         topicMap = TopicMapStore.load(this);
         int activeNodes = activeNodeCount(topicMap);
         int terms = activeTermCount(topicMap);
-        if (mapTitle != null) mapTitle.setText(active.folder + "  ›  " + active.name + "   ▾");
+        if(mapTitle!=null)mapTitle.setText("CERCETARE PARALELĂ • "+
+                (multiPlan==null?0:multiPlan.themes.size())+" TEME   ▾");
         if (mapMetrics != null) {
             MultiThemeEngine.Plan plan = multiPlan;
             int maps = plan == null ? 1 : plan.themes.size();
@@ -455,9 +500,12 @@ public final class MainActivity extends AppCompatActivity {
         }
         setStatus(recognizedWords+" cuvinte OCR  ·  "+scan.uniqueMatches+
                 " ocurențe  ·  "+scan.count(MultiThemeEngine.INTERSECTIONS,onlySameLine)+
-                " intersecții",Color.rgb(75,211,184));
-        if(!MultiThemeEngine.OVERVIEW.equals(selectedLens)) {
-            List<MatchHit> visible=scan.visible(selectedLens,onlySameLine);
+                " intersecții • categoria: "+
+                scan.count(selectedLens,selectedCategory,onlySameLine),
+                Color.rgb(75,211,184));
+        if(!MultiThemeEngine.OVERVIEW.equals(selectedLens) &&
+                !MultiThemeEngine.ALL.equals(selectedLens)) {
+            List<MatchHit> visible=scan.visible(selectedLens,selectedCategory,onlySameLine);
             if(!visible.isEmpty()) {
                 Set<String> nodes=new HashSet<>();
                 for(MatchHit hit:visible)nodes.add(hit.node.path);
@@ -470,6 +518,7 @@ public final class MainActivity extends AppCompatActivity {
         if(lensStrip==null || multiPlan==null)return;
         lensStrip.removeAllViews();
         lensButtons.clear();
+        addLensButton(MultiThemeEngine.ALL,"TOATE");
         addLensButton(MultiThemeEngine.OVERVIEW,"REZUMAT");
         addLensButton(MultiThemeEngine.INTERSECTIONS,"INTERSECȚII");
         for(MultiThemeEngine.Theme theme:multiPlan.themes) {
@@ -497,7 +546,7 @@ public final class MainActivity extends AppCompatActivity {
             selectedLens=id;
             renderLens();
             if(frozen) setStatus("Cadru fix • "+title+" • "+
-                    (lastScan==null?0:lastScan.count(id,onlySameLine))+" rezultate",
+                    (lastScan==null?0:lastScan.count(id,selectedCategory,onlySameLine))+" rezultate",
                     Color.rgb(244,195,112));
             if(MultiThemeEngine.OVERVIEW.equals(id) && frozen)showSummary();
         });
@@ -513,11 +562,12 @@ public final class MainActivity extends AppCompatActivity {
         if(multiPlan==null)return;
         for(Map.Entry<String,Button> entry:lensButtons.entrySet()) {
             String id=entry.getKey();
-            String title=MultiThemeEngine.OVERVIEW.equals(id)?"REZUMAT":
+            String title=MultiThemeEngine.ALL.equals(id)?"TOATE":
+                    MultiThemeEngine.OVERVIEW.equals(id)?"REZUMAT":
                     MultiThemeEngine.INTERSECTIONS.equals(id)?"INTERSECȚII":
                             multiPlan.nameFor(id);
             if(title.length()>19)title=title.substring(0,18)+"…";
-            int count=lastScan==null?0:lastScan.count(id,onlySameLine);
+            int count=lastScan==null?0:lastScan.count(id,selectedCategory,onlySameLine);
             Button button=entry.getValue();
             String label=title+"  "+count;
             if(!label.contentEquals(button.getText()))button.setText(label);
@@ -529,17 +579,14 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void renderLens() {
-        if(overlayView==null)return;
-        if(!selectedLens.equals(lastRenderedLens)) {
-            overlayView.clearHits();
-            lastRenderedLens=selectedLens;
-        }
+        if(overlayView==null||allMatchesView==null)return;
+        overlayView.clearHits();
         List<MatchHit> visible=lastScan==null?Collections.emptyList():
-                lastScan.visible(selectedLens,onlySameLine);
-        boolean showLabels=AppPrefs.showLabels(this)&&visible.size()<=7;
-        overlayView.updateHits(visible,frozen?100:AppPrefs.precision(this),
-                showLabels);
+                lastScan.visible(selectedLens,selectedCategory,onlySameLine);
+        allMatchesView.setHits(visible,lastScan,selectedCategory);
+        lastRenderedLens=selectedLens;
         refreshLensButtons();
+        refreshCategoryButtons();
     }
 
     private void updateRuleButton() {
@@ -562,6 +609,153 @@ public final class MainActivity extends AppCompatActivity {
                     dialog.dismiss();
                 })
                 .setNegativeButton("Anulează",null).show();
+    }
+
+    private void rebuildCategoryButtons() {
+        if(categoryStrip==null)return;
+        categoryStrip.removeAllViews();
+        categoryButtons.clear();
+        addCategoryButton(CategoryIndex.ALL);
+        for(CategoryIndex.Category category:CategoryIndex.categories())
+            addCategoryButton(category.id);
+        refreshCategoryButtons();
+    }
+
+    private void addCategoryButton(String id) {
+        Button button=new Button(this);
+        button.setTextColor(Color.WHITE);
+        button.setTextSize(11f);
+        button.setAllCaps(false);
+        button.setMinWidth(0);
+        button.setMinimumHeight(0);
+        button.setPadding(dp(12),0,dp(12),0);
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,dp(42));
+        params.setMargins(0,0,dp(6),0);
+        categoryStrip.addView(button,params);
+        categoryButtons.put(id,button);
+        button.setOnClickListener(v->{
+            selectedCategory=id;
+            if(MultiThemeEngine.OVERVIEW.equals(selectedLens))
+                selectedLens=MultiThemeEngine.ALL;
+            renderLens();
+            if(frozen)setStatus("Tip: "+CategoryIndex.label(id)+" • "+
+                    (lastScan==null?0:lastScan.count(selectedLens,id,onlySameLine))+
+                    " ocurențe",Color.rgb(241,186,110));
+        });
+    }
+
+    private void refreshCategoryButtons() {
+        if(categoryStrip==null)return;
+        for(Map.Entry<String,Button> entry:categoryButtons.entrySet()) {
+            String id=entry.getKey();
+            Button button=entry.getValue();
+            int count=lastScan==null?0:
+                    lastScan.count(selectedLens,id,onlySameLine);
+            String label=CategoryIndex.label(id)+"  "+count;
+            if(!label.contentEquals(button.getText()))button.setText(label);
+            boolean active=id.equals(selectedCategory);
+            int color=CategoryIndex.ALL.equals(id)?PRIMARY:
+                    CategoryIndex.category(id).color;
+            button.setBackgroundTintList(ColorStateList.valueOf(
+                    active?color:Color.rgb(39,62,76)));
+            button.setAlpha(active?1f:count==0?.6f:.87f);
+        }
+    }
+
+    private void editCategoryIndex() {
+        CategoryIndex current=CategoryIndex.load(this,AppPrefs.ignoreDiacritics(this));
+        EditText input=new EditText(this);
+        input.setText(current.editableText());
+        input.setTextSize(12.5f);
+        input.setMinLines(10);
+        input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        ScrollView scroll=new ScrollView(this);
+        scroll.setPadding(dp(18),0,dp(18),0);
+        scroll.addView(input);
+        AlertDialog dialog=new AlertDialog.Builder(this)
+                .setTitle("Index intern • ani, locuri, persoane etc.")
+                .setView(scroll)
+                .setPositiveButton("SALVEAZĂ",null)
+                .setNegativeButton("Anulează",null)
+                .setNeutralButton("Restabilește",(d,w)->{
+                    CategoryIndex.save(this,CategoryIndex.DEFAULT_TEXT);
+                    reloadThemePlan();
+                }).create();
+        dialog.setOnShowListener(v->dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(clicked->{
+                    try{
+                        CategoryIndex.save(this,input.getText().toString());
+                        reloadThemePlan();
+                        dialog.dismiss();
+                        toast("Indexul de categorii a fost salvat local.");
+                    } catch(Exception error) {
+                        input.setError(error.getMessage());
+                    }
+                }));
+        dialog.show();
+    }
+
+    private void importThemeZip() {
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        // Permite arhive ZIP care au MIME diferite în diverse aplicații de fișiere.
+        intent.setType("*/*");
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        startActivityForResult(intent,REQ_IMPORT_ZIP);
+    }
+
+    private void readThemeZip(Uri uri) {
+        int added=0,skipped=0;
+        Set<String> existing=new HashSet<>();
+        for(MapProfile p:TopicLibraryStore.list(this))
+            existing.add(p.name.toLowerCase(java.util.Locale.ROOT));
+        try(InputStream stream=getContentResolver().openInputStream(uri)) {
+            if(stream==null)throw new IllegalStateException("Arhiva nu poate fi deschisă");
+            try(ZipInputStream zip=new ZipInputStream(stream)) {
+                ZipEntry entry;
+                long total=0;
+                while((entry=zip.getNextEntry())!=null) {
+                    String name=entry.getName().replace('\\','/');
+                    name=name.substring(name.lastIndexOf('/')+1);
+                    if(entry.isDirectory() || !name.matches("(?i)^(?:I|II|III|IV|V|VI|VII)_.+\\.txt$")){
+                        zip.closeEntry();continue;
+                    }
+                    ByteArrayOutputStream out=new ByteArrayOutputStream();
+                    byte[] bytes=new byte[4096];
+                    int len;
+                    while((len=zip.read(bytes))!=-1) {
+                        out.write(bytes,0,len);
+                        total+=len;
+                        if(total>2500000||out.size()>250000)
+                            throw new IllegalStateException("Arhivă prea mare pentru import");
+                    }
+                    String raw=new String(out.toByteArray(),StandardCharsets.UTF_8);
+                    if(!raw.startsWith("#")||raw.length()<50) {
+                        skipped++;zip.closeEntry();continue;
+                    }
+                    String title=raw.split("\\r?\\n",2)[0]
+                            .replaceFirst("^#+\\s*","").trim();
+                    if(title.length()>75)title=title.substring(0,75);
+                    if(existing.contains(title.toLowerCase(java.util.Locale.ROOT))) {
+                        skipped++;zip.closeEntry();continue;
+                    }
+                    TopicLibraryStore.create(this,title,"România modernă",raw);
+                    existing.add(title.toLowerCase(java.util.Locale.ROOT));
+                    added++;
+                    zip.closeEntry();
+                }
+            }
+        } catch(Exception error) {
+            toast("Import incomplet: "+error.getMessage());
+            reloadThemePlan();
+            return;
+        }
+        getSharedPreferences(MultiThemeEngine.FILTER_PREFS,MODE_PRIVATE)
+                .edit().remove(MultiThemeEngine.FILTER_EXCLUDED).apply();
+        selectedLens=MultiThemeEngine.ALL;
+        selectedCategory=CategoryIndex.ALL;
+        reloadThemePlan();
+        toast("Importate "+added+" hărți; "+skipped+" omise. Căutare paralelă activă.");
     }
 
     private void showThemeFilter() {
@@ -598,12 +792,13 @@ public final class MainActivity extends AppCompatActivity {
 
     private void reloadThemePlan() {
         multiPlan=MultiThemeEngine.compile(this);
-        if(!multiPlan.hasLens(selectedLens))selectedLens=MultiThemeEngine.OVERVIEW;
+        if(!multiPlan.hasLens(selectedLens))selectedLens=MultiThemeEngine.ALL;
         if(lastOcrText!=null)lastScan=MultiThemeEngine.scan(lastOcrText,multiPlan);
         else lastScan=null;
         lastRenderedLens="";
         updateHeader();
         rebuildLensButtons();
+        rebuildCategoryButtons();
         renderLens();
     }
 
@@ -680,6 +875,7 @@ public final class MainActivity extends AppCompatActivity {
             lastScan=null;
             lastOcrText=null;
             overlayView.clearHits();
+            allMatchesView.clearHits();
             freezeImage.setScaleType(ImageView.ScaleType.FIT_XY);
             freezeImage.setImageBitmap(frozenBitmap);
             freezeImage.setVisibility(View.VISIBLE);
@@ -732,6 +928,7 @@ public final class MainActivity extends AppCompatActivity {
             lastScan=null;
             lastOcrText=null;
             overlayView.clearHits();
+            allMatchesView.clearHits();
             freezeImage.setImageDrawable(null);
             freezeImage.setVisibility(View.GONE);
             // ML Kit poate încă procesa această imagine; o eliberăm prin GC
@@ -992,6 +1189,10 @@ public final class MainActivity extends AppCompatActivity {
         super.onActivityResult(requestCode,resultCode,data);
         if(resultCode!=RESULT_OK || data==null || data.getData()==null)return;
         Uri uri=data.getData();
+        if(requestCode==REQ_IMPORT_ZIP) {
+            readThemeZip(uri);
+            return;
+        }
         if(requestCode==REQ_EXPORT_NOTES) {
             if(pendingCsv==null)return;
             try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")) {
@@ -1014,6 +1215,7 @@ public final class MainActivity extends AppCompatActivity {
             canvas.drawBitmap(frozenBitmap,null,
                     new Rect(0,0,composite.getWidth(),composite.getHeight()),null);
             overlayView.draw(canvas);
+            allMatchesView.draw(canvas);
             composite.compress(Bitmap.CompressFormat.PNG,100,out);
             composite.recycle();
             toast("Imagine salvată");
