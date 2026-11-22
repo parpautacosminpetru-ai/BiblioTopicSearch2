@@ -64,3 +64,10 @@ jobs:
           name: BiblioTopicSearch-APK
           path: output/BiblioTopicSearch.apk
           if-no-files-found: error
+
+      - name: Upload source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: BiblioTopicSearch-Source
+          path: BiblioTopicSearch_FINAL.zip
+          if-no-files-found: error
