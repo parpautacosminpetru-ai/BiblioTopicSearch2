@@ -90,6 +90,8 @@ public final class MainActivity extends AppCompatActivity {
     private final LiveFrameStabilizer stabilizer = new LiveFrameStabilizer();
     private volatile int scanPrecision = 100;
     private long overlayDeadline;
+    private String latestOcrText = "", frozenOcrText = "";
+    private long latestOcrAt = -1L;
     private float previousZoom = -1f;
     private boolean lowRam, reducedResolution;
     private volatile long lastResolutionChange = -60000L;
@@ -548,6 +550,8 @@ public final class MainActivity extends AppCompatActivity {
     private void applyFrame(FrameResult result) {
         if (!accepts(result.frame.epoch) || searchPlan != result.frame.plan ||
                 !frameFreshness.accepts(result.frame.receivedAt, SystemClock.elapsedRealtime())) return;
+        latestOcrText = result.frame.text == null ? "" : result.frame.text.getText();
+        latestOcrAt = result.frame.receivedAt;
         applyHits(result.hits, result.words, result.frame.plan.termCount(), result.frame.receivedAt);
     }
 
@@ -578,14 +582,22 @@ public final class MainActivity extends AppCompatActivity {
 
     private void showQuickMenu() {
         String labels = floatingLabelsEnabled ? "Ascunde etichetele" : "Afișează etichetele";
-        new AlertDialog.Builder(this).setItems(new String[]{"Noduri afișate", labels, "Pagină / OCR aprofundat", "Setări"},
+        new AlertDialog.Builder(this).setItems(new String[]{"Noduri afișate", labels, "Pagină / OCR aprofundat", "Paleografie", "Setări"},
                 (dialog, which) -> {
                     if (which == 0) {
                         if (topicMap != null && searchPlan != null) showNodeSelection();
                     } else if (which == 1) toggleFloatingLabels();
                     else if (which == 2) openPageReview();
+                    else if (which == 3) openPaleography();
                     else startActivity(new Intent(this, SettingsActivity.class));
                 }).setNegativeButton("Închide", null).show();
+    }
+
+    private void openPaleography() {
+        String raw = frozen ? frozenOcrText :
+                (latestOcrAt >= 0 && frameFreshness.accepts(latestOcrAt,SystemClock.elapsedRealtime())
+                        ? latestOcrText : "");
+        PaleographyActivity.open(this,raw,raw.isEmpty()?"Original":"Ultimul text OCR");
     }
 
     private void openPageReview(){
@@ -655,6 +667,8 @@ public final class MainActivity extends AppCompatActivity {
     private void clearMatches() {
         mainHandler.removeCallbacks(retainedExpiry);
         overlayDeadline = 0;
+        latestOcrText = "";
+        latestOcrAt = -1L;
         latestAllHits = Collections.emptyList();
         if (overlayView != null) overlayView.clearHits();
         updateLegend(latestAllHits);
@@ -827,6 +841,8 @@ public final class MainActivity extends AppCompatActivity {
                     SystemClock.elapsedRealtime())) overlayView.draw(canvas);
 
             frozenBitmap = composite;
+            frozenOcrText = latestOcrAt >= 0 && frameFreshness.accepts(latestOcrAt,SystemClock.elapsedRealtime())
+                    ? latestOcrText : "";
             frozen = true;
             stopAnalysis();
             freezeImage.setImageBitmap(frozenBitmap);
@@ -837,6 +853,7 @@ public final class MainActivity extends AppCompatActivity {
             idleStatus();
         } else {
             frozen = false;
+            frozenOcrText = "";
             clearMatches();
             attachAnalyzer();
             frozenBitmap = null;
@@ -908,6 +925,8 @@ public final class MainActivity extends AppCompatActivity {
         new AlertDialog.Builder(this)
                 .setTitle(hit.originalText)
                 .setMessage(message.toString())
+                .setNeutralButton("Paleografie",(dialog,which)->
+                        PaleographyActivity.open(this,hit.originalText,"Text OCR selectat"))
                 .setPositiveButton("Închide", null)
                 .show();
     }

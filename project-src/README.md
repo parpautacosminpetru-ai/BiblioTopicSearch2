@@ -1,3 +1,12 @@
+# 1.1.9 — Paleografie / transliterare literală
+
+- Meniu Paleografie: importă, creează, editează, selectează și exportă sisteme proprii. Până la 20.000 de reguli per sistem; UTF-8 TSV, CSV sau JSON. Fișierul demonstrativ este exemple/sistem-paleografie.tsv; nu este încărcat automat.
+- Reguli exacte, sensibile la majuscule și la reprezentarea Unicode. Caractere, grupuri, ligaturi, semne, cifre și spații pot fi surse sau destinații; se aplică cea mai lungă regulă de la poziția curentă. Ieșirea nu este căutată din nou. Caracterele fără regulă sunt păstrate și listate; o destinație goală este o eliminare explicită.
+- Text introdus manual, import TXT UTF-8, ultimul OCR din cameră, textul OCR al unui marcaj, text de probă sau textul OCR al paginii analizate. Originalul și transliterarea sunt separate. Rezultatul complet se poate copia sau exporta, chiar dacă previzualizarea este limitată.
+- Sistemele sunt salvate local; textul de lucru nu este salvat automat. Operațiunile de import și transliterare se execută pe worker. Motorul nu folosește traducere semantică, dicționare, AI generativ sau rețea și nu modifică regulile hărților.
+- TSV: header opțional source<TAB>target, două coloane; escapări pentru tab/newline/backslash/Unicode. CSV: source,target (sau antet sursa;destinatie pentru separator ;), ghilimele CSV standard. JSON: {"name":"Sistem","rules":[{"source":"Ж","target":"Zh"}]}. Intrările contradictorii sunt respinse integral.
+- Modelul OCR ML Kit Latin rămâne neschimbat. Se poate translitera orice text Unicode valid furnizat de utilizator, dar alfabetul necunoscut motorului OCR nu devine automat recognoscibil din imagini. Nu se modifică interfața globală sau textul OCR brut. Teste unitare și test JSON pe Android; testele Android necesită dispozitiv.
+
 # 1.1.8 — Punctuație și simboluri
 
 - Adaugă în nod cuvinte, expresii sau semne: puncte, virgule, ghilimele, paranteze, liniuțe, §, #, |, +, combinații etc. Dialogul Adaugă termen oferă și o selecție multiplă de semne.

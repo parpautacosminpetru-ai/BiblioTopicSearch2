@@ -33,7 +33,10 @@ final class TransliterationStore {
         String candidate=raw.startsWith("\uFEFF")?raw.substring(1):raw;
         String name=fallbackName;
         List<LiteralTransliterator.Rule> rules;
-        if(candidate.trim().startsWith("{")){
+        String trimmed=candidate.trim();
+        String tail=trimmed.startsWith("{")?trimmed.substring(1).trim():"";
+        // A table rule for a literal opening brace is not itself JSON.
+        if(trimmed.startsWith("{")&&(tail.startsWith("\"")||tail.startsWith("}"))){
             JSONObject object=new JSONObject(candidate);
             if(object.has("name")){
                 Object v=object.get("name");if(!(v instanceof String))throw new IllegalArgumentException("Numele JSON trebuie să fie text.");
@@ -79,6 +82,9 @@ final class TransliterationStore {
         if(serialized.getBytes(java.nio.charset.StandardCharsets.UTF_8).length>TransliterationTable.MAX_FILE_BYTES)
             throw new IllegalArgumentException("Sistemul serializat depășește 1 MiB.");
         SharedPreferences p=prefs(c);List<String> ids=ids(p);
+        long total=serialized.length();
+        for(String existing:ids)if(!existing.equals(id))total+=p.getString(key(existing,"table"),"").length();
+        if(total>4_000_000L)throw new IllegalArgumentException("Biblioteca de sisteme este prea mare. Exportă și elimină sistemele nefolosite.");
         if(id==null){
             if(ids.size()>=MAX_SYSTEMS)throw new IllegalArgumentException("Sunt permise maximum "+MAX_SYSTEMS+" sisteme.");
             id=UUID.randomUUID().toString();ids.add(id);

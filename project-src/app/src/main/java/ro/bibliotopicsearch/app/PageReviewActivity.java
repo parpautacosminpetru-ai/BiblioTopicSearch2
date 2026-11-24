@@ -49,6 +49,8 @@ public final class PageReviewActivity extends AppCompatActivity {
     private CheckBox deskew,showCandidates;
     private boolean busy,showingResult;
     private String profileId;
+    private String lastOcrText = "";
+    private Button paleography;
 
     @Override protected void onCreate(@Nullable Bundle saved){
         super.onCreate(saved);
@@ -68,6 +70,11 @@ public final class PageReviewActivity extends AppCompatActivity {
         root.addView(showCandidates);
         showCandidates.setOnCheckedChangeListener((v,on)->{if(showingResult)renderResult();});
         status=new TextView(this);status.setTextColor(Color.rgb(31,42,52));root.addView(status);
+        paleography=button("Paleografie");paleography.setVisibility(View.GONE);
+        root.addView(paleography,new LinearLayout.LayoutParams(-1,dp(44)));
+        paleography.setOnClickListener(v->{
+            if(!busy&&!lastOcrText.isEmpty())PaleographyActivity.open(this,lastOcrText,"Text OCR pagină");
+        });
         open.setOnClickListener(v->pick());
         edit.setOnClickListener(v->{
             if(busy||source==null)return;
@@ -90,6 +97,7 @@ public final class PageReviewActivity extends AppCompatActivity {
     private void useSource(Bitmap bitmap){
         Bitmap oldSource=source,oldReview=review;
         source=bitmap;review=null;verified=Collections.emptyList();candidates=Collections.emptyList();
+        lastOcrText="";paleography.setVisibility(View.GONE);
         corners=new float[]{0,0,1,0,1,1,0,1};showingResult=false;
         bow.setProgress(100);showCandidates.setChecked(false);showCandidates.setVisibility(View.GONE);
         page.showOriginal(source,corners);edit.setText("Resetează");status.setText("Ajustează cele patru colțuri");setBusy(false);
@@ -126,6 +134,7 @@ public final class PageReviewActivity extends AppCompatActivity {
                 recognizer=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
                 Text before=Tasks.await(recognizer.process(InputImage.fromBitmap(rectified,0)),30,TimeUnit.SECONDS);
                 Text after=Tasks.await(recognizer.process(InputImage.fromBitmap(enhanced,0)),30,TimeUnit.SECONDS);
+                final String pageText=after.getText();
                 List<MatchHit> raw=TopicMatcher.find(before,plan),improved=TopicMatcher.find(after,plan);
                 List<MatchHit> agreed=PageEvidence.agree(readings(raw),readings(improved));
                 final Bitmap output=enhanced;enhanced=null;
@@ -133,6 +142,7 @@ public final class PageReviewActivity extends AppCompatActivity {
                     if(isFinishing()||isDestroyed()){output.recycle();return;}
                     Bitmap old=review;
                     review=output;verified=agreed;candidates=improved;showingResult=true;
+                    lastOcrText=pageText;paleography.setVisibility(pageText.isEmpty()?View.GONE:View.VISIBLE);
                     showCandidates.setChecked(false);showCandidates.setVisibility(View.VISIBLE);
                     edit.setText("Colțuri");setBusy(false);renderResult();
                     if(old!=null&&old!=source&&old!=output&&!old.isRecycled())old.recycle();
@@ -215,6 +225,7 @@ public final class PageReviewActivity extends AppCompatActivity {
         busy=value;open.setEnabled(!value);edit.setEnabled(!value&&source!=null);analyse.setEnabled(!value&&source!=null);
         bow.setEnabled(!value);contrast.setEnabled(!value);deskew.setEnabled(!value);showCandidates.setEnabled(!value);
         page.setEnabled(!value);
+        paleography.setEnabled(!value);
     }
     private void error(Exception e){
         runOnUiThread(()->{if(!isFinishing()&&!isDestroyed()){setBusy(false);status.setText("OCR: "+(e.getMessage()==null?"eroare":e.getMessage()));}});

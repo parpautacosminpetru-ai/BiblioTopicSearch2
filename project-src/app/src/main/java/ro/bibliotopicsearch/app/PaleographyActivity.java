@@ -63,6 +63,7 @@ public final class PaleographyActivity extends AppCompatActivity {
     private String selectedId="";
     private LiteralTransliterator.Result current;
     private String pendingExport;
+    private static final int MAX_PREVIEW=60000;
     private boolean busy,loading,internalInput;
     private long inputRevision;
 
@@ -175,7 +176,7 @@ public final class PaleographyActivity extends AppCompatActivity {
         source.setEnabled(!busy);
         apply.setEnabled(!busy&&!selectedId.isEmpty());
         copy.setEnabled(!busy&&current!=null);save.setEnabled(!busy&&current!=null);
-        missing.setEnabled(!busy&&current!=null&&current.unmappedNonWhitespace>0);
+        missing.setEnabled(!busy&&current!=null&&current.unmappedCharacters>0);
     }
     private void setBusy(boolean value){busy=value;updateButtons();}
     private boolean active(){return !isFinishing()&&!isDestroyed();}
@@ -194,9 +195,12 @@ public final class PaleographyActivity extends AppCompatActivity {
                     if(!active())return;
                     setBusy(false);
                     if(revision!=inputRevision||!id.equals(selectedId))return;
-                    current=result;output.setText(result.text);
+                    current=result;
+                    int end=Math.min(result.text.length(),MAX_PREVIEW);
+                    if(end<result.text.length()&&end>0&&Character.isHighSurrogate(result.text.charAt(end-1)))end--;
+                    output.setText(result.text.substring(0,end));
                     status.setText(result.substitutions+" substituții · "+result.unmappedNonWhitespace+
-                            " caractere fără regulă (păstrate)");
+                            " caractere fără regulă (păstrate)"+(end<result.text.length()?" · Previzualizare parțială; export complet":""));
                     updateButtons();
                 });
             }catch(Exception e){fail(e);}
@@ -266,12 +270,28 @@ public final class PaleographyActivity extends AppCompatActivity {
         rules.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE|InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         rules.setGravity(Gravity.TOP|Gravity.START);rules.setTextSize(15);rules.setMinLines(6);rules.setMaxLines(12);
         rules.setText(table);content.addView(rules,new LinearLayout.LayoutParams(-1,-2));
-        new AlertDialog.Builder(this).setTitle(profile==null?"Sistem nou":"Editează sistemul").setView(content)
-                .setNeutralButton("Format",(d,w)->showFormat())
-                .setNegativeButton("Renunță",null).setPositiveButton("Salvează",(d,w)->{
-                    final String raw=rules.getText().toString(),title=name.getText().toString(),id=profile==null?null:profile.id;
-                    importSystem(raw,title,id);
-                }).show();
+        AlertDialog editor=new AlertDialog.Builder(this).setTitle(profile==null?"Sistem nou":"Editează sistemul").setView(content)
+                .setNeutralButton("Format",null)
+                .setNegativeButton("Renunță",null).setPositiveButton("Salvează",null).create();
+        editor.setOnShowListener(d->{
+            editor.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->showFormat());
+            editor.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+                final String raw=rules.getText().toString(),title=name.getText().toString(),id=profile==null?null:profile.id;
+                editor.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+                setBusy(true);
+                worker.execute(()->{
+                    try{
+                        TransliterationStore.Imported data=TransliterationStore.parse(raw,title);
+                        String saved=TransliterationStore.save(this,id,data.name,data.rules);
+                        runOnUiThread(()->{if(active()){editor.dismiss();setBusy(false);reload(saved);status.setText(data.rules.size()+" reguli salvate.");}});
+                    }catch(Exception error){
+                        runOnUiThread(()->{if(active()){setBusy(false);editor.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
+                            rules.setError(error.getMessage()==null?"Sistem invalid.":error.getMessage());}});
+                    }
+                });
+            });
+        });
+        editor.show();
     }
 
     private void importSystem(String raw,String name,String id){

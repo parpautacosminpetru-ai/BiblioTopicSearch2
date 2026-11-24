@@ -13,8 +13,11 @@ final class TransliterationTable {
     static List<LiteralTransliterator.Rule> parse(String text){
         if(text==null||text.isEmpty())throw new IllegalArgumentException("Fișier de reguli gol.");
         if(text.charAt(0)=='\uFEFF')text=text.substring(1);
+        int firstStart=0;
+        while(firstStart<text.length()&&(text.charAt(firstStart)=='\r'||text.charAt(firstStart)=='\n'))firstStart++;
+        text=text.substring(firstStart);
         String first=text.substring(0,firstLineEnd(text));
-        boolean tsv=first.indexOf('\t')>=0;
+        boolean tsv=first.indexOf('\t')>=0&&!first.startsWith("\"");
         return tsv?parseTsv(text):parseCsv(text);
     }
     private static int firstLineEnd(String text){
@@ -41,7 +44,7 @@ final class TransliterationTable {
         boolean quoted=false,afterQuote=false,first=true,recordStarted=false;
         int rowNumber=1;
         // Comma is the default; semicolon CSV is supported with an explicit header.
-        String firstLine=text.substring(0,firstLineEnd(text)).toLowerCase(Locale.ROOT);
+        String firstLine=text.substring(0,firstLineEnd(text)).toLowerCase(Locale.ROOT).replace("\"","");
         char delimiter=(firstLine.equals("source;target")||firstLine.equals("sursa;destinatie")
                 ||firstLine.equals("sursă;destinație"))?';':',';
         for(int i=0;i<=text.length();i++){

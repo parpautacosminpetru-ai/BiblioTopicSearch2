@@ -73,6 +73,11 @@ public final class MapTestActivity extends AppCompatActivity {
         bar.addView(image,new LinearLayout.LayoutParams(0,dp(48),1));
         bar.addView(pageButton,new LinearLayout.LayoutParams(0,dp(48),1));root.addView(bar);
         pageButton.setOnClickListener(v->{if(busy)return;Intent i=new Intent(this,PageReviewActivity.class);i.putExtra(PROFILE_ID,profileId);startActivity(i);});
+        Button paleography=button("Paleografie");
+        root.addView(paleography,new LinearLayout.LayoutParams(-1,dp(48)));
+        paleography.setOnClickListener(v->{
+            if(!busy)PaleographyActivity.open(this,input.getText().toString(),"Text de probă");
+        });
         summary=text("",15);root.addView(summary);
         marked=text("",16);marked.setTextIsSelectable(true);marked.setVisibility(View.GONE);root.addView(marked);
         rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);root.addView(rows);
