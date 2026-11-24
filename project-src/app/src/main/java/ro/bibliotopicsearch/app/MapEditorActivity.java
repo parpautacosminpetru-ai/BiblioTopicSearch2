@@ -394,7 +394,7 @@ public final class MapEditorActivity extends AppCompatActivity {
     private void showAddTermDialog(TopicNode node) {
         EditText input = new EditText(this);
         input.setSingleLine(true);
-        input.setHint("Termen sau expresie exactă");
+        input.setHint("Termen, expresie sau semn (! ? … §)");
         input.setPadding(dp(16), dp(8), dp(16), dp(8));
 
         new AlertDialog.Builder(this)
@@ -460,7 +460,7 @@ public final class MapEditorActivity extends AppCompatActivity {
 
         java.util.ArrayList<String> updatedLines = new java.util.ArrayList<>();
         for (String line : lines) updatedLines.add(line);
-        updatedLines.add(headingIndex + 1, term);
+        updatedLines.add(headingIndex + 1, MapTermSyntax.encode(term));
 
         String updated = android.text.TextUtils.join("\n", updatedLines);
         mapEdit.setText(updated);

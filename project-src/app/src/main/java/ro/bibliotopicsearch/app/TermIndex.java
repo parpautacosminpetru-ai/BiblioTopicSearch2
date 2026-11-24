@@ -43,10 +43,12 @@ final class TermIndex<T> {
         return node.values == null ? Collections.emptyList() : node.values;
     }
 
-    List<T> prefix(String text) {
+    List<T> prefix(String text) { return prefixAt(text,0); }
+
+    List<T> prefixAt(String text,int start) {
         List<T> out = new ArrayList<>();
         Node<T> node = root;
-        for (int i = 0; i < text.length(); i++) {
+        for (int i = start; i < text.length(); i++) {
             node = node.children.get(text.charAt(i));
             if (node == null) break;
             if (node.values != null) out.addAll(node.values);

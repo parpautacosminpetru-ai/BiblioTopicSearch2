@@ -22,10 +22,14 @@ public final class TopicMatcher {
         final String raw, normalized;
         final int tokenCount;
         final TopicNode node;
+        final boolean signOnly;
         CompiledTerm(String raw, String normalized, int tokenCount, TopicNode node) {
             this.raw = raw; this.normalized = normalized; this.tokenCount = tokenCount; this.node = node;
+            signOnly = PunctuationText.isPattern(raw);
         }
     }
+
+    interface SignConsumer { void match(int start,int end,CompiledTerm term); }
 
     interface WindowConsumer { void match(int start, int end, List<CompiledTerm> terms, MatchHit.Kind kind); }
 
@@ -33,18 +37,35 @@ public final class TopicMatcher {
         private final boolean stripDiacritics, repairEnabled, joinEnabled;
         private final AppPrefs.MatchMode mode;
         private final Map<Integer, TermIndex<CompiledTerm>> exact;
-        private final TermIndex<CompiledTerm> approximate;
+        private final TermIndex<CompiledTerm> approximate, signs;
+        private final boolean hasSigns;
         private final int maxTokens, termCount;
         private final Map<String, Set<String>> allowed;
 
         private SearchPlan(boolean strip, AppPrefs.MatchMode mode, boolean repair, boolean join,
                            Map<Integer, TermIndex<CompiledTerm>> exact, TermIndex<CompiledTerm> approximate,
-                           int maxTokens, int termCount, Map<String, Set<String>> allowed) {
+                           int maxTokens, int termCount, Map<String, Set<String>> allowed, TermIndex<CompiledTerm> signs, boolean hasSigns) {
             stripDiacritics = strip; this.mode = mode; repairEnabled = repair; joinEnabled = join;
             this.exact = exact; this.approximate = approximate;
             this.maxTokens = maxTokens; this.termCount = termCount; this.allowed = allowed;
+            this.signs=signs;this.hasSigns=hasSigns;
         }
         public int termCount() { return termCount; }
+
+        void scanSigns(String raw,SignConsumer consumer) {
+            if(!hasSigns||raw==null)return;
+            for(int i=0;i<raw.length();){
+                if(Thread.currentThread().isInterrupted())return;
+                int cp=raw.codePointAt(i);
+                if(PunctuationText.isSign(cp)){
+                    for(CompiledTerm term:signs.prefixAt(raw,i)){
+                        int end=i+term.raw.length();
+                        if(end<=raw.length())consumer.match(i,end,term);
+                    }
+                }
+                i+=Character.charCount(cp);
+            }
+        }
 
         List<CompiledTerm> exactCandidates(int count, String value) {
             TermIndex<CompiledTerm> index = exact.get(count);
@@ -79,7 +100,8 @@ public final class TopicMatcher {
         /** Verify actual source evidence again, independently of trie lookup. */
         boolean verifies(CompiledTerm term, String raw, MatchHit.Kind kind) {
             Set<String> keys = allowed.get(term.node.identityKey());
-            if (keys == null || !keys.contains(term.normalized)) return false;
+            if (keys == null || !keys.contains(term.signOnly ? "\u0001" + term.raw : term.normalized)) return false;
+            if(term.signOnly)return kind==MatchHit.Kind.LITERAL&&term.raw.equals(raw);
             List<String> values = LiteralText.values(raw, stripDiacritics);
             String key = LiteralText.key(values, 0, values.size());
             if (kind == MatchHit.Kind.OCR_REPAIR) {
@@ -104,7 +126,7 @@ public final class TopicMatcher {
                 }
                 return false;
             }
-            if (term.normalized.equals(key)) return true;
+            if (term.normalized.equals(key)) return PunctuationText.sameSignGroups(term.raw,raw);
             return mode != AppPrefs.MatchMode.EXACT && values.size()==1 && candidates(1,key).contains(term);
         }
 
@@ -161,7 +183,8 @@ public final class TopicMatcher {
     static SearchPlan compile(TopicMap map, boolean strip, int chars, AppPrefs.MatchMode mode,
                               boolean repair, boolean join, boolean titles) {
         Map<Integer, TermIndex<CompiledTerm>> exact = new HashMap<>();
-        TermIndex<CompiledTerm> approximate = new TermIndex<>();
+        TermIndex<CompiledTerm> approximate = new TermIndex<>(), signs = new TermIndex<>();
+        boolean hasSigns=false;
         int max = 0, count = 0;
         Map<String,Set<String>> allowed = new HashMap<>();
         if (map != null) for (TopicNode node : map.nodes) {
@@ -169,6 +192,15 @@ public final class TopicMatcher {
             List<String> terms = node.terms.isEmpty() && titles ? Collections.singletonList(node.title) : node.terms;
             Set<String> seen = new HashSet<>();
             for (String raw : terms) {
+                if(raw==null)continue;
+                if(PunctuationText.isPattern(raw)){
+                    String key="\u0001"+raw;
+                    if(!seen.add(key))continue;
+                    CompiledTerm term=new CompiledTerm(raw,raw,0,node);
+                    allowed.computeIfAbsent(node.identityKey(),unused->new HashSet<>()).add(key);
+                    signs.add(raw,term);hasSigns=true;count++;
+                    continue;
+                }
                 List<String> tokens = LiteralText.values(raw, strip);
                 if (tokens.isEmpty()) continue;
                 String key = LiteralText.key(tokens, 0, tokens.size());
@@ -185,7 +217,7 @@ public final class TopicMatcher {
                 count++;
             }
         }
-        return new SearchPlan(strip, mode, repair, join, exact, approximate, max, count, allowed);
+        return new SearchPlan(strip, mode, repair, join, exact, approximate, max, count, allowed, signs, hasSigns);
     }
 
     /** Text-only diagnostic uses the actual compiled index and independent
@@ -203,6 +235,12 @@ public final class TopicMatcher {
     public static List<TextProbeHit> probeText(String text, SearchPlan plan) {
         List<TextProbeHit> hits=new ArrayList<>();
         if(text==null||plan==null||plan.termCount==0)return hits;
+        // Signs are searched literally, even within dates or compound words.
+        plan.scanSigns(text,(start,end,term)->{
+            String original=text.substring(start,end);
+            if(plan.verifies(term,original,MatchHit.Kind.LITERAL))
+                hits.add(new TextProbeHit(start,end,term.node,original,term.raw,MatchHit.Kind.LITERAL));
+        });
         // Empty lines are hard paragraph boundaries. Nonempty line breaks
         // can separate words, but this text-only mode cannot validate columns.
         java.util.regex.Matcher paragraph=java.util.regex.Pattern.compile("[^\\r\\n]+(?:\\r?\\n[^\\r\\n]+)*").matcher(text);
@@ -234,6 +272,7 @@ public final class TopicMatcher {
                     hits.add(new TextProbeHit(offset+from,offset+to,term.node,original,term.raw,kind));
             });
         }
+        java.util.Collections.sort(hits,java.util.Comparator.comparingInt((TextProbeHit hit)->hit.start).thenComparingInt(hit->hit.end));
         return hits;
     }
 
@@ -339,8 +378,29 @@ public final class TopicMatcher {
             for (ElementSpan e:elements) {
                 if(e.end<=from)continue;
                 if(e.start>=to)break;
-                if(LiteralText.hasWord(e.element.getText())) confidence.add(e.element.getConfidence());
+                String part=linePart(e,from,to);
+                if(PunctuationText.isPattern(part)){
+                    // A containing word's confidence is not the confidence of
+                    // its comma or apostrophe. Use aligned symbol evidence.
+                    List<Text.Symbol> symbols=e.element.getSymbols();
+                    List<String> values=new ArrayList<>();
+                    if(symbols!=null)for(Text.Symbol symbol:symbols)values.add(symbol.getText());
+                    int[] offsets=LiteralText.align(e.element.getText(),values);
+                    boolean found=false;
+                    if(offsets!=null)for(int i=0;i<offsets.length;i++){
+                        int x=e.start+offsets[i],y=x+values.get(i).length();
+                        if(y<=from||x>=to)continue;
+                        if(x<from||y>to){confidence.add(0f);continue;}
+                        confidence.add(symbols.get(i).getConfidence());found=true;
+                    }
+                    if(!found)confidence.add(PunctuationText.isPattern(e.element.getText())
+                            ?e.element.getConfidence():0f);
+                }else confidence.add(e.element.getConfidence());
             }
+        }
+
+        private String linePart(ElementSpan e,int from,int to){
+            return raw.substring(Math.max(from,e.start),Math.min(to,e.end));
         }
 
         List<RectF> geometry(int from, int to) {
@@ -360,7 +420,7 @@ public final class TopicMatcher {
                         float bw=Math.abs(axis.ux)*box.width()+Math.abs(axis.uy)*box.height();
                         if(!axis.consecutive(prev.centerX(),prev.centerY(),box.centerX(),box.centerY(),aw,bw))return null;
                     }else{
-                        float height=Math.max(prev.height(),box.height());
+                        float height=Math.max(Math.max(prev.height(),box.height()),bounds==null?0:Math.min(bounds.height(),Math.max(prev.height(),box.height())*3f));
                         if(box.left-prev.right>height*2.5f||Math.abs(box.centerY()-prev.centerY())>height*1.25f)return null;
                     }
                 }
@@ -407,6 +467,7 @@ public final class TopicMatcher {
             }
             for (int i = 0; i < lines.size(); i++) {
                 LineData current = lines.get(i);
+                scanSigns(current,plan,hits,dedupe,now);
                 scan(current.tokens, -1,-1,null,plan,hits,dedupe,now);
                 if (i == 0) continue;
                 LineData before = lines.get(i-1);
@@ -421,6 +482,23 @@ public final class TopicMatcher {
             }
         }
         return hits;
+    }
+
+    private static void scanSigns(LineData line,SearchPlan plan,List<MatchHit> hits,
+                                  Set<String> dedupe,long now) {
+        plan.scanSigns(line.raw,(start,end,term)->{
+            String original=line.raw.substring(start,end);
+            if(!plan.verifies(term,original,MatchHit.Kind.LITERAL))return;
+            List<RectF> boxes=line.geometry(start,end);
+            // If a sign is attached to a word and ML Kit supplied no usable
+            // symbol rectangle, do not colour the containing word.
+            if(boxes==null)return;
+            OcrConfidence confidence=new OcrConfidence();
+            line.confidence(start,end,confidence);
+            float score=confidence.value();
+            if(OcrConfidence.requiredFrames(score,false)==0)return;
+            addUnique(hits,dedupe,boxes,original,term,now,MatchHit.Kind.LITERAL,score);
+        });
     }
 
     private static void scanJoined(LineData a, LineData b, SearchPlan plan,
@@ -484,11 +562,16 @@ public final class TopicMatcher {
         if (OcrConfidence.requiredFrames(score, kind != MatchHit.Kind.LITERAL) == 0) return;
         for (CompiledTerm term : terms) {
             if (!plan.verifies(term, original, kind)) continue;
-            StringBuilder key = new StringBuilder(term.node.identityKey()).append('|').append(term.raw);
-            for (RectF rect : geometry) key.append('|').append(rect.left).append(':').append(rect.top)
-                    .append(':').append(rect.right).append(':').append(rect.bottom);
-            if (dedupe.add(key.toString())) hits.add(new MatchHit(geometry,original,term.raw,term.node,now,kind,false,score));
+            addUnique(hits,dedupe,geometry,original,term,now,kind,score);
         }
+    }
+
+    private static void addUnique(List<MatchHit> hits,Set<String> dedupe,List<RectF> geometry,
+                                  String original,CompiledTerm term,long now,MatchHit.Kind kind,float score){
+        StringBuilder key=new StringBuilder(term.node.identityKey()).append('|').append(term.raw);
+        for(RectF rect:geometry)key.append('|').append(rect.left).append(':').append(rect.top)
+                .append(':').append(rect.right).append(':').append(rect.bottom);
+        if(dedupe.add(key.toString()))hits.add(new MatchHit(geometry,original,term.raw,term.node,now,kind,false,score));
     }
 
     /** Compatibility helper used for page anchors and not for matching. */

@@ -128,15 +128,8 @@ public final class TopicMapStore {
 
             if (current == null) continue;
 
-            String termLine = line;
-            if (termLine.startsWith("- ") || termLine.startsWith("• ")) {
-                termLine = termLine.substring(2).trim();
-            }
-
-            String[] pieces = termLine.split("\\|");
-            for (String piece : pieces) {
-                String term = piece.trim();
-                if (!term.isEmpty() && !current.terms.contains(term)) current.terms.add(term);
+            for (String term : MapTermSyntax.decode(line)) {
+                if (!current.terms.contains(term)) current.terms.add(term);
             }
         }
 

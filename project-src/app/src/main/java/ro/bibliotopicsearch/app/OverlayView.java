@@ -108,17 +108,20 @@ public final class OverlayView extends View {
             fillPaint.setStyle(Paint.Style.FILL);
             fillPaint.setColor(withAlpha(color, allHeld ? 24 : 42));
             canvas.drawRoundRect(box, dp(3), dp(3), fillPaint);
+            float fineStroke=Math.min(dp(2),Math.max(0.5f,Math.min(box.width(),box.height())*.35f));
             if (colors.size() == 1) {
                 strokePaint.setColor(withAlpha(color, allHeld ? 140 : 245));
-                strokePaint.setStrokeWidth(dp(2));
-                canvas.drawRoundRect(box, dp(3), dp(3), strokePaint);
+                strokePaint.setStrokeWidth(fineStroke);
+                float radius=Math.min(dp(3),Math.min(box.width(),box.height())*.2f);
+                canvas.drawRoundRect(box, radius, radius, strokePaint);
             } else {
                 float step = box.width() / colors.size();
                 float left = box.left;
                 for (int c : colors.values()) {
                     fillPaint.setColor(withAlpha(c, allHeld ? 140 : 245));
-                    canvas.drawRect(left, box.top, left + step, box.top + dp(3), fillPaint);
-                    canvas.drawRect(left, box.bottom - dp(3), left + step, box.bottom, fillPaint);
+                    float band=Math.min(dp(3),box.height()*.35f);
+                    canvas.drawRect(left, box.top, left + step, box.top + band, fillPaint);
+                    canvas.drawRect(left, box.bottom - band, left + step, box.bottom, fillPaint);
                     left += step;
                 }
             }

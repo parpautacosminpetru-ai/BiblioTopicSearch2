@@ -78,13 +78,14 @@ final class PagePreviewView extends View {
             RectF box=entry.getValue();Map<String,Integer> palette=colors.get(entry.getKey());
             int color=palette.values().iterator().next();
             ink.setStyle(Paint.Style.FILL);ink.setColor((color&0xffffff)|0x30000000);canvas.drawRect(box,ink);
+            float fineStroke=Math.min(stroke,Math.max(.5f,Math.min(box.width(),box.height())*.35f));
             if(palette.size()==1){
-                ink.setStyle(Paint.Style.STROKE);ink.setStrokeWidth(stroke);ink.setColor(color);
+                ink.setStyle(Paint.Style.STROKE);ink.setStrokeWidth(fineStroke);ink.setColor(color);
                 canvas.drawRect(box,ink);ink.setStyle(Paint.Style.FILL);
             }else{
                 float step=box.width()/palette.size(),left=box.left;
-                for(int c:palette.values()){ink.setColor(c);canvas.drawRect(left,box.top,left+step,box.top+stroke,ink);
-                    canvas.drawRect(left,box.bottom-stroke,left+step,box.bottom,ink);left+=step;}
+                for(int c:palette.values()){ink.setColor(c);canvas.drawRect(left,box.top,left+step,box.top+fineStroke,ink);
+                    canvas.drawRect(left,box.bottom-fineStroke,left+step,box.bottom,ink);left+=step;}
             }
         }
         canvas.restore();

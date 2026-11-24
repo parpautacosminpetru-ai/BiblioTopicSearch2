@@ -31,6 +31,7 @@ final class LiveFrameStabilizer {
             MatchHit hit=raw.withTimestamp(timestamp);
             boolean reconstructed=hit.kind!=MatchHit.Kind.LITERAL;
             int required=OcrConfidence.requiredFrames(hit.confidence,reconstructed);
+            if(required>0&&PunctuationText.isPattern(hit.searchTerm))required=3;
             // Use original text, not a corrected string or a map title.
             String key=hit.identityKey()+"\u0001"+hit.originalText+"\u0001"+hit.kind;
             readings.add(new VerifiedFrameTracker.Reading<>(key,hit.box.centerX(),hit.box.centerY(),
