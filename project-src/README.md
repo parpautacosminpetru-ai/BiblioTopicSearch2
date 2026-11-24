@@ -1,3 +1,51 @@
+# BiblioTopicSearch 1.1.2 — MultiMap OCR (August 11 baseline)
+
+This branch starts from the original 2026-08-11 archive at commit
+`e139cc98818f8f8e3716ee202d2d987dc237d89b`. The original ZIP is retained
+unchanged. The editable and buildable project is in `project-src/`.
+
+## Changes
+
+- Select any number of thematic map profiles from the camera header or library.
+  All profiles are scanned by default, independently of the currently edited
+  profile. Disabled nodes stay disabled; custom colours and symbols are preserved.
+- One local ML Kit OCR stream, one shared term index and independent bounded
+  workers for matching, plan compilation and UI delivery. New frames replace
+  pending older frames; generation checks discard results after pause, map change
+  or freeze. No network OCR or fabricated text.
+- Prefer 1280×960 analysis resolution with device fallback; tap-to-focus and
+  pinch-to-zoom on unmarked preview. Romanian diacritics and punctuation variants
+  are normalized for matching. Adjacent lines in the same OCR block may match
+  a phrase, with separate highlight rectangles.
+- Coincident map matches retain profile identity and remain individually
+  accessible. Compact map counts and optional labels; remove redundant prose
+  from scanner, library, editor and settings.
+- The existing preferences, local dictionary, map import/export and manual
+  freeze/save behavior are retained. Scan selection uses a new preference key.
+
+## Build and tests
+
+```sh
+gradle --no-daemon -p project-src :app:testDebugUnitTest :app:assembleDebug
+```
+
+GitHub Actions builds the debug APK from extracted, modified sources, not the
+historical ZIP. It uploads the APK and SHA-256 file only after unit tests and build
+succeed. Package ID is unchanged; a debug APK can update an installed app only
+if its signing certificate is compatible. Export maps before changing APKs;
+do not uninstall the old application merely to try this build.
+
+Unit tests verify profile identity, matching rules, Romanian normalization,
+large index construction and bounded latest-frame scheduling. Real-device
+camera performance, OCR accuracy and stability still require physical testing:
+try two maps containing the same term, then 10+ maps; pause, freeze, resume and
+change map selections while scanning; test small print, dim light and page
+changes. Check that no obsolete overlays reappear and that both map matches
+remain accessible. Compare frame latency and recognition accuracy on the same
+phone and printed pages against the original version.
+
+## Original README
+
 # Biblio Topic Search 1.1
 
 Biblio Topic Search este o aplicație Android offline pentru cercetare rapidă în cărți și alte surse fizice, folosind OCR live pe cameră. Aplicația nu decide semantic ce este relevant: utilizatorul definește termenii, nodurile și hărțile de cercetare, iar interpretarea contextului rămâne la utilizator.

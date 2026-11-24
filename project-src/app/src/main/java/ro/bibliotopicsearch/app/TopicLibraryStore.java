@@ -22,7 +22,7 @@ public final class TopicLibraryStore {
         return context.getSharedPreferences(FILE, Context.MODE_PRIVATE);
     }
 
-    private static void ensureInitialized(Context context) {
+    private static synchronized void ensureInitialized(Context context) {
         SharedPreferences p = prefs(context);
         if (p.getBoolean("initialized", false)) return;
 
