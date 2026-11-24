@@ -31,6 +31,7 @@ final class PaleographyOverlayRenderer {
                 // only if a literal expansion would overflow the source line.
                 sx=Math.min(sx,sy);
                 float usedWidth=line.layout.getWidth()*sx,usedHeight=line.layout.getHeight()*sy;
+                int textSave=canvas.save();
                 boolean rtl=line.layout.getParagraphDirection(0)==-1;
                 canvas.translate(pad+(rtl?w-usedWidth:0f),pad+(h-usedHeight)*.5f);
                 canvas.scale(sx,sy);
@@ -40,6 +41,7 @@ final class PaleographyOverlayRenderer {
                     canvas.drawPath(selection,highlight);
                 }
                 line.layout.draw(canvas);
+                canvas.restoreToCount(textSave);
             }
             if(active&&(cue.start==cue.end||line.layout==null)){
                 // An explicit deletion has no output glyph to highlight.

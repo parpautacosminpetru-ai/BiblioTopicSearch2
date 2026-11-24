@@ -145,6 +145,10 @@ public final class PaleographyActivity extends AppCompatActivity {
             }
         });
         setContentView(scroll);UiInsets.apply(scroll);
+        if(state!=null){
+            pendingClipSystem=state.getString("pending_clip_system");
+            pendingClipSource=state.getString("pending_clip_source");
+        }
         reload(TransliterationStore.selected(this));
         Draft draft=DRAFT.getAndSet(null);
         if(draft!=null){
@@ -427,5 +431,10 @@ public final class PaleographyActivity extends AppCompatActivity {
     private TextView label(String value,int size){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(Color.rgb(25,34,45));t.setPadding(0,dp(5),0,dp(5));return t;}
     private Button button(String value){Button b=new Button(this);b.setText(value);b.setAllCaps(false);b.setTextSize(13);b.setTextColor(Color.WHITE);b.setBackgroundTintList(ColorStateList.valueOf(Color.rgb(40,77,115)));return b;}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
+    @Override protected void onSaveInstanceState(Bundle state){
+        super.onSaveInstanceState(state);
+        state.putString("pending_clip_system",pendingClipSystem);
+        state.putString("pending_clip_source",pendingClipSource);
+    }
     @Override protected void onDestroy(){worker.shutdownNow();super.onDestroy();}
 }

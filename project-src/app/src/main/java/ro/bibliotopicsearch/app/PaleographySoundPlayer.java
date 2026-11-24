@@ -35,10 +35,11 @@ final class PaleographySoundPlayer implements AutoCloseable{
     private final AudioAttributes attributes=new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build();
     private final AudioManager.OnAudioFocusChangeListener focusListener=change->{
-        if(change<=0)main.post(()->{cancelLine();focusHeld=false;});
+        if(change<=0)main.post(this::cancelLine);
     };
     private static final class Heard{
-        PaleographyLine line;long lastSeen;int nextIndex;boolean completed;
+        PaleographyLine line;long lastSeen;
+        final PaleographyAudioProgress progress=new PaleographyAudioProgress();
         Heard(PaleographyLine line,long now){this.line=line;lastSeen=now;}
     }
     private final List<Heard> heard=new ArrayList<>();
@@ -110,14 +111,17 @@ final class PaleographySoundPlayer implements AutoCloseable{
         for(PaleographyLine line:visible){
             Heard previous=null;
             for(Heard h:heard)if(same(h.line,line)){previous=h;break;}
-            if(previous!=null&&previous.completed)continue;
+            if(previous!=null&&previous.progress.done())continue;
             List<LiteralTransliterator.RuleMatch> cues=new ArrayList<>();
             for(LiteralTransliterator.RuleMatch m:line.matches)if(hasSound(m))cues.add(m);
             if(cues.isEmpty())continue;
             if(!requestFocus())return;
-            if(previous==null){previous=new Heard(line,SystemClock.elapsedRealtime());heard.add(previous);}
+            if(previous==null){
+                if(heard.size()>=720)heard.remove(0);
+                previous=new Heard(line,SystemClock.elapsedRealtime());heard.add(previous);
+            }
             activeHeard=previous;playing=line;queue=cues;
-            index=Math.min(previous.nextIndex,cues.size());
+            index=previous.progress.start(cues.size());
             next();return;
         }
         abandonFocus();
@@ -138,7 +142,7 @@ final class PaleographySoundPlayer implements AutoCloseable{
     private void next(){
         if(!enabled||closed||playing==null){cancelLine();return;}
         if(index>=queue.size()){
-            if(activeHeard!=null)activeHeard.completed=true;
+            if(activeHeard!=null)activeHeard.progress.finish();
             finishCue();playing=null;activeHeard=null;queue=Collections.emptyList();index=0;
             startNext();return;
         }
@@ -232,7 +236,7 @@ final class PaleographySoundPlayer implements AutoCloseable{
     }
     private void complete(long id){
         if(id!=token||playing==null)return;
-        if(activeHeard!=null)activeHeard.nextIndex=index;
+        if(activeHeard!=null)activeHeard.progress.completeThrough(index);
         next();
     }
     private void arm(long id,long ms){

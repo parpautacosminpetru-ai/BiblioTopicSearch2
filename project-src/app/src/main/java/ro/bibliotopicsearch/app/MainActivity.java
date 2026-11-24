@@ -281,7 +281,8 @@ public final class MainActivity extends AppCompatActivity {
                 try {
                     if (!systemId.isEmpty()) {
                         imported = TransliterationStore.engine(this, systemId);
-                        soundFiles=PaleographyAudioFiles.available(this,systemId,imported);
+                        try{soundFiles=PaleographyAudioFiles.available(this,systemId,imported);}
+                        catch(RuntimeException audioError){Log.w(TAG,"Recorded sounds unavailable",audioError);}
                         for (TransliterationStore.Profile profile : TransliterationStore.list(this))
                             if (profile.id.equals(systemId)) systemName = profile.name;
                     }

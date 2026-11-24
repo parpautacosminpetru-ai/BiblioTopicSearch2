@@ -1,3 +1,12 @@
+# 1.2.1 — Paleografie cu sunet sincronizat
+
+- Mod Paleo pe cameră, cadru înghețat și pagină corectată: pronunțiile explicite sunt redate secvențial în ordinea regulilor literale. Echivalentul vizual al caracterului/grupului rostit este evidențiat în rândul suprapus. Regula cea mai lungă rămâne prioritară; caracterele fără sunet definit nu sunt pronunțate prin presupunere.
+- Formatul existent cu 2 coloane rămâne valid. Sunt permise coloanele opționale sound și language (BCP-47); exemplu CSV: Ж,Zh,je,ro-RO. În lipsa limbii se solicită o voce locală ro-RO. În JSON, sound și language sunt câmpuri opționale. Fișier demonstrativ: exemple/sistem-paleografie-sunet.csv. Valorile demonstrative nu reprezintă afirmații despre pronunția istorică.
+- Sisteme / Sunete înregistrate: asociază un fișier audio la sursa exactă a unei reguli. O înregistrare validă are prioritate față de sinteza vocală. Maximum 10 s și 2 MiB per fișier; stocare locală cu limită globală de 64 MiB. Exportul tabelului TSV conține regulile scrise, nu fișierele audio atașate; păstrează separat înregistrările originale.
+- Redare cu voce locală Android TTS numai dacă există o voce instalată pentru limba solicitată; dacă nu, regula rămâne vizuală și aplicația semnalează indisponibilitatea. TTS citește textul sound și nu garantează reproducerea unui fonem istoric sau IPA. Pentru sunet exact, atașează o înregistrare proprie.
+- Un singur sunet activ, fără acumularea unei cozi de cadre; se oprește la dispariția rândului, expirare, schimbarea modului sau părăsirea ecranului. Progresul rândului se păstrează prin întreruperi scurte. Meniul Sunet Paleo permite oprirea și pornirea; comanda Original dezactivează suprapunerea sonoră și vizuală pentru cadrul înghețat. Exportul PNG păstrează textul transliterat, nu sunetul sau evidențierea temporară.
+- Teste unitare pentru regulile audio, offseturi și progres, plus teste existente pentru geometrie și OCR. Redarea TTS/audio și alinierea în timp real necesită testare pe telefon; modelul OCR Latin nu este un recognizer universal al manuscriselor.
+
 # 1.2.0 — Paleografie direct pe pagină / cameră
 
 - Butonul Paleo activează/dezactivează transliterarea suprapusă direct peste textul camerei. Apăsarea lungă alege sistemul, iar Pe cameră din administratorul sistemelor activează modul. Detectarea tematică rămâne un mod separat: hărțile, culorile și setările nu sunt alterate.
