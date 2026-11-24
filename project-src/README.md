@@ -242,3 +242,7 @@ Dacă repository-ul tău conține arhiva `BiblioTopicSearch_FINAL.zip`, păstrea
 - legendă compactă cu nod, forma OCR detectată și numărul de apariții;
 - etichetele plutitoare sunt opționale și pot fi pornite/oprite direct pe cameră;
 - mod de potrivire „Toate simultan (Exact + Începe cu + Conține)”.
+
+### APK separat
+
+În GitHub Actions, alege artefactul `Biblio-Paleografie-1.4.1-Separat`. Verifică suma SHA-256 inclusă. Instalează separat; nu dezinstala versiunile care conțin date de lucru.
