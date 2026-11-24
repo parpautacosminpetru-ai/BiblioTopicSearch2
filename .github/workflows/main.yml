@@ -22,11 +22,15 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.13"
-      - uses: android-actions/setup-android@v3
       - name: Install Android SDK
+        shell: bash
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-36" "build-tools;35.0.0"
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          MANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$MANAGER"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          yes | "$MANAGER" --licenses >/dev/null || true
+          "$MANAGER" --sdk_root="$SDK" "platforms;android-36" "build-tools;35.0.0"
       - name: Unit tests and build
         run: gradle --no-daemon -p project-src :app:testDebugUnitTest :app:assembleDebug
       - name: Test reports
