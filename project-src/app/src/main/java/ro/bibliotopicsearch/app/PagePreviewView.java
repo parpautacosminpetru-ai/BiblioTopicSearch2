@@ -24,6 +24,8 @@ final class PagePreviewView extends View {
     private List<MatchHit> hits=Collections.emptyList();
     private List<PaleographyLine> paleography=Collections.emptyList();
     private final PaleographyOverlayRenderer paleographyRenderer=new PaleographyOverlayRenderer();
+    private PaleographyLine speaking;
+    private LiteralTransliterator.RuleMatch spokenCue;
     private float[] quad={0,0,1,0,1,1,0,1};
     private boolean editing;
     private int dragged=-1;
@@ -39,6 +41,9 @@ final class PagePreviewView extends View {
     }
     void showPaleography(Bitmap bitmap,List<PaleographyLine> lines){
         this.bitmap=bitmap;hits=Collections.emptyList();paleography=lines;editing=false;invalidate();
+    }
+    void setSpeaking(PaleographyLine line,LiteralTransliterator.RuleMatch cue){
+        speaking=line;spokenCue=cue;invalidate();
     }
     float[] corners(){return quad.clone();}
     private float dp(float n){return n*getResources().getDisplayMetrics().density;}
@@ -93,7 +98,7 @@ final class PagePreviewView extends View {
                     canvas.drawRect(left,box.bottom-fineStroke,left+step,box.bottom,ink);left+=step;}
             }
         }
-        paleographyRenderer.draw(canvas,paleography);
+        paleographyRenderer.draw(canvas,paleography,speaking,spokenCue);
         canvas.restore();
     }
     @Override public boolean onTouchEvent(MotionEvent event){

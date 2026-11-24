@@ -82,6 +82,10 @@ public final class MainActivity extends AppCompatActivity {
     private Button paleoButton;
     private volatile boolean paleographyEnabled;
     private volatile LiteralTransliterator livePaleographyEngine;
+    private Map<String,java.io.File> liveSoundClips=Collections.emptyMap();
+    private Map<String,java.io.File> frozenSoundClips=Collections.emptyMap();
+    private List<PaleographyLine> frozenPaleoLines=Collections.emptyList();
+    private PaleographySoundPlayer paleoSound;
     private String livePaleographyName = "";
     private final PaleographyProjection paleographyProjection = new PaleographyProjection();
     private Button mapButton;
@@ -181,6 +185,14 @@ public final class MainActivity extends AppCompatActivity {
         floatingLabelsEnabled = AppPrefs.floatingLabels(this);
         paleographyEnabled = AppPrefs.paleographyLive(this);
         buildUi();
+        paleoSound=new PaleographySoundPlayer(this,new PaleographySoundPlayer.Listener(){
+            @Override public void highlight(PaleographyLine line,LiteralTransliterator.RuleMatch cue){
+                if(!destroyed&&paleographyOverlay!=null)paleographyOverlay.setSpeaking(line,cue);
+            }
+            @Override public void unavailable(String language){
+                if(resumed&&!destroyed)toast("Sunet indisponibil: "+language);
+            }
+        });
         toneGenerator = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 22);
         overlayView.setOnHitTapListener(this::showHitChoices);
 
@@ -204,11 +216,13 @@ public final class MainActivity extends AppCompatActivity {
         updateOcrButton();
         updatePaleoUi();
         reloadPlan();
+        if(frozen&&frozenPaleographyCapture)displayFrozenPaleography();
     }
 
     @Override
     protected void onPause() {
         resumed = false;
+        if(paleoSound!=null)paleoSound.setEnabled(false);
         ++planRequest;
         planJobs.clear();
         stopAnalysis();
@@ -219,6 +233,8 @@ public final class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         destroyed = true;
+        if(paleoSound!=null)paleoSound.close();
+        ++freezeRevision;
         stopAnalysis();
         if (cameraController != null) cameraController.unbind();
         if (recognizer != null) recognizer.close();
@@ -241,7 +257,9 @@ public final class MainActivity extends AppCompatActivity {
         clearMatches();
         searchPlan = null;
         livePaleographyEngine = null;
+        liveSoundClips=Collections.emptyMap();
         livePaleographyName = "";
+        if(paleoSound!=null&&!frozen)paleoSound.clear(true);
         mapButton.setEnabled(false);
         mapButton.setText("Hărți…");
         if (!frozen) setStatus("Se încarcă hărțile…", Color.rgb(244, 188, 77));
@@ -256,12 +274,14 @@ public final class MainActivity extends AppCompatActivity {
             TopicMap map = TopicMapStore.loadForScanning(this, selected);
             TopicMatcher.SearchPlan plan = TopicMatcher.compile(this, map);
             LiteralTransliterator imported = null;
+            Map<String,java.io.File> soundFiles=Collections.emptyMap();
             String systemName = "";
             if (paleographyEnabled) {
                 String systemId = TransliterationStore.selected(this);
                 try {
                     if (!systemId.isEmpty()) {
                         imported = TransliterationStore.engine(this, systemId);
+                        soundFiles=PaleographyAudioFiles.available(this,systemId,imported);
                         for (TransliterationStore.Profile profile : TransliterationStore.list(this))
                             if (profile.id.equals(systemId)) systemName = profile.name;
                     }
@@ -270,6 +290,7 @@ public final class MainActivity extends AppCompatActivity {
                 }
             }
             final LiteralTransliterator engine = imported;
+            final Map<String,java.io.File> clips=soundFiles;
             final String selectedName = systemName;
             Set<String> ids = new LinkedHashSet<>();
             for (MapProfile profile : selected) ids.add(profile.id);
@@ -280,6 +301,7 @@ public final class MainActivity extends AppCompatActivity {
                 topicMap = map;
                 searchPlan = plan;
                 livePaleographyEngine = engine;
+                liveSoundClips=clips;
                 livePaleographyName = selectedName;
                 updatePaleoUi();
                 syncVisibleNodes();
@@ -619,6 +641,7 @@ public final class MainActivity extends AppCompatActivity {
         if(paleographyEnabled){
             if(!beginOverlayFrame(result.frame.receivedAt))return;
             paleographyOverlay.setLines(result.paleography);
+            if(paleoSound!=null)paleoSound.update(result.paleography,liveSoundClips);
             setStatus(livePaleographyEngine==null?"Alege un sistem":
                     result.paleography.isEmpty()?livePaleographyName:
                     livePaleographyName+" · "+result.paleography.size()+" rânduri",
@@ -634,6 +657,7 @@ public final class MainActivity extends AppCompatActivity {
         if (ocrEnabled) attachAnalyzer();
         idleStatus();
         updateOcrButton();
+        updatePaleoUi();
     }
 
     private void updateOcrButton() {
@@ -653,14 +677,19 @@ public final class MainActivity extends AppCompatActivity {
 
     private void showQuickMenu() {
         String labels = floatingLabelsEnabled ? "Ascunde etichetele" : "Afișează etichetele";
-        new AlertDialog.Builder(this).setItems(new String[]{"Noduri afișate", labels, "Pagină / OCR aprofundat", "Sisteme paleografie", "Setări"},
+        String soundLabel=AppPrefs.paleographySound(this)?"Sunet Paleo: oprește":"Sunet Paleo: pornește";
+        new AlertDialog.Builder(this).setItems(new String[]{"Noduri afișate", labels, "Pagină / OCR aprofundat", "Sisteme paleografie", soundLabel, "Setări"},
                 (dialog, which) -> {
                     if (which == 0) {
                         if (topicMap != null && searchPlan != null) showNodeSelection();
                     } else if (which == 1) toggleFloatingLabels();
                     else if (which == 2) openPageReview();
                     else if (which == 3) showPaleographySystems();
-                    else startActivity(new Intent(this, SettingsActivity.class));
+                    else if (which == 4) {
+                        AppPrefs.setPaleographySound(this,!AppPrefs.paleographySound(this));
+                        updatePaleoUi();
+                        if(frozen&&frozenPaleographyCapture)displayFrozenPaleography();
+                    }else startActivity(new Intent(this, SettingsActivity.class));
                 }).setNegativeButton("Închide", null).show();
     }
 
@@ -685,11 +714,18 @@ public final class MainActivity extends AppCompatActivity {
         paleoButton.setEnabled(!frozen||frozenPaleographyCapture);
         paleoButton.setText(frozen&&frozenPaleographyCapture
                 ?(frozenRevealOriginal?"Paleo":"Original")
-                :(paleographyEnabled?"Paleo ●":"Paleo"));
+                :(paleographyEnabled?(AppPrefs.paleographySound(this)?"Paleo ♪":"Paleo ●"):"Paleo"));
         paleoButton.setBackgroundTintList(ColorStateList.valueOf(paleographyEnabled
                 ?Color.rgb(116,83,153):Color.rgb(53,92,125)));
         if(overlayView!=null)overlayView.setVisibility(!frozen&&!paleographyEnabled?View.VISIBLE:View.GONE);
-        if(paleographyOverlay!=null)paleographyOverlay.setVisibility(!frozen&&paleographyEnabled?View.VISIBLE:View.GONE);
+        boolean showFrozen=frozen&&frozenPaleographyCapture&&!frozenRevealOriginal&&frozenPaleography!=null;
+        if(paleographyOverlay!=null){
+            paleographyOverlay.setVisibility((!frozen&&paleographyEnabled)||showFrozen?View.VISIBLE:View.GONE);
+            if(showFrozen&&frozenOriginal!=null)paleographyOverlay.setImageSize(frozenOriginal.getWidth(),frozenOriginal.getHeight());
+            else paleographyOverlay.setImageSize(0,0);
+        }
+        if(paleoSound!=null)paleoSound.setEnabled(resumed&&AppPrefs.paleographySound(this)&&
+                (showFrozen||(!frozen&&paleographyEnabled&&ocrEnabled)));
     }
 
     private void showPaleographySystems(){
@@ -795,6 +831,7 @@ public final class MainActivity extends AppCompatActivity {
         latestAllHits = Collections.emptyList();
         if (overlayView != null) overlayView.clearHits();
         if (paleographyOverlay != null) paleographyOverlay.clear();
+        if(paleoSound!=null)paleoSound.clear(false);
         updateLegend(latestAllHits);
     }
 
@@ -968,6 +1005,9 @@ public final class MainActivity extends AppCompatActivity {
             frozenPaleographyCapture=paleographyEnabled;
             frozenRevealOriginal=false;
             frozenPaleography=null;
+            frozenPaleoLines=Collections.emptyList();
+            frozenSoundClips=liveSoundClips;
+            if(paleoSound!=null)paleoSound.clear(true);
             freezeProcessing=false;
             long revision=++freezeRevision;
             frozenOcrText=latestOcrAt>=0&&frameFreshness.accepts(latestOcrAt,SystemClock.elapsedRealtime())
@@ -1003,6 +1043,8 @@ public final class MainActivity extends AppCompatActivity {
             frozenPaleographyCapture=false;frozenRevealOriginal=false;
             clearMatches();
             frozenBitmap=null;frozenOriginal=null;frozenPaleography=null;
+            frozenPaleoLines=Collections.emptyList();frozenSoundClips=Collections.emptyMap();
+            if(paleoSound!=null)paleoSound.clear(true);
             freezeImage.setImageDrawable(null);freezeImage.setVisibility(View.GONE);
             freezeButton.setText("Cadru");saveButton.setEnabled(false);
             updatePaleoUi();reloadPlan();
@@ -1012,9 +1054,18 @@ public final class MainActivity extends AppCompatActivity {
     private void displayFrozenPaleography(){
         if(!frozen||!frozenPaleographyCapture)return;
         frozenBitmap=frozenRevealOriginal||frozenPaleography==null?frozenOriginal:frozenPaleography;
-        freezeImage.setImageBitmap(frozenBitmap);
+        // Show the unmodified bitmap plus the aligned overlay; the baked copy
+        // is used only for export, so the current audio highlight stays live.
+        freezeImage.setImageBitmap(frozenOriginal);
         saveButton.setEnabled(frozenBitmap!=null&&(!freezeProcessing||frozenRevealOriginal));
         updatePaleoUi();
+        if(!frozenRevealOriginal&&frozenPaleography!=null){
+            paleographyOverlay.setLines(frozenPaleoLines);
+            if(paleoSound!=null)paleoSound.update(frozenPaleoLines,frozenSoundClips);
+        }else{
+            paleographyOverlay.clear();
+            if(paleoSound!=null)paleoSound.clear(true);
+        }
         idleStatus();
     }
 
@@ -1039,7 +1090,7 @@ public final class MainActivity extends AppCompatActivity {
             final String raw=before.getText();
             mainHandler.post(()->{
                 if(destroyed||!frozen||job.revision!=freezeRevision){output.recycle();return;}
-                frozenPaleography=output;frozenOcrText=raw;freezeProcessing=false;
+                frozenPaleography=output;frozenPaleoLines=lines;frozenOcrText=raw;freezeProcessing=false;
                 displayFrozenPaleography();
                 setStatus(lines.isEmpty()?"Niciun rând confirmat":lines.size()+" rânduri",Color.rgb(163,221,183));
             });

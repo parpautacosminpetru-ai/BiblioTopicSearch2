@@ -55,6 +55,9 @@ public final class PageReviewActivity extends AppCompatActivity {
     private List<PaleographyLine> paleographyLines=Collections.emptyList();
     private boolean showingPaleography;
     private String paleographySystem="";
+    private PaleographySoundPlayer soundPlayer;
+    private java.util.Map<String,java.io.File> soundClips=Collections.emptyMap();
+    private boolean resumed;
 
     @Override protected void onCreate(@Nullable Bundle saved){
         super.onCreate(saved);
@@ -66,6 +69,14 @@ public final class PageReviewActivity extends AppCompatActivity {
         for(Button button:new Button[]{open,edit,analyse})bar.addView(button,new LinearLayout.LayoutParams(0,dp(48),1));
         root.addView(bar);
         page=new PagePreviewView(this);page.setListener(this::showHits);
+        soundPlayer=new PaleographySoundPlayer(this,new PaleographySoundPlayer.Listener(){
+            @Override public void highlight(PaleographyLine line,LiteralTransliterator.RuleMatch cue){
+                if(!isDestroyed())page.setSpeaking(line,cue);
+            }
+            @Override public void unavailable(String language){
+                if(resumed&&!isDestroyed())android.widget.Toast.makeText(PageReviewActivity.this,"Sunet indisponibil: "+language,android.widget.Toast.LENGTH_SHORT).show();
+            }
+        });
         root.addView(page,new LinearLayout.LayoutParams(-1,0,1));
         bow=slider(root,"Curbură",200,100);
         contrast=slider(root,"Contrast",100,55);
@@ -86,6 +97,7 @@ public final class PageReviewActivity extends AppCompatActivity {
             if(busy||source==null)return;
             if(!showingResult)corners=new float[]{0,0,1,0,1,1,0,1};
             showingResult=false;showingPaleography=false;
+            soundPlayer.setEnabled(false);
             paleography.setVisibility(View.GONE);
             page.showOriginal(source,corners);edit.setText("Resetează");showCandidates.setVisibility(View.GONE);
             status.setText("Ajustează cele patru colțuri");
@@ -105,7 +117,7 @@ public final class PageReviewActivity extends AppCompatActivity {
         Bitmap oldSource=source,oldReview=review;
         source=bitmap;review=null;verified=Collections.emptyList();candidates=Collections.emptyList();
         lastOcrText="";rawPageOcr=null;correctedPageOcr=null;paleographyLines=Collections.emptyList();
-        showingPaleography=false;paleographySystem="";paleography.setText("Paleografie");paleography.setVisibility(View.GONE);
+        showingPaleography=false;paleographySystem="";soundPlayer.setEnabled(false);soundClips=Collections.emptyMap();paleography.setText("Paleografie");paleography.setVisibility(View.GONE);
         corners=new float[]{0,0,1,0,1,1,0,1};showingResult=false;
         bow.setProgress(100);showCandidates.setChecked(false);showCandidates.setVisibility(View.GONE);
         page.showOriginal(source,corners);edit.setText("Resetează");status.setText("Ajustează cele patru colțuri");setBusy(false);
@@ -131,6 +143,7 @@ public final class PageReviewActivity extends AppCompatActivity {
         final float[] quad=corners.clone();
         final int curve=bow.getProgress()-100,strength=contrast.getProgress();
         final boolean straighten=deskew.isChecked();
+        soundPlayer.setEnabled(false);
         setBusy(true);status.setText("Se verifică pagina…");
         worker.execute(()->{
             Bitmap rectified=null,enhanced=null;
@@ -178,6 +191,7 @@ public final class PageReviewActivity extends AppCompatActivity {
         if(busy||!showingResult||review==null)return;
         if(showingPaleography){
             showingPaleography=false;
+            soundPlayer.setEnabled(false);
             paleography.setText("Paleografie");
             showCandidates.setVisibility(View.VISIBLE);
             renderResult();return;
@@ -192,13 +206,14 @@ public final class PageReviewActivity extends AppCompatActivity {
         worker.execute(()->{
             try{
                 LiteralTransliterator engine=TransliterationStore.engine(this,id);
+                java.util.Map<String,java.io.File> clips=PaleographyAudioFiles.available(this,id,engine);
                 List<PaleographyLine> lines=PaleographyProjection.agree(before,after,engine);
                 String name="";
                 for(TransliterationStore.Profile p:TransliterationStore.list(this))if(p.id.equals(id))name=p.name;
                 final String title=name;
                 runOnUiThread(()->{
                     if(isFinishing()||isDestroyed())return;
-                    paleographyLines=lines;showingPaleography=true;paleographySystem=title;
+                    paleographyLines=lines;showingPaleography=true;paleographySystem=title;soundClips=clips;
                     paleography.setText("Original / teme");showCandidates.setVisibility(View.GONE);
                     setBusy(false);renderResult();
                 });
@@ -209,9 +224,12 @@ public final class PageReviewActivity extends AppCompatActivity {
         if(review==null)return;
         if(showingPaleography){
             page.showPaleography(review,paleographyLines);
+            soundPlayer.setEnabled(resumed&&AppPrefs.paleographySound(this));
+            soundPlayer.update(paleographyLines,soundClips);
             status.setText(paleographySystem+" · "+paleographyLines.size()+" rânduri concordante");
             return;
         }
+        soundPlayer.setEnabled(false);
         boolean all=showCandidates.isChecked();
         page.showResult(review,all?candidates:verified);
         status.setText(verified.size()+" concordante · "+Math.max(0,candidates.size()-verified.size())+" candidați");
@@ -283,5 +301,14 @@ public final class PageReviewActivity extends AppCompatActivity {
     }
     private Button button(String value){Button b=new Button(this);b.setText(value);b.setAllCaps(false);b.setTextColor(Color.WHITE);b.setBackgroundTintList(ColorStateList.valueOf(Color.rgb(40,77,115)));return b;}
     private int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
-    @Override protected void onDestroy(){worker.shutdownNow();super.onDestroy();}
+    @Override protected void onResume(){
+        super.onResume();resumed=true;
+        if(showingResult&&showingPaleography&&!busy)renderResult();
+    }
+    @Override protected void onPause(){
+        resumed=false;if(soundPlayer!=null)soundPlayer.setEnabled(false);super.onPause();
+    }
+    @Override protected void onDestroy(){
+        if(soundPlayer!=null)soundPlayer.close();worker.shutdownNow();super.onDestroy();
+    }
 }
