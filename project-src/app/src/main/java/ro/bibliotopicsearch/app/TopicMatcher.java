@@ -188,6 +188,55 @@ public final class TopicMatcher {
         return new SearchPlan(strip, mode, repair, join, exact, approximate, max, count, allowed);
     }
 
+    /** Text-only diagnostic uses the actual compiled index and independent
+     * evidence check; it deliberately has no camera geometry or OCR scores. */
+    public static final class TextProbeHit {
+        public final int start,end;
+        public final TopicNode node;
+        public final String original,term;
+        public final MatchHit.Kind kind;
+        TextProbeHit(int start,int end,TopicNode node,String original,String term,MatchHit.Kind kind) {
+            this.start=start;this.end=end;this.node=node;this.original=original;this.term=term;this.kind=kind;
+        }
+    }
+
+    public static List<TextProbeHit> probeText(String text, SearchPlan plan) {
+        List<TextProbeHit> hits=new ArrayList<>();
+        if(text==null||plan==null||plan.termCount==0)return hits;
+        // Empty lines are hard paragraph boundaries. Nonempty line breaks
+        // can separate words, but this text-only mode cannot validate columns.
+        java.util.regex.Matcher paragraph=java.util.regex.Pattern.compile("[^\\r\\n]+(?:\\r?\\n[^\\r\\n]+)*").matcher(text);
+        while(paragraph.find()){
+            if(Thread.currentThread().isInterrupted())return Collections.emptyList();
+            final int offset=paragraph.start();
+            String raw=paragraph.group();
+            List<LiteralText.Lexeme> lexemes=LiteralText.lex(raw,plan.stripDiacritics);
+            List<String> values=new ArrayList<>(lexemes.size());
+            boolean[] barriers=new boolean[lexemes.size()],breaks=new boolean[lexemes.size()];
+            for(int i=0;i<lexemes.size();i++){
+                LiteralText.Lexeme l=lexemes.get(i);values.add(l.value);
+                if(i>0&&!LiteralText.separated(raw,lexemes.get(i-1),l))breaks[i]=true;
+                // Never turn a partial line-final word into a literal term.
+                if(i>0&&"-".equals(l.value)&&lexemes.get(i-1).end==l.start&&
+                        LiteralText.isAlphabetic(lexemes.get(i-1).value)){
+                    int next=i+1<lexemes.size()?lexemes.get(i+1).start:raw.length();
+                    String gap=raw.substring(l.end,next);
+                    if(gap.indexOf('\n')>=0){
+                        barriers[i-1]=barriers[i]=true;
+                        if(i+1<lexemes.size())barriers[i+1]=true;
+                    }
+                }
+            }
+            plan.scan(values,barriers,breaks,-1,-1,null,(start,end,terms,kind)->{
+                int from=lexemes.get(start).start,to=lexemes.get(end-1).end;
+                String original=raw.substring(from,to);
+                for(CompiledTerm term:terms)if(plan.verifies(term,original,kind))
+                    hits.add(new TextProbeHit(offset+from,offset+to,term.node,original,term.raw,kind));
+            });
+        }
+        return hits;
+    }
+
     public static List<MatchHit> find(Context context, Text text, TopicMap map) {
         return find(text, compile(context, map));
     }

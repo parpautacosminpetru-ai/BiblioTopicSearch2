@@ -21,6 +21,6 @@ final class OcrConfidence {
 
     static int requiredFrames(float confidence, boolean reconstructed) {
         if (confidence > 0f && confidence < MINIMUM) return 0;
-        return reconstructed || confidence < HIGH || confidence > 1f ? 3 : 2;
+        return reconstructed || Float.isNaN(confidence) || Float.isInfinite(confidence) || confidence < HIGH || confidence > 1f ? 3 : 2;
     }
 }

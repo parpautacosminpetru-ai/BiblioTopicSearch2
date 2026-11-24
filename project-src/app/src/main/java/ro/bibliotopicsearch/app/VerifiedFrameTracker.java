@@ -72,11 +72,12 @@ final class VerifiedFrameTracker<T> {
                 }
             }
             if(nearest!=null) used.add(nearest);
-            int required=Math.max(fresh.required,state==PageContinuity.State.UNKNOWN?3:2);
+            int required=fresh.required;
             if(nearest!=null) required=Math.max(required,nearest.required);
             int streak=nearest==null?1:Math.min(3,nearest.streak+1);
             next.add(new Track<>(fresh,streak,required));
-            if(streak>=required)out.add(fresh.value);
+            int threshold=Math.max(required,state==PageContinuity.State.UNKNOWN?3:2);
+            if(streak>=threshold)out.add(fresh.value);
         }
         last=next;lastTime=now;
         return out;
