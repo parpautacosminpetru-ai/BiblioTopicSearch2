@@ -66,16 +66,34 @@ final class HistoricalOcr {
             return name;
         }finally{pending.delete();stageData.delete();stage.delete();}
     }
-    static synchronized String recognize(Context c,String name,Bitmap bitmap){
-        File file=new File(data(c),HistoricalModelName.file(name));
-        if(!file.isFile())throw new IllegalArgumentException("Importă întâi modelul OCR.");
-        if(bitmap==null||bitmap.isRecycled())throw new IllegalArgumentException("Imagine indisponibilă.");
-        TessBaseAPI api=new TessBaseAPI();
-        try{
-            if(!api.init(root(c).getAbsolutePath()+File.separator,name))throw new IllegalArgumentException("Model OCR incompatibil.");
-            api.setImage(bitmap);
-            String value=api.getUTF8Text();
-            return value==null?"":value;
-        }finally{api.recycle();}
+    static String recognize(Context c,String name,Bitmap bitmap){
+        return recognize(c,Collections.singletonList(name),3,bitmap);
+    }
+    static String recognize(Context c,List<String> names,int mode,Bitmap bitmap){
+        try(Session session=new Session(c,names,mode)){return session.read(bitmap);}
+    }
+    static final class Session implements AutoCloseable {
+        private final TessBaseAPI api;
+        Session(Context c,List<String> names,int mode){
+            String expression=HistoricalModelName.expression(names);
+            for(String name:names){
+                File file=new File(data(c),HistoricalModelName.file(name));
+                if(!file.isFile())throw new IllegalArgumentException("Model lipsă: "+name);
+            }
+            if(mode!=3&&mode!=5&&mode!=6&&mode!=7&&mode!=8&&mode!=10&&mode!=11)
+                throw new IllegalArgumentException("Mod de segmentare invalid.");
+            api=new TessBaseAPI();
+            boolean ready=false;
+            try{
+                if(!api.init(root(c).getAbsolutePath()+File.separator,expression))throw new IllegalArgumentException("Modele OCR incompatibile.");
+                api.setPageSegMode(mode);ready=true;
+            }finally{if(!ready)api.recycle();}
+        }
+        String read(Bitmap bitmap){
+            if(bitmap==null||bitmap.isRecycled())throw new IllegalArgumentException("Imagine indisponibilă.");
+            try{api.setImage(bitmap);String value=api.getUTF8Text();return value==null?"":value;}
+            finally{api.clear();}
+        }
+        @Override public void close(){api.recycle();}
     }
 }

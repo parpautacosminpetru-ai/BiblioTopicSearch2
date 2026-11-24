@@ -13,6 +13,12 @@ final class PageImageProcessor {
     private PageImageProcessor() {}
 
     static Bitmap rectify(Bitmap original,float[] quad,int bow,boolean autoStraighten){
+        return rectify(original,quad,bow,autoStraighten,64);
+    }
+    static Bitmap rectifyGlyph(Bitmap original,float[] quad){
+        return rectify(original,quad,0,false,8);
+    }
+    private static Bitmap rectify(Bitmap original,float[] quad,int bow,boolean autoStraighten,int minimum){
         if(original==null||original.isRecycled()||!PageCorrectionMath.validQuad(quad))
             throw new IllegalArgumentException("Colțuri invalide");
         float[] p=quad.clone();int sw=original.getWidth(),sh=original.getHeight();
@@ -21,7 +27,7 @@ final class PageImageProcessor {
         double height=Math.max(distance(p,0,3),distance(p,1,2));
         double scale=Math.min(1d,Math.min(MAX_EDGE/Math.max(width,height),Math.sqrt(MAX_PIXELS/(width*height))));
         int w=Math.max(2,(int)Math.round(width*scale)),h=Math.max(2,(int)Math.round(height*scale));
-        if(w<64||h<64)throw new IllegalArgumentException("Pagina selectată este prea mică");
+        if(w<minimum||h<minimum)throw new IllegalArgumentException("Zona selectată este prea mică; apropie camera sau folosește o imagine mai clară.");
         float[] target={0,0,w-1,0,w-1,h-1,0,h-1};
         Matrix matrix=new Matrix();
         if(!matrix.setPolyToPoly(p,0,target,0,4))throw new IllegalArgumentException("Perspectivă invalidă");

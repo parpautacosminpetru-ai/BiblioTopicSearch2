@@ -679,7 +679,7 @@ public final class MainActivity extends AppCompatActivity {
     private void showQuickMenu() {
         String labels = floatingLabelsEnabled ? "Ascunde etichetele" : "Afișează etichetele";
         String soundLabel=AppPrefs.paleographySound(this)?"Sunet Paleo: oprește":"Sunet Paleo: pornește";
-        new AlertDialog.Builder(this).setItems(new String[]{"Noduri afișate", labels, "Pagină / OCR aprofundat", "Sisteme paleografie", soundLabel, "Setări"},
+        new AlertDialog.Builder(this).setItems(new String[]{"Noduri afișate", labels, "Pagină / OCR aprofundat", "Sisteme paleografie", soundLabel, "Setări", "OCR universal pe cameră"},
                 (dialog, which) -> {
                     if (which == 0) {
                         if (topicMap != null && searchPlan != null) showNodeSelection();
@@ -690,7 +690,8 @@ public final class MainActivity extends AppCompatActivity {
                         AppPrefs.setPaleographySound(this,!AppPrefs.paleographySound(this));
                         updatePaleoUi();
                         if(frozen&&frozenPaleographyCapture)displayFrozenPaleography();
-                    }else startActivity(new Intent(this, SettingsActivity.class));
+                    }else if(which==6)startActivity(new Intent(this, LiveHistoricalActivity.class));
+                    else startActivity(new Intent(this, SettingsActivity.class));
                 }).setNegativeButton("Închide", null).show();
     }
 

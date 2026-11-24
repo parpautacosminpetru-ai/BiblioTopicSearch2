@@ -9,8 +9,18 @@ final class HistoricalModelName {
         return filename.substring(0,filename.length()-".traineddata".length());
     }
     static String file(String name){
+        if(name==null)throw new IllegalArgumentException("Model lipsă.");
         String filename=name+".traineddata";
         fromFile(filename);
         return filename;
+    }
+    static String expression(java.util.List<String> names){
+        if(names==null||names.isEmpty()||names.size()>3)throw new IllegalArgumentException("Selectează între 1 și 3 modele OCR.");
+        java.util.LinkedHashSet<String> unique=new java.util.LinkedHashSet<>();
+        for(String name:names){file(name);if(!unique.add(name))throw new IllegalArgumentException("Model duplicat.");}
+        return androidFreeJoin(unique);
+    }
+    private static String androidFreeJoin(java.util.Set<String> names){
+        StringBuilder out=new StringBuilder();for(String name:names){if(out.length()>0)out.append('+');out.append(name);}return out.toString();
     }
 }

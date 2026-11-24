@@ -49,6 +49,8 @@
             android:screenOrientation="portrait"
             android:exported="false" />
 
+        <activity android:name=".LiveHistoricalActivity" android:screenOrientation="portrait" android:exported="false" />
+
         <activity
             android:name=".PaleographyActivity"
             android:screenOrientation="portrait"
