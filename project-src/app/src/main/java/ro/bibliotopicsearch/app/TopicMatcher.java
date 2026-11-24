@@ -297,6 +297,8 @@ public final class TopicMatcher {
     private static final class LineData {
         final String raw;
         final Rect bounds;
+        final float[] corners;
+        final LineGeometry axis;
         final List<LiteralText.Lexeme> lexemes;
         final List<ElementSpan> elements = new ArrayList<>();
         final List<Token> tokens = new ArrayList<>();
@@ -305,6 +307,12 @@ public final class TopicMatcher {
         LineData(Text.Line line, boolean strip) {
             raw = line.getText();
             bounds = line.getBoundingBox();
+            android.graphics.Point[] points=line.getCornerPoints();
+            if(points!=null&&points.length==4){
+                corners=new float[8];
+                for(int i=0;i<4;i++){corners[i*2]=points[i].x;corners[i*2+1]=points[i].y;}
+            }else corners=null;
+            axis=LineGeometry.from(corners);
             lexemes = LiteralText.lex(raw, strip);
             List<Text.Element> source = line.getElements();
             List<String> values = new ArrayList<>(source.size());
@@ -344,9 +352,17 @@ public final class TopicMatcher {
                 if (box == null) return null;
                 if (!out.isEmpty()) {
                     RectF prev = out.get(out.size()-1);
-                    float height = Math.max(prev.height(), box.height());
-                    if (box.left-prev.right > height*2.5f ||
-                            Math.abs(box.centerY()-prev.centerY()) > height*1.25f) return null;
+                    if(prev.equals(box))continue;
+                    if(axis!=null){
+                        // Bounding rectangles are conservative; project their
+                        // extents along the recognized baseline, not screen X.
+                        float aw=Math.abs(axis.ux)*prev.width()+Math.abs(axis.uy)*prev.height();
+                        float bw=Math.abs(axis.ux)*box.width()+Math.abs(axis.uy)*box.height();
+                        if(!axis.consecutive(prev.centerX(),prev.centerY(),box.centerX(),box.centerY(),aw,bw))return null;
+                    }else{
+                        float height=Math.max(prev.height(),box.height());
+                        if(box.left-prev.right>height*2.5f||Math.abs(box.centerY()-prev.centerY())>height*1.25f)return null;
+                    }
                 }
                 out.add(box);
             }
@@ -368,6 +384,7 @@ public final class TopicMatcher {
     private static boolean adjacent(LineData a, LineData b) {
         if (a == null || b == null || a.tokens.isEmpty() || b.tokens.isEmpty() ||
                 a.bounds == null || b.bounds == null) return false;
+        if(a.axis!=null&&b.axis!=null)return a.axis.nextLine(b.axis,b.corners);
         Rect x = a.bounds, y = b.bounds;
         return LiteralText.sameColumn(x.left,x.top,x.right,x.bottom,y.left,y.top,y.right,y.bottom);
     }

@@ -1,3 +1,12 @@
+# 1.1.7 — Pagină / OCR aprofundat
+
+- Meniul camerei oferă o analiză separată a unei capturi brute sau a unei fotografii importate. În Testează harta, Pagină limitează analiza la profilul curent.
+- Patru colțuri reglabile pentru redresare de perspectivă, estimarea înclinării mici, corecție parabolică manuală a curburii verticale și normalizare locală a contrastului pentru hârtie îngălbenită/umbre. Fotografia originală rămâne nemodificată.
+- Două citiri ale aceleiași imagini redresate (înainte și după normalizarea contrastului). Se afișează implicit doar potrivirile concordante ca text literal, identitate hartă/nod și geometrie; candidații rămași pot fi examinați explicit. Citirile nu sunt o garanție a corectitudinii OCR.
+- Marcajele se desenează pe imaginea efectiv analizată; nicio coordonată a imaginii redresate nu se suprapune pe o previzualizare live ulterioară. Culorile individuale ale hărților sunt păstrate.
+- În live, verificarea geometriei expresiilor folosește direcția rândului OCR când este disponibilă. Modul de corectare a imaginii este pentru pagini statice, nu redresare 3D automată în timp real.
+- Teste unitare pentru perspectivă, curbură, contrast, înclinare, concordanță și coloane; test Android pe pagină tipografică sintetică îngălbenită și înclinată. Testele Android se compilează în CI, dar trebuie rulate pe Android. Modelul ML Kit rămâne Latin; tipăriturile istorice reale și alfabetul chirilic necesită evaluare/model adecvat. Corecția manuală a curburii este aproximativă, nu reconstrucție completă a suprafeței cărții.
+
 # 1.1.6 — Verificare OCR în cadre consecutive
 
 - Un termen literal trebuie să reapară în aceeași poziție și în aceeași hartă în minimum două citiri OCR; trei pentru încredere intermediară/necunoscută sau pentru scene cu continuitate necunoscută. Scorurile pozitive sub 0,72 sunt respinse. Scorurile sunt semnale euristice ML Kit, nu probabilități calibrate.

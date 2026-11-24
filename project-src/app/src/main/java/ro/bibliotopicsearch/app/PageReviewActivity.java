@@ -88,10 +88,13 @@ public final class PageReviewActivity extends AppCompatActivity {
         intent.addCategory(Intent.CATEGORY_OPENABLE);startActivityForResult(intent,PICK);
     }
     private void useSource(Bitmap bitmap){
+        Bitmap oldSource=source,oldReview=review;
         source=bitmap;review=null;verified=Collections.emptyList();candidates=Collections.emptyList();
         corners=new float[]{0,0,1,0,1,1,0,1};showingResult=false;
         bow.setProgress(100);showCandidates.setChecked(false);showCandidates.setVisibility(View.GONE);
         page.showOriginal(source,corners);edit.setText("Resetează");status.setText("Ajustează cele patru colțuri");setBusy(false);
+        if(oldSource!=null&&oldSource!=bitmap&&!oldSource.isRecycled())oldSource.recycle();
+        if(oldReview!=null&&oldReview!=bitmap&&oldReview!=oldSource&&!oldReview.isRecycled())oldReview.recycle();
     }
     private TopicMatcher.SearchPlan plan(){
         List<MapProfile> profiles=TopicLibraryStore.list(this),chosen;
@@ -128,9 +131,11 @@ public final class PageReviewActivity extends AppCompatActivity {
                 final Bitmap output=enhanced;enhanced=null;
                 runOnUiThread(()->{
                     if(isFinishing()||isDestroyed()){output.recycle();return;}
+                    Bitmap old=review;
                     review=output;verified=agreed;candidates=improved;showingResult=true;
                     showCandidates.setChecked(false);showCandidates.setVisibility(View.VISIBLE);
                     edit.setText("Colțuri");setBusy(false);renderResult();
+                    if(old!=null&&old!=source&&old!=output&&!old.isRecycled())old.recycle();
                 });
             }catch(Exception e){error(e);}
             finally{

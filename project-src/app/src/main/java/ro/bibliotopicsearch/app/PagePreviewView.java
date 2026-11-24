@@ -90,7 +90,7 @@ final class PagePreviewView extends View {
         canvas.restore();
     }
     @Override public boolean onTouchEvent(MotionEvent event){
-        if(!layoutFrame())return false;
+        if(!isEnabled()||!layoutFrame())return false;
         float x=event.getX(),y=event.getY();
         if(editing){
             if(event.getActionMasked()==MotionEvent.ACTION_DOWN){
