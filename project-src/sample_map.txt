@@ -1,0 +1,6 @@
+# Nod principal
+termen | expresie
+## Subnod
+alt termen | altă expresie
+### Nivel următor
+termen specific
