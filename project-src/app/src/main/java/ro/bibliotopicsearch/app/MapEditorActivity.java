@@ -400,6 +400,7 @@ public final class MapEditorActivity extends AppCompatActivity {
         new AlertDialog.Builder(this)
                 .setTitle("Adaugă termen în „" + node.title + "”")
                 .setView(input)
+                .setNeutralButton("Semne", (dialog, which) -> showSignPicker(node))
                 .setNegativeButton("Renunță", null)
                 .setPositiveButton("Adaugă", (dialog, which) -> {
                     String term = input.getText().toString().trim();
@@ -412,13 +413,30 @@ public final class MapEditorActivity extends AppCompatActivity {
                 .show();
     }
 
+    private void showSignPicker(TopicNode node) {
+        String[] signs={".",",",";",":","!","?","…","...","?!","!!","??","„","”","«","»","\"","'","’",
+                "(",")","[","]","{","}","-","–","—","/","\\","|","#","§","*","+","=","&","@","%","•"};
+        boolean[] checked=new boolean[signs.length];
+        new AlertDialog.Builder(this).setTitle("Adaugă semne")
+                .setMultiChoiceItems(signs,checked,(dialog,which,value)->checked[which]=value)
+                .setNegativeButton("Renunță",null)
+                .setPositiveButton("Adaugă",(dialog,which)->{
+                    java.util.List<String> chosen=new java.util.ArrayList<>();
+                    for(int i=0;i<signs.length;i++)if(checked[i])chosen.add(signs[i]);
+                    if(!chosen.isEmpty())addTermsToNode(node,chosen);
+                }).show();
+    }
+
     private void addTermToNode(TopicNode target, String term) {
-        for (String existing : target.terms) {
-            if (existing.equalsIgnoreCase(term)) {
-                toast("Termenul există deja în acest nod.");
-                return;
-            }
-        }
+        addTermsToNode(target,java.util.Collections.singletonList(term));
+    }
+
+    private void addTermsToNode(TopicNode target,java.util.List<String> requested) {
+        java.util.List<String> newTerms=new java.util.ArrayList<>();
+        java.util.Set<String> existing=new java.util.HashSet<>();
+        for(String term:target.terms)existing.add(term.toLowerCase(java.util.Locale.ROOT));
+        for(String term:requested)if(existing.add(term.toLowerCase(java.util.Locale.ROOT)))newTerms.add(term);
+        if(newTerms.isEmpty()){toast("Termenii există deja în acest nod.");return;}
 
         String raw = mapEdit.getText().toString().replace("\r\n", "\n").replace('\r', '\n');
         String[] lines = raw.split("\n", -1);
@@ -460,7 +478,8 @@ public final class MapEditorActivity extends AppCompatActivity {
 
         java.util.ArrayList<String> updatedLines = new java.util.ArrayList<>();
         for (String line : lines) updatedLines.add(line);
-        updatedLines.add(headingIndex + 1, MapTermSyntax.encode(term));
+        int insertion=headingIndex+1;
+        for(String term:newTerms)updatedLines.add(insertion++,MapTermSyntax.encode(term));
 
         String updated = android.text.TextUtils.join("\n", updatedLines);
         mapEdit.setText(updated);

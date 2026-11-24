@@ -28,7 +28,7 @@ final class MapTermSyntax {
             char c = line.charAt(i);
             if (c == '\\' && i+1 < line.length()) {
                 char next = line.charAt(i+1);
-                if (next == '\\' || next == '|' || (value.length() == 0 &&
+                if (next == '\\' || next == '|' || (value.toString().trim().isEmpty() &&
                         (next == '#' || next == '-' || next == '•'))) {
                     value.append(next); i++; continue;
                 }

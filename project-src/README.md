@@ -1,3 +1,12 @@
+# 1.1.8 — Punctuație și simboluri
+
+- Adaugă în nod cuvinte, expresii sau semne: puncte, virgule, ghilimele, paranteze, liniuțe, §, #, |, +, combinații etc. Dialogul Adaugă termen oferă și o selecție multiplă de semne.
+- Un index separat caută semnele exact în textul OCR, inclusiv în date numerice și cuvinte cu cratimă. Nu alterează delimitarea cuvintelor. „?!” diferă de „? !”, „…” de „...”, iar „-” de „–” și „—”. O căutare explicită pentru punct poate găsi și punctele dintr-o secvență de puncte.
+- Marcajele semnelor folosesc numai dreptunghiuri de simbol OCR aliniate la text sau elemente OCR care sunt exact semnul căutat. Dacă lipsesc coordonatele, nu se colorează cuvântul învecinat. În Testează harta / Imagine, semnele citite fără localizare sigură sunt prezentate separat.
+- Semnele live necesită trei citiri consecutive și respectă filtrul de încredere. Contururile sunt dimensionate pentru semne mici. Hărțile își păstrează culorile.
+- În editorul text avansat, # la început rămâne titlu, | separator. Pentru caractere literale se folosesc \\# (scris cu un singur backslash), \\| și \\\\ pentru backslash; dialogul de adăugare face această escapare automat.
+- Teste unitare pentru semne individuale, combinații, date, cuvinte compuse, două hărți și sintaxa de salvare. Testul Android folosește o pagină sintetică cu punctuație. Acuratețea ML Kit pentru semne mici și tipărituri vechi rămâne de măsurat pe telefon.
+
 # 1.1.7 — Pagină / OCR aprofundat
 
 - Meniul camerei oferă o analiză separată a unei capturi brute sau a unei fotografii importate. În Testează harta, Pagină limitează analiza la profilul curent.

@@ -135,10 +135,28 @@ public final class MapTestActivity extends AppCompatActivity {
                 Text recognized=Tasks.await(recognizer.process(InputImage.fromBitmap(bitmap,0)),30,TimeUnit.SECONDS);
                 String raw=recognized.getText();
                 List<MatchHit> hits=TopicMatcher.find(recognized,plan);
+                // A recognized sign without reliable symbol geometry remains
+                // visible as text-only evidence, not as a camera highlight.
+                List<TopicMatcher.TextProbeHit> signs=new ArrayList<>();
+                for(TopicMatcher.TextProbeHit h:TopicMatcher.probeText(raw,plan))
+                    if(PunctuationText.isPattern(h.term))signs.add(h);
+                java.util.Map<String,Integer> localized=new java.util.HashMap<>();
+                for(MatchHit h:hits)if(PunctuationText.isPattern(h.searchTerm)){
+                    String key=h.node.identityKey()+"\u0001"+h.searchTerm;
+                    localized.put(key,localized.getOrDefault(key,0)+1);
+                }
+                java.util.List<TopicMatcher.TextProbeHit> withoutGeometry=new java.util.ArrayList<>();
+                for(TopicMatcher.TextProbeHit h:signs){
+                    String key=h.node.identityKey()+"\u0001"+h.term;
+                    int remaining=localized.getOrDefault(key,0);
+                    if(remaining>0)localized.put(key,remaining-1);
+                    else withoutGeometry.add(h);
+                }
                 runOnUiThread(()->{
                     if(isFinishing()||isDestroyed())return;
                     setBusy(false);
-                    summary.setText(hits.size()+" candidați · o imagine OCR");
+                    summary.setText(hits.size()+" candidați localizați"
+                            +(withoutGeometry.isEmpty()?"":" · "+withoutGeometry.size()+" semne fără localizare sigură"));
                     input.setText(raw);
                     marked.setText(raw);marked.setVisibility(View.VISIBLE);
                     rows.removeAllViews();
@@ -148,7 +166,11 @@ public final class MapTestActivity extends AppCompatActivity {
                         String detail=h.confidence>0?Math.round(h.confidence*100)+"% OCR":"Încredere indisponibilă";
                         addResult(h.originalText,h.searchTerm,h.node.path,h.node.color,detail);
                     }
-                    if(hits.size()>MAX_RESULTS)rows.addView(text("Afișate primele "+MAX_RESULTS,13));
+                    for(TopicMatcher.TextProbeHit h:withoutGeometry){
+                        if(count++>=MAX_RESULTS)break;
+                        addResult(h.original,h.term,h.node.path,h.node.color,"Citit în text; fără localizare sigură");
+                    }
+                    if(hits.size()+withoutGeometry.size()>MAX_RESULTS)rows.addView(text("Afișate primele "+MAX_RESULTS,13));
                 });
             }catch(Exception e){showError(e);}
             finally{
