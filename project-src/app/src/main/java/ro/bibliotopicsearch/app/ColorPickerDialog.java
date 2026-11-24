@@ -50,11 +50,6 @@ public final class ColorPickerDialog {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(activity, 18), dp(activity, 12), dp(activity, 18), dp(activity, 8));
 
-        TextView hint = new TextView(activity);
-        hint.setText("Alege o culoare rapidă sau reglează RGB / HEX.");
-        hint.setTextSize(14);
-        root.addView(hint);
-
         for (int row = 0; row < 5; row++) {
             LinearLayout line = new LinearLayout(activity);
             line.setOrientation(LinearLayout.HORIZONTAL);
@@ -63,6 +58,7 @@ public final class ColorPickerDialog {
                 int index = row * 4 + col;
                 Button swatch = new Button(activity);
                 swatch.setText("");
+                swatch.setContentDescription(String.format(Locale.ROOT, "#%06X", PALETTE[index] & 0xFFFFFF));
                 swatch.setBackgroundTintList(ColorStateList.valueOf(PALETTE[index]));
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(activity, 42), 1f);
                 lp.setMargins(dp(activity, 3), dp(activity, 3), dp(activity, 3), dp(activity, 3));
@@ -96,6 +92,7 @@ public final class ColorPickerDialog {
         Runnable updateFromRgb = () -> {
             selected[0] = Color.rgb(red.getProgress(), green.getProgress(), blue.getProgress());
             preview.setBackgroundTintList(ColorStateList.valueOf(selected[0]));
+            preview.setTextColor(MapColorPolicy.contrastText(selected[0]));
             preview.setText(String.format(Locale.ROOT, "#%06X", 0xFFFFFF & selected[0]));
             hex.setText(String.format(Locale.ROOT, "#%06X", 0xFFFFFF & selected[0]));
             hex.setSelection(hex.length());
@@ -114,17 +111,19 @@ public final class ColorPickerDialog {
 
         updateFromRgb.run();
 
+        android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
+        scroll.addView(root);
         AlertDialog dialog = new AlertDialog.Builder(activity)
-                .setTitle("Paletă nod")
-                .setView(root)
+                .setTitle("Culoarea hărții")
+                .setView(scroll)
                 .setNegativeButton("Renunță", null)
                 .setPositiveButton("Aplică", null)
                 .create();
 
-        for (int row = 1; row <= 5; row++) {
+        for (int row = 0; row < 5; row++) {
             LinearLayout line = (LinearLayout) root.getChildAt(row);
             for (int col = 0; col < line.getChildCount(); col++) {
-                int color = PALETTE[(row - 1) * 4 + col];
+                int color = PALETTE[row * 4 + col];
                 line.getChildAt(col).setOnClickListener(v -> {
                     red.setProgress(Color.red(color));
                     green.setProgress(Color.green(color));
@@ -138,6 +137,7 @@ public final class ColorPickerDialog {
             try {
                 String value = hex.getText().toString().trim();
                 if (!value.startsWith("#")) value = "#" + value;
+                if (!value.matches("#[0-9a-fA-F]{6}")) throw new IllegalArgumentException("HEX");
                 int parsed = Color.parseColor(value);
                 red.setProgress(Color.red(parsed));
                 green.setProgress(Color.green(parsed));
@@ -153,13 +153,14 @@ public final class ColorPickerDialog {
                 String value = hex.getText().toString().trim();
                 if (!value.isEmpty()) {
                     if (!value.startsWith("#")) value = "#" + value;
+                if (!value.matches("#[0-9a-fA-F]{6}")) throw new IllegalArgumentException("HEX");
                     selected[0] = Color.parseColor(value);
                 }
             } catch (Exception parseError) {
                 hex.setError("HEX invalid");
                 return;
             }
-            listener.onColorSelected(selected[0]);
+            listener.onColorSelected(MapColorPolicy.opaque(selected[0]));
             dialog.dismiss();
         }));
 

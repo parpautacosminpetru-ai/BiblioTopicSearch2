@@ -252,11 +252,14 @@ public final class MainActivity extends AppCompatActivity {
     private void showMapSelection() {
         if (searchPlan == null) { reloadPlan(); return; }
         List<MapProfile> profiles = allProfiles;
-        String[] labels = new String[profiles.size()];
+        CharSequence[] labels = new CharSequence[profiles.size()];
         boolean[] checked = new boolean[profiles.size()];
         for (int i = 0; i < profiles.size(); i++) {
             MapProfile profile = profiles.get(i);
-            labels[i] = profile.folder + " / " + profile.name;
+            android.text.SpannableString label = new android.text.SpannableString("●  " + profile.folder + " / " + profile.name);
+            label.setSpan(new android.text.style.ForegroundColorSpan(profile.color), 0, 1,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            labels[i] = label;
             checked[i] = selectedProfiles.contains(profile.id);
         }
         new AlertDialog.Builder(this)
@@ -659,12 +662,12 @@ public final class MainActivity extends AppCompatActivity {
     private TextView legendText(String text, int color) {
         TextView view = new TextView(this);
         view.setText("● " + text);
-        view.setTextColor(Color.WHITE);
+        view.setTextColor(MapColorPolicy.contrastText(color));
         view.setTextSize(12);
         view.setGravity(Gravity.CENTER_VERTICAL);
         view.setPadding(dp(8), 0, dp(8), 0);
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.argb(205, Color.red(color), Color.green(color), Color.blue(color)));
+        bg.setColor(MapColorPolicy.opaque(color));
         bg.setCornerRadius(dp(12));
         view.setBackground(bg);
         return view;

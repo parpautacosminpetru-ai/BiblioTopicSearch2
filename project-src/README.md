@@ -1,3 +1,11 @@
+# 1.1.4 — Culoare proprie pentru fiecare hartă
+
+- O singură culoare RGB pentru fiecare profil, aleasă în Bibliotecă (pătratul colorat), în dialogul de creare sau în editorul hărții.
+- Culoarea se salvează local după ID-ul stabil al hărții, se păstrează la redenumire/mutare și se copiază la duplicare. Nu depinde de selecția OCR ori de nod.
+- Toate nodurile, marcajele, legenda și etichetele folosesc culoarea profilului. Potrivirile suprapuse exact păstrează câte o bandă pe hartă.
+- La prima citire a hărților vechi, prima culoare de nod personalizată explicit devine culoarea hărții; dacă nu există, se folosește o culoare implicită. Preferințele vechi nu sunt șterse.
+- Paletă, RGB și HEX cu contrast automat al textului. Utilizatorul poate alege inclusiv aceeași culoare pentru două hărți; identitatea și detecția rămân separate.
+
 # 1.1.3 — OCR adaptiv și detecție stabilă
 
 - OCR local ML Kit cu admitere controlată a cadrelor și pauze adaptate latenței și temperaturii raportate de Android (API 29+).

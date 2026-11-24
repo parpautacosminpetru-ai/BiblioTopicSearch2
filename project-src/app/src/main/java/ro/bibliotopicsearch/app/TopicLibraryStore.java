@@ -48,7 +48,7 @@ public final class TopicLibraryStore {
         SharedPreferences p = prefs(context);
         List<MapProfile> out = new ArrayList<>();
         for (String id : readIds(p)) {
-            out.add(read(p, id));
+            out.add(read(context, p, id));
         }
         out.sort(Comparator
                 .comparing((MapProfile value) -> value.folder.toLowerCase(Locale.ROOT))
@@ -88,7 +88,7 @@ public final class TopicLibraryStore {
             id = ids.isEmpty() ? DEFAULT_ID : ids.get(0);
             p.edit().putString("active_id", id).apply();
         }
-        return read(p, id);
+        return read(context, p, id);
     }
 
     public static String getActiveId(Context context) {
@@ -99,10 +99,14 @@ public final class TopicLibraryStore {
         ensureInitialized(context);
         SharedPreferences p = prefs(context);
         if (id == null || !readIds(p).contains(id)) return null;
-        return read(p, id);
+        return read(context, p, id);
     }
 
     public static String create(Context context, String name, String folder, String rawText) {
+        return create(context, name, folder, rawText, null);
+    }
+
+    public static synchronized String create(Context context, String name, String folder, String rawText, Integer chosenColor) {
         ensureInitialized(context);
         SharedPreferences p = prefs(context);
         String id = UUID.randomUUID().toString().replace("-", "");
@@ -114,6 +118,7 @@ public final class TopicLibraryStore {
                 .putString(key(id, "folder"), normalizeFolder(folder))
                 .putString(key(id, "text"), rawText == null ? "" : rawText)
                 .putLong(key(id, "created"), System.currentTimeMillis())
+                .putInt(key(id, "color"), chosenColor == null ? MapColorPolicy.defaultColor(id) : MapColorPolicy.opaque(chosenColor))
                 .apply();
         return id;
     }
@@ -121,7 +126,7 @@ public final class TopicLibraryStore {
     public static String duplicate(Context context, String sourceId) {
         MapProfile source = get(context, sourceId);
         if (source == null) return null;
-        return create(context, source.name + " – copie", source.folder, source.rawText);
+        return create(context, source.name + " – copie", source.folder, source.rawText, source.color);
     }
 
     public static void update(Context context, String id, String name, String folder, String rawText) {
@@ -148,7 +153,7 @@ public final class TopicLibraryStore {
         }
     }
 
-    public static boolean delete(Context context, String id) {
+    public static synchronized boolean delete(Context context, String id) {
         ensureInitialized(context);
         SharedPreferences p = prefs(context);
         List<String> ids = readIds(p);
@@ -161,7 +166,8 @@ public final class TopicLibraryStore {
                 .remove(key(id, "name"))
                 .remove(key(id, "folder"))
                 .remove(key(id, "text"))
-                .remove(key(id, "created"));
+                .remove(key(id, "created"))
+                .remove(key(id, "color"));
         java.util.Set<String> selected = p.getStringSet("scan_profile_ids", null);
         if (selected != null) {
             java.util.Set<String> remaining = new LinkedHashSet<>(selected);
@@ -184,13 +190,35 @@ public final class TopicLibraryStore {
         return folders;
     }
 
-    private static MapProfile read(SharedPreferences p, String id) {
+    /** Colour follows the immutable ID, not the map name. Saving never rewrites other fields. */
+    public static synchronized void setMapColor(Context context, String id, int color) {
+        ensureInitialized(context);
+        SharedPreferences p = prefs(context);
+        if (id != null && readIds(p).contains(id)) {
+            p.edit().putInt(key(id, "color"), MapColorPolicy.opaque(color)).apply();
+        }
+    }
+
+    public static int getMapColor(Context context, String id) {
+        MapProfile profile = get(context, id);
+        return profile == null ? MapColorPolicy.defaultColor(id) : profile.color;
+    }
+
+    private static synchronized MapProfile read(Context context, SharedPreferences p, String id) {
+        String raw = p.getString(key(id, "text"), "");
+        String colorKey = key(id, "color");
+        if (!p.contains(colorKey)) {
+            // One-time non-destructive migration from pre-1.1.4 node colours.
+            int inherited = TopicMapStore.inheritMapColor(context, id, raw);
+            p.edit().putInt(colorKey, inherited).apply();
+        }
         return new MapProfile(
                 id,
                 safe(p.getString(key(id, "name"), "Hartă de cercetare"), "Hartă de cercetare"),
                 normalizeFolder(p.getString(key(id, "folder"), "General")),
-                p.getString(key(id, "text"), ""),
-                p.getLong(key(id, "created"), 0L)
+                raw,
+                p.getLong(key(id, "created"), 0L),
+                p.getInt(colorKey, MapColorPolicy.defaultColor(id))
         );
     }
 

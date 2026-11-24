@@ -12,10 +12,8 @@ import android.view.View;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 public final class OverlayView extends View {
     public interface OnHitTapListener {
@@ -98,10 +96,12 @@ public final class OverlayView extends View {
             List<MatchHit> group = entry.getValue();
             MatchHit first = group.get(0);
             RectF box = paddedBox(geometry.get(entry.getKey()));
-            Set<Integer> colors = new LinkedHashSet<>();
+            // Deduplicate by map ID, never by colour: several nodes of the
+            // same map share a band; two maps may intentionally share RGB.
+            Map<String, Integer> colors = new java.util.TreeMap<>();
             boolean allHeld = true;
             for (MatchHit hit : group) {
-                colors.add(hit.node.color);
+                colors.putIfAbsent(hit.node.profileId, hit.node.color);
                 allHeld &= hit.retained;
             }
             int color = first.node.color;
@@ -115,7 +115,7 @@ public final class OverlayView extends View {
             } else {
                 float step = box.width() / colors.size();
                 float left = box.left;
-                for (int c : colors) {
+                for (int c : colors.values()) {
                     fillPaint.setColor(withAlpha(c, allHeld ? 140 : 245));
                     canvas.drawRect(left, box.top, left + step, box.top + dp(3), fillPaint);
                     canvas.drawRect(left, box.bottom - dp(3), left + step, box.bottom, fillPaint);

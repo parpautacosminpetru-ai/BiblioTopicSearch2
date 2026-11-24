@@ -63,14 +63,14 @@ public final class TopicMapStore {
 
     public static TopicMap load(Context context) {
         MapProfile active = TopicLibraryStore.getActive(context);
-        return parseForProfile(context, active.id, active.name, active.rawText);
+        return parseInternal(context, active.id, active.name, active.rawText, active.color);
     }
 
-    /** All selected profiles retain independent paths, node settings and colours. */
+    /** All selected profiles retain independent paths, node settings and one chosen profile colour. */
     public static TopicMap loadForScanning(Context context, List<MapProfile> profiles) {
         List<TopicNode> nodes = new ArrayList<>();
         for (MapProfile profile : profiles) {
-            TopicMap map = parseForProfile(context, profile.id, profile.name, profile.rawText);
+            TopicMap map = parseInternal(context, profile.id, profile.name, profile.rawText, profile.color);
             nodes.addAll(map.nodes);
         }
         return new TopicMap("Hărți selectate", "", nodes);
@@ -81,6 +81,10 @@ public final class TopicMapStore {
     }
 
     public static TopicMap parseForProfile(Context context, String profileId, String name, String rawText) {
+        return parseInternal(context, profileId, name, rawText, TopicLibraryStore.getMapColor(context, profileId));
+    }
+
+    private static TopicMap parseInternal(Context context, String profileId, String name, String rawText, Integer mapColor) {
         List<TopicNode> nodes = new ArrayList<>();
         Map<Integer, String> hierarchy = new LinkedHashMap<>();
         TopicNode current = null;
@@ -113,7 +117,9 @@ public final class TopicMapStore {
                 int offset = profileId == null || "default".equals(profileId)
                         ? 0 : (profileId.hashCode() & Integer.MAX_VALUE) % DEFAULT_COLORS.length;
                 int defaultColor = DEFAULT_COLORS[(nodes.size() + offset) % DEFAULT_COLORS.length];
-                current.color = getNodeColorForProfile(context, profileId, current.path, defaultColor);
+                current.color = mapColor == null
+                        ? getNodeColorForProfile(context, profileId, current.path, defaultColor)
+                        : MapColorPolicy.opaque(mapColor);
                 current.symbol = getNodeSymbolForProfile(context, profileId, current.path, defaultSymbol(level));
                 current.enabled = getNodeEnabledForProfile(context, profileId, current.path, true);
                 nodes.add(current);
@@ -134,9 +140,35 @@ public final class TopicMapStore {
             }
         }
 
+        if (mapColor != null) MapColorPolicy.applyToNodes(nodes, mapColor);
         return new TopicMap(safe(name, "Hartă de cercetare"), rawText == null ? "" : rawText, nodes);
     }
 
+    /** Migrate the first explicitly customised legacy node colour, if any.
+     * The original node preferences remain untouched for compatibility. */
+    static int inheritMapColor(Context context, String profileId, String rawText) {
+        SharedPreferences p = prefs(context);
+        String prefix = "profile_" + key(profileId == null ? "default" : profileId) + "_node_";
+        boolean hasLegacy = false;
+        for (String field : p.getAll().keySet()) {
+            if (field.endsWith("_color") && (field.startsWith(prefix) ||
+                    ("default".equals(profileId) && field.startsWith("node_")))) {
+                hasLegacy = true;
+                break;
+            }
+        }
+        if (!hasLegacy) return MapColorPolicy.defaultColor(profileId);
+        TopicMap old = parseInternal(context, profileId, "", rawText, null);
+        for (TopicNode node : old.nodes) {
+            if (p.contains(profileNodeKey(profileId, node.path, "color")) ||
+                    ("default".equals(profileId) && p.contains(legacyNodeKey(node.path, "color")))) {
+                return MapColorPolicy.opaque(node.color);
+            }
+        }
+        return MapColorPolicy.defaultColor(profileId);
+    }
+
+    @Deprecated
     public static void setNodeColor(Context context, String path, int color) {
         prefs(context).edit().putInt(profileNodeKey(context, path, "color"), color).apply();
     }

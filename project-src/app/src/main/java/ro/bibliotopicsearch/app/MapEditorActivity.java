@@ -47,6 +47,7 @@ public final class MapEditorActivity extends AppCompatActivity {
     private LinearLayout nodeContainer;
     private LinearLayout advancedContainer;
     private Button advancedToggle;
+    private Button mapColorButton;
     private final Set<String> collapsedPaths = new HashSet<>();
     private TopicMap currentMap;
 
@@ -72,6 +73,16 @@ public final class MapEditorActivity extends AppCompatActivity {
         nameEdit.setHint("Numele hărții");
         nameEdit.setSingleLine(true);
         root.addView(nameEdit, full(dp(50)));
+        mapColorButton = button("Culoarea hărții");
+        root.addView(mapColorButton, full(dp(48)));
+        mapColorButton.setOnClickListener(v -> {
+            MapProfile profile = TopicLibraryStore.getActive(this);
+            ColorPickerDialog.show(this, profile.color, selected -> {
+                saveRawWithoutRefresh();
+                TopicLibraryStore.setMapColor(this, profile.id, selected);
+                refreshNodes();
+            });
+        });
 
         Button addRoot = button("+ Nod");
         root.addView(addRoot, full(dp(48)));
@@ -183,6 +194,9 @@ public final class MapEditorActivity extends AppCompatActivity {
 
     private void refreshNodes() {
         currentMap = TopicMapStore.load(this);
+        int color = TopicLibraryStore.getActive(this).color;
+        mapColorButton.setBackgroundTintList(ColorStateList.valueOf(color));
+        mapColorButton.setTextColor(MapColorPolicy.contrastText(color));
         nodeContainer.removeAllViews();
         levelContainer.removeAllViews();
 
@@ -277,11 +291,6 @@ public final class MapEditorActivity extends AppCompatActivity {
         enabled.setChecked(node.enabled);
         line.addView(enabled, new LinearLayout.LayoutParams(dp(86), dp(46)));
 
-        Button colorButton = button("CULOARE");
-        colorButton.setTextColor(contrastText(node.color));
-        colorButton.setBackgroundTintList(ColorStateList.valueOf(node.color));
-        line.addView(colorButton, new LinearLayout.LayoutParams(0, dp(46), 1f));
-
         EditText symbol = new EditText(this);
         symbol.setHint("simbol");
         symbol.setText(node.symbol == null ? "" : node.symbol);
@@ -307,14 +316,6 @@ public final class MapEditorActivity extends AppCompatActivity {
             node.enabled = isChecked;
             card.setAlpha(isChecked ? 1f : 0.55f);
         });
-
-        colorButton.setOnClickListener(v ->
-                ColorPickerDialog.show(this, node.color, selected -> {
-                    TopicMapStore.setNodeColor(this, node.path, selected);
-                    node.color = selected;
-                    refreshNodes();
-                })
-        );
 
         symbol.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}

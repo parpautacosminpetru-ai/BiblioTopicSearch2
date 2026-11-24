@@ -126,7 +126,7 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(Color.WHITE);
         bg.setCornerRadius(dp(10));
-        bg.setStroke(dp(active ? 3 : 1), active ? Color.rgb(53, 92, 125) : Color.rgb(213, 208, 197));
+        bg.setStroke(dp(active ? 2 : 1), active ? profile.color : Color.rgb(213, 208, 197));
         card.setBackground(bg);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -136,9 +136,18 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         card.setLayoutParams(lp);
 
         LinearLayout header = row();
-        TextView title = heading((active ? "● " : "") + profile.name, 16);
+        Button color = colorButton(profile.color, "Culoarea hărții " + profile.name);
+        header.addView(color, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        color.setOnClickListener(v -> ColorPickerDialog.show(this, profile.color, chosen -> {
+            TopicLibraryStore.setMapColor(this, profile.id, chosen);
+            refresh();
+        }));
+        TextView title = heading(profile.name, 16);
         title.setTextColor(active ? Color.rgb(36, 59, 83) : Color.rgb(23, 32, 42));
-        header.addView(title, new LinearLayout.LayoutParams(0, dp(38), 1f));
+        title.setPadding(dp(8), 0, dp(4), 0);
+        title.setGravity(Gravity.CENTER_VERTICAL);
+        title.setMaxLines(2);
+        header.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1f));
         TextView badge = smallBadge(scanning ? "OCR ✓" : "OCR —", scanning);
         header.addView(badge);
         card.addView(header);
@@ -180,6 +189,15 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         folder.setText("General");
         box.addView(name);
         box.addView(folder);
+        final int[] chosenColor = { MapColorPolicy.defaultColor(java.util.UUID.randomUUID().toString()) };
+        Button color = button("Culoare");
+        paintColorButton(color, chosenColor[0]);
+        color.setContentDescription("Alege culoarea hărții noi");
+        box.addView(color, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)));
+        color.setOnClickListener(v -> ColorPickerDialog.show(this, chosenColor[0], selected -> {
+            chosenColor[0] = selected;
+            paintColorButton(color, selected);
+        }));
 
         new AlertDialog.Builder(this)
                 .setTitle("Hartă nouă")
@@ -190,7 +208,7 @@ public final class TopicLibraryActivity extends AppCompatActivity {
                             this,
                             name.getText().toString(),
                             folder.getText().toString(),
-                            ""
+                            "", chosenColor[0]
                     );
                     TopicLibraryStore.setActive(this, id);
                     startActivity(new Intent(this, MapEditorActivity.class));
@@ -255,6 +273,21 @@ public final class TopicLibraryActivity extends AppCompatActivity {
                     refresh();
                 })
                 .show();
+    }
+
+    private Button colorButton(int color, String description) {
+        Button button = button("●");
+        button.setTextSize(18);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setContentDescription(description);
+        paintColorButton(button, color);
+        return button;
+    }
+
+    private void paintColorButton(Button button, int color) {
+        button.setBackgroundTintList(ColorStateList.valueOf(color));
+        button.setTextColor(MapColorPolicy.contrastText(color));
     }
 
     private TextView smallBadge(String text, boolean active) {
