@@ -36,6 +36,42 @@ public class UniversalRuntimeTest {
             });
         }
     }
+    @Test public void cameraStartsWithoutTransliterationAndCanFreeze()throws Exception{
+        Context c=ApplicationProvider.getApplicationContext();
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().getUiAutomation()
+                .grantRuntimePermission(c.getPackageName(),android.Manifest.permission.CAMERA);
+        try(ActivityScenario<LiveHistoricalActivity> s=ActivityScenario.launch(LiveHistoricalActivity.class)){
+            java.util.concurrent.atomic.AtomicBoolean ready=new java.util.concurrent.atomic.AtomicBoolean();
+            long deadline=android.os.SystemClock.elapsedRealtime()+25000;
+            while(android.os.SystemClock.elapsedRealtime()<deadline&&!ready.get()){
+                s.onActivity(a->{View root=a.findViewById(android.R.id.content);
+                    Button b=find(root,"Fixează imaginea");
+                    assertNotNull(b);assertTrue(find(root,"Din galerie").isEnabled());
+                    ready.set(b.isEnabled());
+                });
+                if(!ready.get())android.os.SystemClock.sleep(250);
+            }
+            assertTrue("CameraX preview must stream on the Android emulator",ready.get());
+        }
+    }
+    @Test public void pageOcrActuallyProducesEditableText()throws Exception{
+        PageDraft.offer(printed("HELLO WORLD"));
+        try(ActivityScenario<PageReviewActivity> s=ActivityScenario.launch(PageReviewActivity.class)){
+            s.onActivity(a->{Button b=find(a.findViewById(android.R.id.content),"OCR latin");assertNotNull(b);assertTrue(b.isEnabled());b.performClick();});
+            java.util.concurrent.atomic.AtomicBoolean recognized=new java.util.concurrent.atomic.AtomicBoolean();
+            long deadline=android.os.SystemClock.elapsedRealtime()+35000;
+            while(android.os.SystemClock.elapsedRealtime()<deadline&&!recognized.get()){
+                s.onActivity(a->recognized.set(hasEditableText(a.findViewById(android.R.id.content),"HELLO")));
+                if(!recognized.get())android.os.SystemClock.sleep(250);
+            }
+            assertTrue("Page OCR must expose recognized text in the editable field",recognized.get());
+        }
+    }
+    private static boolean hasEditableText(View v,String fragment){
+        if(v instanceof android.widget.EditText&&v.isShown()&&((android.widget.EditText)v).getText().toString().toUpperCase(java.util.Locale.ROOT).contains(fragment))return true;
+        if(v instanceof ViewGroup){ViewGroup g=(ViewGroup)v;for(int i=0;i<g.getChildCount();i++)if(hasEditableText(g.getChildAt(i),fragment))return true;}
+        return false;
+    }
     @Test public void bundledModelsCanInitializeOnActualAndroid()throws Exception{
         Context c=ApplicationProvider.getApplicationContext();
         List<String> names=Arrays.asList("ron","eng","rus","ell","grc","ara","heb","hin","chi_sim","chi_tra","jpn","kor");

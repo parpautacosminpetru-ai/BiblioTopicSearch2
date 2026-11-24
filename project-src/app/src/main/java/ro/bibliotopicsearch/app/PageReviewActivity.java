@@ -37,7 +37,7 @@ import java.util.concurrent.TimeUnit;
 /** Still-page review: all geometry is drawn on the very bitmap recognized
  * by OCR, never projected onto a newer camera frame. */
 public final class PageReviewActivity extends AppCompatActivity {
-    static final String OPEN_IMAGE="open_image";
+    static final String OPEN_IMAGE="open_image",OPEN_MODELS="open_models";
     private static final int PICK=72, PICK_MODEL=73;
     private Uri sourceUri;
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
@@ -148,6 +148,7 @@ public final class PageReviewActivity extends AppCompatActivity {
             sourceUri=Uri.parse(saved.getString("source_uri"));loadImage(sourceUri,saved.getString("historical_text",""));
         }else{status.setText("Alege o imagine sau importă un model OCR.");setBusy(false);
             if(saved==null&&getIntent().getBooleanExtra(OPEN_IMAGE,false))open.post(this::pick);
+            else if(saved==null&&getIntent().getBooleanExtra(OPEN_MODELS,false))historical.post(this::historicalOptions);
         }
     }
     private void pick(){
