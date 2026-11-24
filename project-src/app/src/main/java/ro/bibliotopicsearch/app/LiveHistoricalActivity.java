@@ -95,7 +95,7 @@ public final class LiveHistoricalActivity extends AppCompatActivity {
         status.setText("Se verifică modelul OCR…");
         worker.execute(()->{
             String name=null,error=null;
-            try{name=HistoricalOcr.install(this,uri);}
+            try{if(session!=null){session.close();session=null;sessionKey="";}name=HistoricalOcr.install(this,uri);}
             catch(Exception|LinkageError e){error=e.getMessage()==null?"Model incompatibil.":e.getMessage();}
             final String selected=name,failure=error;
             main.post(()->{

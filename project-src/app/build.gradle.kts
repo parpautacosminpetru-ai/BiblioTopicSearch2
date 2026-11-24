@@ -7,7 +7,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "ro.bibliotopicsearch.paleography"
+        applicationId = "ro.bibliotopicsearch.paleography.v141"
         minSdk = 23
         targetSdk = 36
         versionCode = 23

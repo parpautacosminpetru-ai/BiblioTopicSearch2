@@ -3,7 +3,7 @@ name: Biblio Paleografie - test and build
 on:
   push:
     branches:
-      - fix/paleography-professional-1.3.0
+      - fix/paleography-1.4.1-parallel
   workflow_dispatch:
 
 concurrency:
@@ -62,7 +62,7 @@ jobs:
         run: |
           APK=project-src/app/build/outputs/apk/debug/app-debug.apk
           AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt"
-          "$AAPT" dump badging "$APK" | grep -F "package: name='ro.bibliotopicsearch.paleography' versionCode='23' versionName='1.4.1'"
+          "$AAPT" dump badging "$APK" | grep -F "package: name='ro.bibliotopicsearch.paleography.v141' versionCode='23' versionName='1.4.1'"
           unzip -Z1 "$APK" > apk-files.txt
           for model in ron eng rus ell grc ara heb hin chi_sim chi_tra jpn kor; do
             grep -Fx "assets/ocr_models/$model.traineddata" apk-files.txt
@@ -73,12 +73,12 @@ jobs:
       - name: Prepare APK
         run: |
           mkdir -p output
-          cp project-src/app/build/outputs/apk/debug/app-debug.apk output/Biblio-Paleografie-1.4.1.apk
+          cp project-src/app/build/outputs/apk/debug/app-debug.apk output/Biblio-Paleografie-1.4.1-Separat.apk
           cd output
-          sha256sum Biblio-Paleografie-1.4.1.apk > Biblio-Paleografie-1.4.1.apk.sha256
+          sha256sum Biblio-Paleografie-1.4.1-Separat.apk > Biblio-Paleografie-1.4.1-Separat.apk.sha256
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Biblio-Paleografie-1.4.1
+          name: Biblio-Paleografie-1.4.1-Separat
           path: output/
           if-no-files-found: error

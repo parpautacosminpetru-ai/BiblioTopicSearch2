@@ -1,3 +1,7 @@
+# Instalare separată 1.4.1
+
+Această ramură produce un APK cu ID Android `ro.bibliotopicsearch.paleography.v141`. Se poate instala alături de 1.4.0, inclusiv atunci când certificatele debug diferă. Datele aplicației vechi rămân acolo; hărțile și sistemele de reguli se pot muta prin export/import. Modelele OCR standard sunt deja incluse. Nicio dezinstalare necesară.
+
 # Biblio Paleografie 1.4.1 — remediere pornire fără sistem
 
 - OCR și transliterarea sunt independente. Apăsarea scurtă Paleo pornește camera OCR universală; apăsarea lungă deschide atelierul text/reguli. Din atelier, CAMERA · OCR și IMAGINE · SEMNE · OCR sunt disponibile fără sistem de transliterare.
