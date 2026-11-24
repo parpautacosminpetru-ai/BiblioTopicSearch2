@@ -35,13 +35,14 @@ public final class TopicMatcher {
         private final Map<Integer, TermIndex<CompiledTerm>> exact;
         private final TermIndex<CompiledTerm> approximate;
         private final int maxTokens, termCount;
+        private final Map<String, Set<String>> allowed;
 
         private SearchPlan(boolean strip, AppPrefs.MatchMode mode, boolean repair, boolean join,
                            Map<Integer, TermIndex<CompiledTerm>> exact, TermIndex<CompiledTerm> approximate,
-                           int maxTokens, int termCount) {
+                           int maxTokens, int termCount, Map<String, Set<String>> allowed) {
             stripDiacritics = strip; this.mode = mode; repairEnabled = repair; joinEnabled = join;
             this.exact = exact; this.approximate = approximate;
-            this.maxTokens = maxTokens; this.termCount = termCount;
+            this.maxTokens = maxTokens; this.termCount = termCount; this.allowed = allowed;
         }
         public int termCount() { return termCount; }
 
@@ -73,6 +74,38 @@ public final class TopicMatcher {
                 found = candidates;
             }
             return found;
+        }
+
+        /** Verify actual source evidence again, independently of trie lookup. */
+        boolean verifies(CompiledTerm term, String raw, MatchHit.Kind kind) {
+            Set<String> keys = allowed.get(term.node.identityKey());
+            if (keys == null || !keys.contains(term.normalized)) return false;
+            List<String> values = LiteralText.values(raw, stripDiacritics);
+            String key = LiteralText.key(values, 0, values.size());
+            if (kind == MatchHit.Kind.OCR_REPAIR) {
+                if (!repairEnabled || values.size() != 1) return false;
+                return repairedCandidates(key).contains(term);
+            }
+            if (kind == MatchHit.Kind.LINE_JOIN) {
+                if (!joinEnabled) return false;
+                // The line-break reconstruction has already been resolved against
+                // both variants; verify the original, visibly hyphenated source.
+                int split = raw.indexOf('\n');
+                if (split <= 0 || split != raw.lastIndexOf('\n')) return false;
+                List<LiteralText.Lexeme> left = LiteralText.lex(raw.substring(0,split),stripDiacritics);
+                List<String> right = LiteralText.values(raw.substring(split+1),stripDiacritics);
+                int at = LiteralText.terminalFragment(raw.substring(0,split),left);
+                if (at < 0 || right.isEmpty()) return false;
+                for (String joined : OcrRepair.joinedVariants(left.get(at).value+"-",right.get(0))) {
+                    List<String> both = new ArrayList<>();
+                    for(int i=0;i<at;i++) both.add(left.get(i).value);
+                    both.add(joined); both.addAll(right.subList(1,right.size()));
+                    if(term.normalized.equals(LiteralText.key(both,0,both.size()))) return true;
+                }
+                return false;
+            }
+            if (term.normalized.equals(key)) return true;
+            return mode != AppPrefs.MatchMode.EXACT && values.size()==1 && candidates(1,key).contains(term);
         }
 
         /** End is exclusive. Barriers exclude incomplete fragments and unsafe
@@ -130,6 +163,7 @@ public final class TopicMatcher {
         Map<Integer, TermIndex<CompiledTerm>> exact = new HashMap<>();
         TermIndex<CompiledTerm> approximate = new TermIndex<>();
         int max = 0, count = 0;
+        Map<String,Set<String>> allowed = new HashMap<>();
         if (map != null) for (TopicNode node : map.nodes) {
             if (!node.enabled) continue;
             List<String> terms = node.terms.isEmpty() && titles ? Collections.singletonList(node.title) : node.terms;
@@ -140,6 +174,7 @@ public final class TopicMatcher {
                 String key = LiteralText.key(tokens, 0, tokens.size());
                 if (!seen.add(key)) continue;
                 CompiledTerm term = new CompiledTerm(raw, key, tokens.size(), node);
+                allowed.computeIfAbsent(node.identityKey(), unused -> new HashSet<>()).add(key);
                 exact.computeIfAbsent(tokens.size(), unused -> new TermIndex<>()).add(key, term);
                 if (mode != AppPrefs.MatchMode.EXACT && tokens.size() == 1 &&
                         key.length() >= 3 && LiteralText.isAlphabetic(key)) {
@@ -150,7 +185,7 @@ public final class TopicMatcher {
                 count++;
             }
         }
-        return new SearchPlan(strip, mode, repair, join, exact, approximate, max, count);
+        return new SearchPlan(strip, mode, repair, join, exact, approximate, max, count, allowed);
     }
 
     public static List<MatchHit> find(Context context, Text text, TopicMap map) {
@@ -243,6 +278,14 @@ public final class TopicMatcher {
 
         /** Each OCR element gets its own box so a phrase and a nested
          * single-word match can share exactly the correct coloured mark. */
+        void confidence(int from, int to, OcrConfidence confidence) {
+            for (ElementSpan e:elements) {
+                if(e.end<=from)continue;
+                if(e.start>=to)break;
+                if(LiteralText.hasWord(e.element.getText())) confidence.add(e.element.getConfidence());
+            }
+        }
+
         List<RectF> geometry(int from, int to) {
             List<RectF> out = new ArrayList<>();
             for (ElementSpan e : elements) {
@@ -343,11 +386,11 @@ public final class TopicMatcher {
             breaks[i] = t.breakBefore;
         }
         plan.scan(values,barriers,breaks,boundary,joined,alternative,
-                (start,end,terms,kind) -> emit(tokens,start,end,terms,kind,hits,dedupe,now));
+                (start,end,terms,kind) -> emit(tokens,start,end,terms,kind,plan,hits,dedupe,now));
     }
 
     private static void emit(List<Token> tokens, int start, int end, List<CompiledTerm> terms, MatchHit.Kind kind,
-                             List<MatchHit> hits, Set<String> dedupe, long now) {
+                             SearchPlan plan, List<MatchHit> hits, Set<String> dedupe, long now) {
         List<Token> evidence = new ArrayList<>();
         for (int i = start; i < end; i++) {
             Token t = tokens.get(i);
@@ -355,6 +398,7 @@ public final class TopicMatcher {
             else { evidence.add(t.left); evidence.add(t.right); }
         }
         List<RectF> geometry = new ArrayList<>();
+        OcrConfidence confidence = new OcrConfidence();
         StringBuilder raw = new StringBuilder();
         for (int i = 0; i < evidence.size();) {
             Token first = evidence.get(i);
@@ -364,16 +408,20 @@ public final class TopicMatcher {
             List<RectF> boxes = first.line.geometry(first.start,to);
             if (boxes == null) return;
             geometry.addAll(boxes);
+            first.line.confidence(first.start,to,confidence);
             if (raw.length() > 0) raw.append('\n');
             raw.append(first.line.raw,first.start,to);
             i = j;
         }
         String original = raw.toString();
+        float score = confidence.value();
+        if (OcrConfidence.requiredFrames(score, kind != MatchHit.Kind.LITERAL) == 0) return;
         for (CompiledTerm term : terms) {
+            if (!plan.verifies(term, original, kind)) continue;
             StringBuilder key = new StringBuilder(term.node.identityKey()).append('|').append(term.raw);
             for (RectF rect : geometry) key.append('|').append(rect.left).append(':').append(rect.top)
                     .append(':').append(rect.right).append(':').append(rect.bottom);
-            if (dedupe.add(key.toString())) hits.add(new MatchHit(geometry,original,term.raw,term.node,now,kind,false));
+            if (dedupe.add(key.toString())) hits.add(new MatchHit(geometry,original,term.raw,term.node,now,kind,false,score));
         }
     }
 

@@ -22,6 +22,8 @@ final class FrameFreshness {
                 && now - capturedAt < MAX_AGE_MS;
     }
 
+    long revision() { return viewportChangedAt.get(); }
+
     long deadline(long capturedAt) {
         return capturedAt + MAX_AGE_MS;
     }

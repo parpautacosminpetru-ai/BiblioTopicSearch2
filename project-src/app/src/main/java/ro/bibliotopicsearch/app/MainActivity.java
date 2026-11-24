@@ -537,7 +537,7 @@ public final class MainActivity extends AppCompatActivity {
             List<MatchHit> hits = TopicMatcher.find(frame.text, frame.plan);
             if (!accepts(frame.epoch)) return;
             if (!frameFreshness.accepts(frame.receivedAt, SystemClock.elapsedRealtime())) return;
-            hits = stabilizer.update(frame.epoch, frame.text, hits, frame.receivedAt, scanPrecision);
+            hits = stabilizer.update(frame.epoch, frameFreshness.revision(), frame.text, hits, frame.receivedAt, scanPrecision);
             if (!accepts(frame.epoch)) return;
             uiJobs.offer(new FrameResult(frame, hits, countRecognizedWords(frame.text)));
         } catch (RuntimeException e) {
@@ -885,6 +885,8 @@ public final class MainActivity extends AppCompatActivity {
                 .append("\nNod: ").append(hit.node.path)
                 .append("\nTermen căutat: ").append(hit.searchTerm)
                 .append("\nText OCR: ").append(hit.originalText);
+        if (hit.confidence > 0f) message.append("\nÎncredere OCR: ").append(Math.round(hit.confidence * 100f)).append("%");
+        message.append("\nConfirmat în cadre consecutive");
         if (hit.kind == MatchHit.Kind.OCR_REPAIR) message.append("\nPotrivire OCR confirmată în cadre succesive");
         else if (hit.kind == MatchHit.Kind.LINE_JOIN) message.append("\nCuvânt reunit la capăt de rând");
         if (hit.retained) message.append("\nPotrivire din cadrul anterior");

@@ -9,6 +9,7 @@ public final class MatchHit {
     public enum Kind { LITERAL, LINE_JOIN, OCR_REPAIR }
     public final Kind kind;
     public final boolean retained;
+    public final float confidence;
     public final RectF box;
     public final List<RectF> segments;
     public final String originalText;
@@ -26,6 +27,12 @@ public final class MatchHit {
 
     public MatchHit(List<RectF> boxes, String originalText, String searchTerm, TopicNode node,
                     long detectedAt, Kind kind, boolean retained) {
+        this(boxes, originalText, searchTerm, node, detectedAt, kind, retained, -1f);
+    }
+
+    public MatchHit(List<RectF> boxes, String originalText, String searchTerm, TopicNode node,
+                    long detectedAt, Kind kind, boolean retained, float confidence) {
+        this.confidence = confidence;
         this.kind = kind;
         this.retained = retained;
         List<RectF> copied = new ArrayList<>(boxes.size());
@@ -43,11 +50,11 @@ public final class MatchHit {
     }
 
     MatchHit withTimestamp(long timestamp) {
-        return new MatchHit(segments, originalText, searchTerm, node, timestamp, kind, retained);
+        return new MatchHit(segments, originalText, searchTerm, node, timestamp, kind, retained, confidence);
     }
 
     MatchHit withGeometry(List<RectF> boxes, boolean held) {
-        return new MatchHit(boxes, originalText, searchTerm, node, detectedAt, kind, held);
+        return new MatchHit(boxes, originalText, searchTerm, node, detectedAt, kind, held, confidence);
     }
 
     public String identityKey() {
