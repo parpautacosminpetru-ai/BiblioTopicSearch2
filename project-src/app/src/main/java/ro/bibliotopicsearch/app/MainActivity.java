@@ -18,6 +18,10 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
+import android.util.Log;
+import android.util.Size;
+import android.text.TextUtils;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.view.Gravity;
@@ -34,12 +38,17 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.camera.core.ImageAnalysis;
+import androidx.camera.core.resolutionselector.ResolutionSelector;
+import androidx.camera.core.resolutionselector.ResolutionStrategy;
 import androidx.camera.mlkit.vision.MlKitAnalyzer;
 import androidx.camera.view.CameraController;
 import androidx.camera.view.LifecycleCameraController;
 import androidx.camera.view.PreviewView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.graphics.Insets;
 
 import com.google.mlkit.vision.text.Text;
 import com.google.mlkit.vision.text.TextRecognition;
@@ -47,7 +56,9 @@ import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -59,52 +70,75 @@ import java.util.concurrent.Executors;
 public final class MainActivity extends AppCompatActivity {
     private static final int REQ_CAMERA = 101;
     private static final int REQ_SAVE_FRAME = 501;
-    private static final long STALE_OVERLAY_MS = 750L;
+    private static final long STALE_OVERLAY_MS = 900L;
+    private static final long MAX_RESULT_AGE_MS = 1600L;
+    private static final String TAG = "BiblioLive";
 
     private PreviewView previewView;
     private ImageView freezeImage;
     private OverlayView overlayView;
-    private TextView mapTitle;
-    private TextView mapMetrics;
-    private TextView statusDot;
+    private Button mapButton;
     private TextView statusText;
-    private Button ocrButton;
-    private Button freezeButton;
-    private Button saveButton;
-    private Button torchButton;
-    private Button nodesButton;
-    private Button labelsButton;
-    private LinearLayout nodePanel;
-    private LinearLayout nodeChips;
+    private Button ocrButton, freezeButton, saveButton, torchButton, labelsButton, nodesButton;
+    private HorizontalScrollView legendScroll;
     private LinearLayout legendPanel;
 
     private LifecycleCameraController cameraController;
     private TextRecognizer recognizer;
     private MlKitAnalyzer analyzer;
     private final ExecutorService analysisExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService matchExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService planExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private volatile TopicMatcher.SearchPlan searchPlan;
+    private final LatestOnly<Long> planJobs = new LatestOnly<>(planExecutor, this::compilePlan);
+    private final LatestOnly<Frame> frameJobs = new LatestOnly<>(matchExecutor, this::matchFrame);
+    private final LatestOnly<FrameResult> uiJobs = new LatestOnly<>(command -> mainHandler.post(command), this::applyFrame);
 
+    private volatile TopicMatcher.SearchPlan searchPlan;
+    private volatile long scanEpoch, planRequest;
+    private volatile boolean resumed, destroyed, frozen, ocrEnabled = true;
     private TopicMap topicMap;
-    private boolean frozen = false;
-    private boolean torchEnabled = false;
-    private boolean ocrEnabled = true;
+    private List<MapProfile> allProfiles = Collections.emptyList();
+    private Set<String> selectedProfiles = new LinkedHashSet<>();
+    private boolean torchEnabled;
     private Bitmap frozenBitmap;
     private ToneGenerator toneGenerator;
-    private long lastFeedbackAt = 0L;
+    private long lastFeedbackAt;
     private String lastFeedbackSignature = "";
-    private boolean floatingLabelsEnabled = false;
+    private boolean floatingLabelsEnabled;
     private final Set<String> visibleNodePaths = new HashSet<>();
     private final Set<String> knownNodePaths = new HashSet<>();
-    private String visibleProfileId = "";
     private List<MatchHit> latestAllHits = Collections.emptyList();
     private String lastLegendSignature = "";
 
+    private static final class Frame {
+        final long epoch, receivedAt;
+        final TopicMatcher.SearchPlan plan;
+        final Text text;
+        Frame(long epoch, TopicMatcher.SearchPlan plan, Text text) {
+            this.epoch = epoch;
+            this.plan = plan;
+            this.text = text;
+            receivedAt = SystemClock.elapsedRealtime();
+        }
+    }
+
+    private static final class FrameResult {
+        final Frame frame;
+        final List<MatchHit> hits;
+        final int words;
+        FrameResult(Frame frame, List<MatchHit> hits, int words) {
+            this.frame = frame;
+            this.hits = hits;
+            this.words = words;
+        }
+    }
+
     private final Runnable staleOverlayClear = () -> {
-        if (!frozen && ocrEnabled && overlayView != null) {
-            overlayView.clearHits();
-            updateLegend(Collections.emptyList());
-            setStatus("OCR live • caut text nou", Color.rgb(78, 201, 126));
+        if (resumed && !frozen && ocrEnabled && !destroyed) {
+            clearMatches();
+            idleStatus();
         }
     };
 
@@ -115,7 +149,7 @@ public final class MainActivity extends AppCompatActivity {
         floatingLabelsEnabled = AppPrefs.floatingLabels(this);
         buildUi();
         toneGenerator = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 22);
-        overlayView.setOnHitTapListener(this::showHitDetails);
+        overlayView.setOnHitTapListener(this::showHitChoices);
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED) {
@@ -128,28 +162,112 @@ public final class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        MapProfile activeProfile = TopicLibraryStore.getActive(this);
-        topicMap = TopicMapStore.load(this);
-        searchPlan = TopicMatcher.compile(this, topicMap);
-        syncVisibleNodes(activeProfile.id);
-        updateHeader();
+        resumed = true;
+        ocrEnabled = AppPrefs.ocrEnabled(this);
+        floatingLabelsEnabled = AppPrefs.floatingLabels(this);
         updateOcrButton();
         updateLabelsButton();
-        rebuildNodeChips();
-        redrawVisibleHits();
+        reloadPlan();
+    }
+
+    @Override
+    protected void onPause() {
+        resumed = false;
+        ++planRequest;
+        planJobs.clear();
+        stopAnalysis();
+        clearMatches();
+        super.onPause();
     }
 
     @Override
     protected void onDestroy() {
-        if (cameraController != null) {
-            cameraController.clearImageAnalysisAnalyzer();
-            cameraController.unbind();
-        }
+        destroyed = true;
+        stopAnalysis();
+        if (cameraController != null) cameraController.unbind();
         if (recognizer != null) recognizer.close();
-        mainHandler.removeCallbacks(staleOverlayClear);
+        planJobs.close();
+        frameJobs.close();
+        uiJobs.close();
+        mainHandler.removeCallbacksAndMessages(null);
         analysisExecutor.shutdown();
+        matchExecutor.shutdownNow();
+        planExecutor.shutdownNow();
+        ioExecutor.shutdown();
         if (toneGenerator != null) toneGenerator.release();
         super.onDestroy();
+    }
+
+    private void reloadPlan() {
+        stopAnalysis();
+        clearMatches();
+        searchPlan = null;
+        mapButton.setEnabled(false);
+        nodesButton.setEnabled(false);
+        mapButton.setText("Hărți…");
+        if (!frozen) setStatus("Se încarcă hărțile…", Color.rgb(244, 188, 77));
+        planJobs.offer(++planRequest);
+    }
+
+    private void compilePlan(long request) {
+        if (destroyed || request != planRequest) return;
+        try {
+            List<MapProfile> profiles = TopicLibraryStore.list(this);
+            List<MapProfile> selected = TopicLibraryStore.scanProfiles(this, profiles);
+            TopicMap map = TopicMapStore.loadForScanning(this, selected);
+            TopicMatcher.SearchPlan plan = TopicMatcher.compile(this, map);
+            Set<String> ids = new LinkedHashSet<>();
+            for (MapProfile profile : selected) ids.add(profile.id);
+            mainHandler.post(() -> {
+                if (destroyed || !resumed || request != planRequest) return;
+                allProfiles = profiles;
+                selectedProfiles = ids;
+                topicMap = map;
+                searchPlan = plan;
+                syncVisibleNodes();
+                mapButton.setText("Hărți " + ids.size() + "/" + profiles.size() + "  ▾");
+                mapButton.setEnabled(true);
+                nodesButton.setEnabled(true);
+                idleStatus();
+                attachAnalyzer();
+            });
+        } catch (RuntimeException e) {
+            Log.e(TAG, "Map compilation failed", e);
+            mainHandler.post(() -> {
+                if (destroyed || !resumed || request != planRequest) return;
+                mapButton.setText("Reîncarcă hărțile");
+                mapButton.setEnabled(true);
+                setStatus("Eroare la încărcarea hărților", Color.rgb(235, 100, 100));
+            });
+        }
+    }
+
+    private void showMapSelection() {
+        if (searchPlan == null) { reloadPlan(); return; }
+        List<MapProfile> profiles = allProfiles;
+        String[] labels = new String[profiles.size()];
+        boolean[] checked = new boolean[profiles.size()];
+        for (int i = 0; i < profiles.size(); i++) {
+            MapProfile profile = profiles.get(i);
+            labels[i] = profile.folder + " / " + profile.name;
+            checked[i] = selectedProfiles.contains(profile.id);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Hărți pentru OCR")
+                .setMultiChoiceItems(labels, checked, (dialog, which, value) -> checked[which] = value)
+                .setNeutralButton("Toate", (dialog, which) -> {
+                    Set<String> ids = new LinkedHashSet<>();
+                    for (MapProfile profile : profiles) ids.add(profile.id);
+                    TopicLibraryStore.setScanProfiles(this, ids);
+                    reloadPlan();
+                })
+                .setNegativeButton("Renunță", null)
+                .setPositiveButton("Aplică", (dialog, which) -> {
+                    Set<String> ids = new LinkedHashSet<>();
+                    for (int i = 0; i < profiles.size(); i++) if (checked[i]) ids.add(profiles.get(i).id);
+                    TopicLibraryStore.setScanProfiles(this, ids);
+                    reloadPlan();
+                }).show();
     }
 
     private void buildUi() {
@@ -172,226 +290,158 @@ public final class MainActivity extends AppCompatActivity {
 
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.VERTICAL);
-        top.setPadding(dp(14), dp(9), dp(14), dp(10));
-        top.setBackgroundColor(Color.argb(226, 27, 39, 51));
+        top.setPadding(dp(10), dp(4), dp(10), dp(5));
+        top.setBackgroundColor(Color.argb(215, 18, 28, 38));
 
-        LinearLayout titleRow = new LinearLayout(this);
-        titleRow.setOrientation(LinearLayout.HORIZONTAL);
-        titleRow.setGravity(Gravity.CENTER_VERTICAL);
-
-        TextView appTitle = new TextView(this);
-        appTitle.setText("Biblio Topic Search");
-        appTitle.setTextColor(Color.WHITE);
-        appTitle.setTextSize(19);
-        appTitle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        titleRow.addView(appTitle, new LinearLayout.LayoutParams(0, dp(34), 1f));
-
-        TextView localBadge = badge("OFFLINE", Color.rgb(69, 92, 113));
-        titleRow.addView(localBadge);
-        top.addView(titleRow);
-
-        mapTitle = new TextView(this);
-        mapTitle.setTextColor(Color.rgb(238, 242, 245));
-        mapTitle.setTextSize(14);
-        mapTitle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        mapTitle.setPadding(0, dp(3), 0, 0);
-        mapTitle.setOnClickListener(v -> openLibrary());
-        top.addView(mapTitle);
-
-        mapMetrics = new TextView(this);
-        mapMetrics.setTextColor(Color.rgb(190, 204, 215));
-        mapMetrics.setTextSize(11);
-        mapMetrics.setOnClickListener(v -> openLibrary());
-        top.addView(mapMetrics);
-
-        LinearLayout statusRow = new LinearLayout(this);
-        statusRow.setOrientation(LinearLayout.HORIZONTAL);
-        statusRow.setGravity(Gravity.CENTER_VERTICAL);
-        statusRow.setPadding(0, dp(4), 0, 0);
-
-        statusDot = new TextView(this);
-        statusDot.setText("●");
-        statusDot.setTextSize(15);
-        statusRow.addView(statusDot, new LinearLayout.LayoutParams(dp(22), dp(26)));
-
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        mapButton = toolbarButton("Hărți…");
+        mapButton.setEnabled(false);
+        header.addView(mapButton, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        ocrButton = toolbarButton("OCR");
+        header.addView(ocrButton, toolbarLp());
+        top.addView(header);
         statusText = new TextView(this);
         statusText.setTextSize(12);
-        statusText.setTextColor(Color.rgb(244, 240, 230));
-        statusRow.addView(statusText, new LinearLayout.LayoutParams(0, dp(28), 1f));
-        top.addView(statusRow);
+        statusText.setSingleLine(true);
+        statusText.setEllipsize(TextUtils.TruncateAt.END);
+        statusText.setPadding(dp(4), 0, dp(4), dp(3));
+        top.addView(statusText);
 
-        HorizontalScrollView legendScroll = new HorizontalScrollView(this);
+        legendScroll = new HorizontalScrollView(this);
         legendScroll.setHorizontalScrollBarEnabled(false);
         legendPanel = new LinearLayout(this);
         legendPanel.setOrientation(LinearLayout.HORIZONTAL);
         legendPanel.setGravity(Gravity.CENTER_VERTICAL);
-        legendPanel.setPadding(0, dp(3), 0, dp(3));
         legendScroll.addView(legendPanel, new HorizontalScrollView.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)
-        ));
-        top.addView(legendScroll, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(34)
-        ));
-        updateLegend(Collections.emptyList());
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)));
+        legendScroll.setVisibility(View.GONE);
+        top.addView(legendScroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(36)));
+        root.addView(top, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP));
 
         HorizontalScrollView toolScroll = new HorizontalScrollView(this);
         toolScroll.setHorizontalScrollBarEnabled(false);
+        toolScroll.setFillViewport(true);
+        toolScroll.setBackgroundColor(Color.argb(225, 18, 28, 38));
         LinearLayout toolbar = new LinearLayout(this);
-        toolbar.setOrientation(LinearLayout.HORIZONTAL);
         toolbar.setGravity(Gravity.CENTER_VERTICAL);
-        toolbar.setPadding(0, dp(4), 0, dp(3));
-
-        ocrButton = toolbarButton(ocrEnabled ? "● OCR LIVE" : "Ⅱ OCR PAUZĂ");
-        nodesButton = toolbarButton("NODURI");
-        labelsButton = toolbarButton("ETICHETE");
-        Button libraryButton = toolbarButton("TEME");
-        freezeButton = toolbarButton("CADRU");
-        saveButton = toolbarButton("SALVEAZĂ");
-        torchButton = toolbarButton("LUMINĂ");
-        Button settingsButton = toolbarButton("SETĂRI");
-
-        toolbar.addView(ocrButton, toolbarLp());
-        toolbar.addView(nodesButton, toolbarLp());
-        toolbar.addView(labelsButton, toolbarLp());
-        toolbar.addView(libraryButton, toolbarLp());
-        toolbar.addView(freezeButton, toolbarLp());
-        toolbar.addView(saveButton, toolbarLp());
-        toolbar.addView(torchButton, toolbarLp());
-        toolbar.addView(settingsButton, toolbarLp());
+        toolbar.setPadding(dp(6), dp(4), dp(6), dp(4));
+        nodesButton = toolbarButton("Noduri");
+        nodesButton.setEnabled(false);
+        labelsButton = toolbarButton("Etichete");
+        Button libraryButton = toolbarButton("Bibliotecă");
+        freezeButton = toolbarButton("Cadru");
+        saveButton = toolbarButton("Salvează");
+        torchButton = toolbarButton("Lumină");
+        Button settingsButton = toolbarButton("Setări");
+        for (Button button : new Button[]{libraryButton, nodesButton, labelsButton,
+                freezeButton, saveButton, torchButton, settingsButton}) {
+            toolbar.addView(button, toolbarLp());
+        }
         toolScroll.addView(toolbar, new HorizontalScrollView.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)
-        ));
-        top.addView(toolScroll, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(50)
-        ));
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(56)));
+        root.addView(toolScroll, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(56), Gravity.BOTTOM));
 
-        nodePanel = new LinearLayout(this);
-        nodePanel.setOrientation(LinearLayout.VERTICAL);
-        nodePanel.setVisibility(View.GONE);
-        nodePanel.setPadding(0, dp(4), 0, dp(4));
-
-        TextView nodeHint = new TextView(this);
-        nodeHint.setText("AFIȘARE LIVE • căutarea rămâne activă în fundal");
-        nodeHint.setTextColor(Color.rgb(205, 216, 225));
-        nodeHint.setTextSize(10);
-        nodePanel.addView(nodeHint);
-
-        HorizontalScrollView nodeScroll = new HorizontalScrollView(this);
-        nodeScroll.setHorizontalScrollBarEnabled(false);
-        nodeChips = new LinearLayout(this);
-        nodeChips.setOrientation(LinearLayout.HORIZONTAL);
-        nodeChips.setGravity(Gravity.CENTER_VERTICAL);
-        nodeScroll.addView(nodeChips, new HorizontalScrollView.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(46)
-        ));
-        nodePanel.addView(nodeScroll, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)
-        ));
-        top.addView(nodePanel);
-
-        FrameLayout.LayoutParams topLp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP
-        );
-        root.addView(top, topLp);
-
+        mapButton.setOnClickListener(v -> showMapSelection());
         ocrButton.setOnClickListener(v -> toggleOcr());
-        nodesButton.setOnClickListener(v -> {
-            nodePanel.setVisibility(nodePanel.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
-            nodesButton.setText(nodePanel.getVisibility() == View.VISIBLE ? "ÎNCHIDE NODURI" : "NODURI");
-        });
+        nodesButton.setOnClickListener(v -> showNodeSelection());
         labelsButton.setOnClickListener(v -> toggleFloatingLabels());
         libraryButton.setOnClickListener(v -> openLibrary());
         settingsButton.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         freezeButton.setOnClickListener(v -> toggleFreeze());
         saveButton.setOnClickListener(v -> saveFrozenFrame());
         torchButton.setOnClickListener(v -> toggleTorch());
-
         saveButton.setEnabled(false);
         setContentView(root);
-        updateOcrButton();
-        updateLabelsButton();
-        setStatus(
-                ocrEnabled ? "Pregătit • OCR local live" : "Camera live • OCR în pauză",
-                ocrEnabled ? Color.rgb(78, 201, 126) : Color.rgb(170, 178, 186)
-        );
+        ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            return insets;
+        });
+        ViewCompat.requestApplyInsets(root);
+        idleStatus();
     }
 
     private void setupCamera() {
-        if (cameraController != null) return;
-
+        if (cameraController != null || destroyed) return;
         cameraController = new LifecycleCameraController(this);
         cameraController.setEnabledUseCases(CameraController.IMAGE_ANALYSIS);
         cameraController.setImageAnalysisBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST);
+        cameraController.setImageAnalysisResolutionSelector(new ResolutionSelector.Builder()
+                .setResolutionStrategy(new ResolutionStrategy(new Size(1280, 960),
+                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER)).build());
+        cameraController.setTapToFocusEnabled(true);
+        cameraController.setPinchToZoomEnabled(true);
         previewView.setController(cameraController);
-
         recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
-        analyzer = new MlKitAnalyzer(
-                Collections.singletonList(recognizer),
-                COORDINATE_SYSTEM_VIEW_REFERENCED,
-                analysisExecutor,
-                result -> {
-                    if (!ocrEnabled || frozen) return;
-                    Text text = result.getValue(recognizer);
-                    if (text == null) {
-                        runOnUiThread(() -> {
-                            if (!ocrEnabled || frozen) return;
-                            overlayView.clearHits();
-                            latestAllHits = Collections.emptyList();
-                            updateLegend(Collections.emptyList());
-                            setStatus("OCR live • niciun text citit încă", Color.rgb(78, 201, 126));
-                        });
-                        return;
-                    }
-
-                    TopicMatcher.SearchPlan activePlan = searchPlan;
-                    if (activePlan == null) {
-                        TopicMap activeMap = topicMap == null ? TopicMapStore.load(MainActivity.this) : topicMap;
-                        activePlan = TopicMatcher.compile(MainActivity.this, activeMap);
-                        searchPlan = activePlan;
-                    }
-
-                    List<MatchHit> hits = TopicMatcher.find(text, activePlan);
-                    int recognizedWords = countRecognizedWords(text);
-                    int searchableTerms = activePlan.termCount();
-                    runOnUiThread(() -> applyHits(hits, recognizedWords, searchableTerms));
-                }
-        );
-
-        if (ocrEnabled) attachAnalyzer();
         cameraController.bindToLifecycle(this);
+        idleStatus();
+        attachAnalyzer();
+    }
+
+    private boolean accepts(long epoch) {
+        return resumed && !destroyed && ocrEnabled && !frozen && scanEpoch == epoch;
     }
 
     private void attachAnalyzer() {
-        if (cameraController != null && analyzer != null) {
-            cameraController.setImageAnalysisAnalyzer(analysisExecutor, analyzer);
+        TopicMatcher.SearchPlan plan = searchPlan;
+        if (!resumed || destroyed || frozen || !ocrEnabled || plan == null ||
+                cameraController == null || recognizer == null || analyzer != null) return;
+        long epoch = ++scanEpoch;
+        TextRecognizer client = recognizer;
+        analyzer = new MlKitAnalyzer(Collections.singletonList(client), COORDINATE_SYSTEM_VIEW_REFERENCED,
+                analysisExecutor, result -> {
+                    if (!accepts(epoch)) return;
+                    Text text = result.getValue(client);
+                    // Release the camera callback immediately; matching never runs on the
+                    // CameraX/ML Kit executor or the main thread.
+                    frameJobs.offer(new Frame(epoch, plan, text));
+                });
+        cameraController.setImageAnalysisAnalyzer(analysisExecutor, analyzer);
+    }
+
+    private void stopAnalysis() {
+        ++scanEpoch;
+        if (cameraController != null) cameraController.clearImageAnalysisAnalyzer();
+        analyzer = null;
+        frameJobs.clear();
+        uiJobs.clear();
+        mainHandler.removeCallbacks(staleOverlayClear);
+    }
+
+    private void matchFrame(Frame frame) {
+        if (!accepts(frame.epoch) || SystemClock.elapsedRealtime() - frame.receivedAt > MAX_RESULT_AGE_MS) return;
+        try {
+            List<MatchHit> hits = TopicMatcher.find(frame.text, frame.plan);
+            if (!accepts(frame.epoch)) return;
+            uiJobs.offer(new FrameResult(frame, hits, countRecognizedWords(frame.text)));
+        } catch (RuntimeException e) {
+            Log.e(TAG, "Frame matching failed", e);
         }
+    }
+
+    private void applyFrame(FrameResult result) {
+        if (!accepts(result.frame.epoch) || searchPlan != result.frame.plan ||
+                SystemClock.elapsedRealtime() - result.frame.receivedAt > MAX_RESULT_AGE_MS) return;
+        applyHits(result.hits, result.words, result.frame.plan.termCount());
     }
 
     private void toggleOcr() {
         ocrEnabled = !ocrEnabled;
         AppPrefs.setOcrEnabled(this, ocrEnabled);
-        mainHandler.removeCallbacks(staleOverlayClear);
-
-        if (cameraController != null) {
-            if (ocrEnabled) attachAnalyzer();
-            else cameraController.clearImageAnalysisAnalyzer();
-        }
-
-        if (!ocrEnabled) {
-            overlayView.clearHits();
-            updateLegend(Collections.emptyList());
-            setStatus("Camera live • OCR în pauză", Color.rgb(170, 178, 186));
-        } else {
-            setStatus("OCR live • caut text", Color.rgb(78, 201, 126));
-        }
+        stopAnalysis();
+        clearMatches();
+        if (ocrEnabled) attachAnalyzer();
+        idleStatus();
         updateOcrButton();
     }
 
     private void updateOcrButton() {
         if (ocrButton == null) return;
-        ocrButton.setText(ocrEnabled ? "● OCR LIVE" : "Ⅱ OCR PAUZĂ");
+        ocrButton.setText(ocrEnabled ? "OCR ●" : "OCR ‖");
+        ocrButton.setContentDescription(ocrEnabled ? "Oprește OCR" : "Pornește OCR");
         ocrButton.setBackgroundTintList(ColorStateList.valueOf(
                 ocrEnabled ? Color.rgb(42, 128, 94) : Color.rgb(93, 105, 116)
         ));
@@ -406,92 +456,55 @@ public final class MainActivity extends AppCompatActivity {
 
     private void updateLabelsButton() {
         if (labelsButton == null) return;
-        labelsButton.setText(floatingLabelsEnabled ? "ETICHETE ON" : "ETICHETE OFF");
+        labelsButton.setText(floatingLabelsEnabled ? "Etichete ●" : "Etichete");
+        labelsButton.setContentDescription(floatingLabelsEnabled ? "Ascunde etichetele" : "Afișează etichetele");
         labelsButton.setBackgroundTintList(ColorStateList.valueOf(
                 floatingLabelsEnabled ? Color.rgb(123, 88, 154) : Color.rgb(53, 92, 125)
         ));
     }
 
-    private void syncVisibleNodes(String profileId) {
+    private void syncVisibleNodes() {
         Set<String> current = new HashSet<>();
-        if (topicMap != null) {
-            for (TopicNode node : topicMap.nodes) {
-                if (node.enabled) current.add(node.path);
-            }
+        if (topicMap != null) for (TopicNode node : topicMap.nodes) {
+            if (node.enabled) current.add(node.identityKey());
         }
-
-        boolean profileChanged = profileId != null && !profileId.equals(visibleProfileId);
-        if (profileChanged || knownNodePaths.isEmpty()) {
-            visibleNodePaths.clear();
-            visibleNodePaths.addAll(current);
-        } else {
-            visibleNodePaths.retainAll(current);
-            for (String path : current) {
-                if (!knownNodePaths.contains(path)) visibleNodePaths.add(path);
-            }
-        }
+        visibleNodePaths.retainAll(current);
+        for (String key : current) if (!knownNodePaths.contains(key)) visibleNodePaths.add(key);
         knownNodePaths.clear();
         knownNodePaths.addAll(current);
-        visibleProfileId = profileId == null ? "" : profileId;
     }
 
-    private void rebuildNodeChips() {
-        if (nodeChips == null) return;
-        nodeChips.removeAllViews();
-
-        Button all = nodeChip("TOATE", true);
-        all.setOnClickListener(v -> {
-            visibleNodePaths.clear();
-            visibleNodePaths.addAll(knownNodePaths);
-            rebuildNodeChips();
-            redrawVisibleHits();
-        });
-        nodeChips.addView(all, chipLp());
-
-        Button levelOne = nodeChip("DOAR NIVEL 1", true);
-        levelOne.setOnClickListener(v -> {
-            visibleNodePaths.clear();
-            if (topicMap != null) {
-                for (TopicNode node : topicMap.nodes) {
-                    if (node.enabled && node.level == 1) visibleNodePaths.add(node.path);
-                }
-            }
-            rebuildNodeChips();
-            redrawVisibleHits();
-        });
-        nodeChips.addView(levelOne, chipLp());
-
-        Button none = nodeChip("ASCUNDE TOATE", false);
-        none.setOnClickListener(v -> {
-            visibleNodePaths.clear();
-            rebuildNodeChips();
-            redrawVisibleHits();
-        });
-        nodeChips.addView(none, chipLp());
-
+    private void showNodeSelection() {
         if (topicMap == null) return;
-        for (TopicNode node : topicMap.nodes) {
-            if (!node.enabled) continue;
-            boolean visible = visibleNodePaths.contains(node.path);
-            StringBuilder prefix = new StringBuilder();
-            for (int i = 1; i < node.level; i++) prefix.append("↳");
-            String text = (visible ? "● " : "○ ") + prefix + node.title;
-            Button chip = nodeChip(text, visible);
-            chip.setOnClickListener(v -> {
-                if (visibleNodePaths.contains(node.path)) visibleNodePaths.remove(node.path);
-                else visibleNodePaths.add(node.path);
-                rebuildNodeChips();
-                redrawVisibleHits();
-            });
-            nodeChips.addView(chip, chipLp());
+        List<TopicNode> nodes = new ArrayList<>();
+        for (TopicNode node : topicMap.nodes) if (node.enabled) nodes.add(node);
+        String[] labels = new String[nodes.size()];
+        boolean[] checked = new boolean[nodes.size()];
+        for (int i = 0; i < nodes.size(); i++) {
+            TopicNode node = nodes.get(i);
+            labels[i] = node.profileName + " / " + node.path;
+            checked[i] = visibleNodePaths.contains(node.identityKey());
         }
+        new AlertDialog.Builder(this).setTitle("Noduri afișate")
+                .setMultiChoiceItems(labels, checked, (d, which, value) -> checked[which] = value)
+                .setNeutralButton("Toate", (d, which) -> {
+                    visibleNodePaths.clear();
+                    visibleNodePaths.addAll(knownNodePaths);
+                    redrawVisibleHits();
+                })
+                .setNegativeButton("Renunță", null)
+                .setPositiveButton("Aplică", (d, which) -> {
+                    visibleNodePaths.clear();
+                    for (int i = 0; i < nodes.size(); i++) if (checked[i]) visibleNodePaths.add(nodes.get(i).identityKey());
+                    redrawVisibleHits();
+                }).show();
     }
 
     private List<MatchHit> filterVisibleHits(List<MatchHit> source) {
         if (source == null || source.isEmpty()) return Collections.emptyList();
         List<MatchHit> out = new java.util.ArrayList<>();
         for (MatchHit hit : source) {
-            if (hit != null && hit.node != null && visibleNodePaths.contains(hit.node.path)) out.add(hit);
+            if (hit != null && hit.node != null && visibleNodePaths.contains(hit.node.identityKey())) out.add(hit);
         }
         return out;
     }
@@ -499,45 +512,42 @@ public final class MainActivity extends AppCompatActivity {
     private void redrawVisibleHits() {
         if (overlayView == null) return;
         List<MatchHit> visible = filterVisibleHits(latestAllHits);
+        overlayView.clearHits();
         overlayView.updateHits(visible, AppPrefs.precision(this), floatingLabelsEnabled);
         updateLegend(visible);
     }
 
+    private void clearMatches() {
+        latestAllHits = Collections.emptyList();
+        if (overlayView != null) overlayView.clearHits();
+        updateLegend(latestAllHits);
+    }
+
     private void updateLegend(List<MatchHit> visibleHits) {
         if (legendPanel == null) return;
-
         Map<String, Integer> counts = new LinkedHashMap<>();
         Map<String, MatchHit> first = new LinkedHashMap<>();
-        if (visibleHits != null) {
-            for (MatchHit hit : visibleHits) {
-                if (hit == null || hit.node == null) continue;
-                counts.put(hit.node.path, counts.getOrDefault(hit.node.path, 0) + 1);
-                first.putIfAbsent(hit.node.path, hit);
-            }
+        for (MatchHit hit : visibleHits) {
+            String id = hit.node.profileId;
+            counts.put(id, counts.getOrDefault(id, 0) + 1);
+            first.putIfAbsent(id, hit);
         }
-
-        StringBuilder signatureBuilder = new StringBuilder(counts.toString());
-        for (Map.Entry<String, MatchHit> entry : first.entrySet()) {
-            signatureBuilder.append('|').append(entry.getKey()).append('=').append(entry.getValue().originalText);
-        }
-        String signature = signatureBuilder.toString();
-        if (signature.equals(lastLegendSignature) && legendPanel.getChildCount() > 0) return;
+        String signature = counts.toString();
+        if (signature.equals(lastLegendSignature)) return;
         lastLegendSignature = signature;
         legendPanel.removeAllViews();
-
-        if (counts.isEmpty()) {
-            TextView empty = legendText("LEGENDĂ • fără potriviri afișate", Color.rgb(69, 92, 113));
-            legendPanel.addView(empty, legendLp());
-            return;
-        }
-
+        legendScroll.setVisibility(counts.isEmpty() ? View.GONE : View.VISIBLE);
         for (Map.Entry<String, MatchHit> entry : first.entrySet()) {
             MatchHit hit = entry.getValue();
-            int count = counts.get(entry.getKey());
-            String original = hit.originalText == null ? "" : hit.originalText.trim();
-            String label = hit.node.title + (original.isEmpty() ? "" : " · " + original) + (count > 1 ? " ×" + count : "");
-            TextView item = legendText(label, hit.node.color);
-            item.setOnClickListener(v -> showHitDetails(hit));
+            String id = entry.getKey();
+            TextView item = legendText(hit.node.profileName + " · " + counts.get(id), hit.node.color);
+            item.setOnClickListener(v -> {
+                List<MatchHit> current = new ArrayList<>();
+                for (MatchHit match : filterVisibleHits(latestAllHits)) {
+                    if (match.node.profileId.equals(id)) current.add(match);
+                }
+                showHitChoices(current);
+            });
             legendPanel.addView(item, legendLp());
         }
     }
@@ -546,7 +556,7 @@ public final class MainActivity extends AppCompatActivity {
         TextView view = new TextView(this);
         view.setText("● " + text);
         view.setTextColor(Color.WHITE);
-        view.setTextSize(10);
+        view.setTextSize(12);
         view.setGravity(Gravity.CENTER_VERTICAL);
         view.setPadding(dp(8), 0, dp(8), 0);
         GradientDrawable bg = new GradientDrawable();
@@ -556,59 +566,46 @@ public final class MainActivity extends AppCompatActivity {
         return view;
     }
 
-    private void updateHeader() {
-        MapProfile active = TopicLibraryStore.getActive(this);
-        topicMap = TopicMapStore.load(this);
-        int activeNodes = activeNodeCount(topicMap);
-        int terms = activeTermCount(topicMap);
-        if (mapTitle != null) mapTitle.setText(active.folder + "  ›  " + active.name + "   ▾");
-        if (mapMetrics != null) {
-            mapMetrics.setText(activeNodes + " noduri active • " + terms + " termeni • atinge pentru schimbare rapidă");
-        }
-    }
-
     private void openLibrary() {
         startActivity(new Intent(this, TopicLibraryActivity.class));
     }
 
     private void applyHits(List<MatchHit> hits, int recognizedWords, int searchableTerms) {
-        if (frozen || !ocrEnabled) return;
+        if (!resumed || frozen || !ocrEnabled) return;
         mainHandler.removeCallbacks(staleOverlayClear);
         mainHandler.postDelayed(staleOverlayClear, STALE_OVERLAY_MS);
-
-        latestAllHits = hits == null ? Collections.emptyList() : new java.util.ArrayList<>(hits);
+        latestAllHits = hits == null ? Collections.emptyList() : hits;
         List<MatchHit> visibleHits = filterVisibleHits(latestAllHits);
         overlayView.updateHits(visibleHits, AppPrefs.precision(this), floatingLabelsEnabled);
         updateLegend(visibleHits);
-
-        Set<String> allNodes = new HashSet<>();
-        for (MatchHit hit : latestAllHits) allNodes.add(hit.node.path);
-        Set<String> shownNodes = new HashSet<>();
-        for (MatchHit hit : visibleHits) shownNodes.add(hit.node.path);
-
         if (searchableTerms <= 0) {
-            setStatus("OCR: " + recognizedWords + " cuvinte • adaugă termeni în hartă", Color.rgb(244, 188, 77));
-            return;
-        }
-        if (recognizedWords <= 0) {
-            setStatus("OCR live • apropie camera și ține textul clar", Color.rgb(78, 201, 126));
-            return;
-        }
-        if (latestAllHits.isEmpty()) {
-            setStatus("OCR: " + recognizedWords + " cuvinte • 0 potriviri", Color.rgb(78, 201, 126));
+            setStatus("Niciun termen activ", Color.rgb(244, 188, 77));
         } else {
-            setStatus(
-                    "OCR: " + recognizedWords + " • " + latestAllHits.size() + " găsite • " +
-                            visibleHits.size() + " afișate • " + shownNodes.size() + "/" + allNodes.size() + " noduri",
-                    Color.rgb(98, 211, 255)
-            );
-            if (!visibleHits.isEmpty()) maybeFeedback(visibleHits, shownNodes);
+            String label = recognizedWords + " cuvinte · " + visibleHits.size() + " potriviri";
+            setStatus(label, visibleHits.isEmpty() ? Color.rgb(163, 221, 183) : Color.rgb(98, 211, 255));
+        }
+        if (!visibleHits.isEmpty()) {
+            Set<String> nodes = new HashSet<>();
+            for (MatchHit hit : visibleHits) nodes.add(hit.node.identityKey());
+            maybeFeedback(visibleHits, nodes);
         }
     }
 
-    private void setStatus(String text, int dotColor) {
-        if (statusText != null) statusText.setText(text);
-        if (statusDot != null) statusDot.setTextColor(dotColor);
+    private void idleStatus() {
+        if (frozen) setStatus("Cadru fix", Color.rgb(244, 188, 77));
+        else if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
+            setStatus("Permisiune cameră necesară", Color.rgb(235, 100, 100));
+        else if (!ocrEnabled) setStatus("OCR în pauză", Color.rgb(190, 200, 210));
+        else if (searchPlan == null) setStatus("Se încarcă hărțile…", Color.rgb(244, 188, 77));
+        else if (searchPlan.termCount() == 0) setStatus("Niciun termen activ", Color.rgb(244, 188, 77));
+        else setStatus("OCR live", Color.rgb(163, 221, 183));
+    }
+
+    private void setStatus(String text, int color) {
+        if (statusText != null) {
+            if (!TextUtils.equals(statusText.getText(), text)) statusText.setText(text);
+            statusText.setTextColor(color);
+        }
     }
 
     private int countRecognizedWords(Text text) {
@@ -663,29 +660,24 @@ public final class MainActivity extends AppCompatActivity {
 
             frozenBitmap = composite;
             frozen = true;
-            if (cameraController != null) cameraController.clearImageAnalysisAnalyzer();
+            stopAnalysis();
             freezeImage.setImageBitmap(frozenBitmap);
             freezeImage.setVisibility(View.VISIBLE);
             overlayView.setVisibility(View.GONE);
-            freezeButton.setText("REIA");
+            freezeButton.setText("Reia");
             saveButton.setEnabled(true);
-            setStatus("Cadru înghețat • nimic nu este salvat automat", Color.rgb(244, 188, 77));
+            idleStatus();
         } else {
             frozen = false;
-            if (ocrEnabled) attachAnalyzer();
-            overlayView.clearHits();
-            latestAllHits = Collections.emptyList();
-            updateLegend(Collections.emptyList());
+            clearMatches();
+            attachAnalyzer();
             frozenBitmap = null;
             freezeImage.setImageDrawable(null);
             freezeImage.setVisibility(View.GONE);
             overlayView.setVisibility(View.VISIBLE);
-            freezeButton.setText("CADRU");
+            freezeButton.setText("Cadru");
             saveButton.setEnabled(false);
-            setStatus(
-                    ocrEnabled ? "Scanare live reluată" : "Camera live • OCR în pauză",
-                    ocrEnabled ? Color.rgb(78, 201, 126) : Color.rgb(170, 178, 186)
-            );
+            idleStatus();
         }
     }
 
@@ -707,7 +699,20 @@ public final class MainActivity extends AppCompatActivity {
         }
         torchEnabled = !torchEnabled;
         cameraController.enableTorch(torchEnabled);
-        torchButton.setText(torchEnabled ? "STINGE" : "LUMINĂ");
+        torchButton.setText(torchEnabled ? "Stinge" : "Lumină");
+    }
+
+    private void showHitChoices(List<MatchHit> hits) {
+        if (hits.isEmpty()) return;
+        if (hits.size() == 1) { showHitDetails(hits.get(0)); return; }
+        String[] choices = new String[hits.size()];
+        for (int i = 0; i < hits.size(); i++) {
+            MatchHit hit = hits.get(i);
+            choices[i] = hit.node.displayName() + " · " + hit.originalText;
+        }
+        new AlertDialog.Builder(this).setTitle("Potriviri")
+                .setItems(choices, (d, which) -> showHitDetails(hits.get(which)))
+                .setNegativeButton("Închide", null).show();
     }
 
     private void showHitDetails(MatchHit hit) {
@@ -716,7 +721,8 @@ public final class MainActivity extends AppCompatActivity {
         if (entry == null) entry = store.lookup(hit.searchTerm);
 
         StringBuilder message = new StringBuilder();
-        message.append("Nod: ").append(hit.node.path)
+        message.append("Hartă: ").append(hit.node.profileName)
+                .append("\nNod: ").append(hit.node.path)
                 .append("\nTermen căutat: ").append(hit.searchTerm)
                 .append("\nText OCR: ").append(hit.originalText);
         if (entry != null) {
@@ -724,8 +730,6 @@ public final class MainActivity extends AppCompatActivity {
             if (!entry.synonyms.isEmpty()) message.append("\n\nSinonime: ").append(entry.synonyms);
             if (!entry.antonyms.isEmpty()) message.append("\nAntonime: ").append(entry.antonyms);
             if (!entry.source.isEmpty()) message.append("\nSursă dicționar: ").append(entry.source);
-        } else {
-            message.append("\n\nNu există o intrare în dicționarul local pentru acest termen.");
         }
 
         new AlertDialog.Builder(this)
@@ -735,54 +739,16 @@ public final class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    private int activeNodeCount(TopicMap map) {
-        int count = 0;
-        if (map != null) for (TopicNode node : map.nodes) if (node.enabled) count++;
-        return count;
-    }
-
-    private int activeTermCount(TopicMap map) {
-        int count = 0;
-        if (map != null) {
-            for (TopicNode node : map.nodes) {
-                if (!node.enabled) continue;
-                count += Math.max(1, node.terms.size());
-            }
-        }
-        return count;
-    }
-
     private Button toolbarButton(String text) {
         Button button = actionButton(text);
-        button.setMinWidth(dp(78));
+        button.setMinWidth(dp(70));
         button.setPadding(dp(8), 0, dp(8), 0);
         return button;
     }
 
     private LinearLayout.LayoutParams toolbarLp() {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(42)
-        );
-        lp.setMargins(dp(2), 0, dp(2), 0);
-        return lp;
-    }
-
-    private Button nodeChip(String text, boolean active) {
-        Button button = new Button(this);
-        button.setText(text);
-        button.setTextSize(10);
-        button.setAllCaps(false);
-        button.setTextColor(Color.WHITE);
-        button.setPadding(dp(8), 0, dp(8), 0);
-        button.setBackgroundTintList(ColorStateList.valueOf(
-                active ? Color.rgb(42, 128, 94) : Color.rgb(74, 84, 94)
-        ));
-        return button;
-    }
-
-    private LinearLayout.LayoutParams chipLp() {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)
         );
         lp.setMargins(dp(2), 0, dp(2), 0);
         return lp;
@@ -790,51 +756,20 @@ public final class MainActivity extends AppCompatActivity {
 
     private LinearLayout.LayoutParams legendLp() {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(28)
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)
         );
         lp.setMargins(0, 0, dp(4), 0);
         return lp;
     }
 
-    private TextView badge(String text, int color) {
-        TextView view = new TextView(this);
-        view.setText(text);
-        view.setTextColor(Color.WHITE);
-        view.setTextSize(9);
-        view.setGravity(Gravity.CENTER);
-        view.setPadding(dp(8), 0, dp(8), 0);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(color);
-        bg.setCornerRadius(dp(12));
-        view.setBackground(bg);
-        return view;
-    }
-
-    private Button primaryButton(String text) {
-        Button button = new Button(this);
-        button.setText(text);
-        button.setTextSize(14);
-        button.setTextColor(Color.WHITE);
-        button.setAllCaps(false);
-        button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        button.setBackgroundTintList(ColorStateList.valueOf(Color.rgb(42, 128, 94)));
-        return button;
-    }
-
     private Button actionButton(String text) {
         Button button = new Button(this);
         button.setText(text);
-        button.setTextSize(9.5f);
+        button.setTextSize(12);
         button.setTextColor(Color.WHITE);
         button.setAllCaps(false);
         button.setBackgroundTintList(ColorStateList.valueOf(Color.rgb(53, 92, 125)));
         return button;
-    }
-
-    private LinearLayout.LayoutParams weightedButton() {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(48), 1f);
-        lp.setMargins(dp(2), 0, dp(2), 0);
-        return lp;
     }
 
     private FrameLayout.LayoutParams match() {
@@ -856,16 +791,19 @@ public final class MainActivity extends AppCompatActivity {
                 data == null || data.getData() == null || frozenBitmap == null) return;
 
         Uri uri = data.getData();
-        try {
-            OutputStream output = getContentResolver().openOutputStream(uri, "wt");
-            if (output == null) throw new IllegalStateException("Nu pot deschide destinația.");
-            try (OutputStream out = output) {
-                frozenBitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
+        Bitmap snapshot = frozenBitmap;
+        ioExecutor.execute(() -> {
+            String message;
+            try (OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
+                if (out == null || !snapshot.compress(Bitmap.CompressFormat.PNG, 100, out))
+                    throw new IllegalStateException("Salvare eșuată");
+                message = "Cadrul a fost salvat.";
+            } catch (Exception e) {
+                message = "Salvare eșuată: " + e.getMessage();
             }
-            toast("Cadrul a fost salvat.");
-        } catch (Exception e) {
-            toast("Salvare eșuată: " + e.getMessage());
-        }
+            final String result = message;
+            mainHandler.post(() -> { if (!destroyed) toast(result); });
+        });
     }
 
     @Override
@@ -879,7 +817,7 @@ public final class MainActivity extends AppCompatActivity {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 setupCamera();
             } else {
-                setStatus("Permisiunea camerei este necesară pentru OCR live.", Color.rgb(235, 100, 100));
+                setStatus("Permisiune cameră necesară", Color.rgb(235, 100, 100));
             }
         }
     }

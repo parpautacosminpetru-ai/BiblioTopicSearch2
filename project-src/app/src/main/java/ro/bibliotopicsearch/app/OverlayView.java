@@ -11,6 +11,8 @@ import android.view.View;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -18,7 +20,7 @@ import java.util.Set;
 
 public final class OverlayView extends View {
     public interface OnHitTapListener {
-        void onHitTap(MatchHit hit);
+        void onHitTap(List<MatchHit> hits);
     }
 
     private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -121,11 +123,12 @@ public final class OverlayView extends View {
                 }
             }
 
+            RectF box = fresh.box;
             if (nearest != null) {
                 usedOld.add(nearestIndex);
-                fresh.box = blend(nearest.box, fresh.box, currentWeight);
+                box = blend(nearest.box, fresh.box, currentWeight);
             }
-            adjusted.add(fresh);
+            adjusted.add(new MatchHit(box, fresh.originalText, fresh.searchTerm, fresh.node, fresh.detectedAt));
         }
 
         // Evită pâlpâirea când OCR-ul pierde termenul pentru un singur cadru.
@@ -183,31 +186,54 @@ public final class OverlayView extends View {
         long now = System.currentTimeMillis();
         boolean flashActive = now < flashUntil;
 
-        // Întâi desenăm toate potrivirile. Nicio potrivire nu este eliminată doar
-        // pentru că ecranul este aglomerat.
+        // Equal OCR boxes may belong to several maps: draw each colour in a
+        // separate band instead of painting the last map over all others.
+        Map<String, List<MatchHit>> groups = new LinkedHashMap<>();
         for (MatchHit hit : hits) {
-            int color = hit.node.color;
-            boolean flashing = flashActive && flashingOccurrenceKeys.contains(occurrenceKey(hit));
-
+            RectF box = hit.box;
+            String key = Math.round(box.left / 4f) + ":" + Math.round(box.top / 4f) + ":" +
+                    Math.round(box.right / 4f) + ":" + Math.round(box.bottom / 4f);
+            groups.computeIfAbsent(key, ignored -> new ArrayList<>()).add(hit);
+        }
+        for (List<MatchHit> group : groups.values()) {
+            MatchHit first = group.get(0);
+            RectF box = paddedBox(first.box);
+            Set<Integer> colors = new LinkedHashSet<>();
+            boolean flashing = false;
+            for (MatchHit hit : group) {
+                colors.add(hit.node.color);
+                flashing |= flashActive && flashingOccurrenceKeys.contains(occurrenceKey(hit));
+            }
+            int color = first.node.color;
             fillPaint.setStyle(Paint.Style.FILL);
-            fillPaint.setColor(withAlpha(color, flashing ? 100 : 58));
-            strokePaint.setColor(withAlpha(color, 245));
-            strokePaint.setStrokeWidth(dp(flashing ? 4f : 2.5f));
-
-            RectF box = paddedBox(hit.box);
-            canvas.drawRoundRect(box, dp(4), dp(4), fillPaint);
-            canvas.drawRoundRect(box, dp(4), dp(4), strokePaint);
+            fillPaint.setColor(withAlpha(color, flashing ? 90 : 42));
+            canvas.drawRoundRect(box, dp(3), dp(3), fillPaint);
+            if (colors.size() == 1) {
+                strokePaint.setColor(withAlpha(color, 245));
+                strokePaint.setStrokeWidth(dp(flashing ? 3 : 2));
+                canvas.drawRoundRect(box, dp(3), dp(3), strokePaint);
+            } else {
+                float step = box.width() / colors.size();
+                float left = box.left;
+                for (int c : colors) {
+                    fillPaint.setColor(withAlpha(c, 245));
+                    canvas.drawRect(left, box.top, left + step, box.top + dp(3), fillPaint);
+                    canvas.drawRect(left, box.bottom - dp(3), left + step, box.bottom, fillPaint);
+                    left += step;
+                }
+            }
         }
 
         if (showLabels) {
             List<RectF> occupied = new ArrayList<>();
-            int fullBudget = hits.size() <= 8 ? hits.size() : 8;
+            int fullBudget = Math.min(8, hits.size());
             int fullDrawn = 0;
             for (MatchHit hit : hits) {
                 RectF box = paddedBox(hit.box);
                 boolean wantFull = fullDrawn < fullBudget;
                 boolean fullWasDrawn = drawSmartLabel(canvas, hit, box, occupied, wantFull);
                 if (fullWasDrawn) fullDrawn++;
+                if (occupied.size() >= 24) break; // highlights remain visible for every hit
             }
         }
 
@@ -239,7 +265,7 @@ public final class OverlayView extends View {
 
         String symbol = hit.node.symbol == null ? "" : hit.node.symbol.trim();
         String term = hit.searchTerm == null ? "" : hit.searchTerm.trim();
-        String path = hit.node.path == null ? hit.node.title : hit.node.path;
+        String path = hit.node.displayName();
         String main = (symbol.isEmpty() ? "" : symbol + " ") + ellipsizeEnd(term, 30);
         String sub = ellipsizeStart(path == null ? "" : path, 42);
 
@@ -342,21 +368,28 @@ public final class OverlayView extends View {
         return "…" + value.substring(value.length() - Math.max(1, maxChars - 1));
     }
 
+    private List<MatchHit> hitsAt(float x, float y) {
+        List<MatchHit> matches = new ArrayList<>();
+        for (int i = hits.size() - 1; i >= 0; i--) {
+            MatchHit hit = hits.get(i);
+            RectF expanded = new RectF(hit.box);
+            expanded.inset(-dp(6), -dp(6));
+            if (expanded.contains(x, y)) matches.add(hit);
+        }
+        return matches;
+    }
+
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+            // Empty parts of the overlay pass touch through to PreviewView,
+            // enabling camera autofocus and pinch-to-zoom.
+            return !hitsAt(event.getX(), event.getY()).isEmpty();
+        }
         if (event.getActionMasked() == MotionEvent.ACTION_UP) {
-            float x = event.getX();
-            float y = event.getY();
-            for (int i = hits.size() - 1; i >= 0; i--) {
-                MatchHit hit = hits.get(i);
-                RectF expanded = new RectF(hit.box);
-                expanded.inset(-dp(8), -dp(8));
-                if (expanded.contains(x, y)) {
-                    if (tapListener != null) tapListener.onHitTap(hit);
-                    performClick();
-                    return true;
-                }
-            }
+            List<MatchHit> matches = hitsAt(event.getX(), event.getY());
+            if (tapListener != null && !matches.isEmpty()) tapListener.onHitTap(matches);
+            performClick();
         }
         return true;
     }
