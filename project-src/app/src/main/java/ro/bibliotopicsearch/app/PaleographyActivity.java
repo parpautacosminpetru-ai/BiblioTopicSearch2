@@ -43,7 +43,7 @@ import java.util.concurrent.atomic.AtomicReference;
 /** A local, literal transcription workspace. Not coupled to semantic
  * dictionaries, the word matcher or OCR geometry. */
 public final class PaleographyActivity extends AppCompatActivity {
-    private static final int IMPORT_RULES=81,IMPORT_TEXT=82,SAVE_TEXT=83,SAVE_RULES=84;
+    private static final int IMPORT_RULES=81,IMPORT_TEXT=82,SAVE_TEXT=83,SAVE_RULES=84,IMPORT_SOUND=85;
     private static final AtomicReference<Draft> DRAFT=new AtomicReference<>();
     private static final class Draft {
         final String text,origin;
@@ -63,6 +63,7 @@ public final class PaleographyActivity extends AppCompatActivity {
     private String selectedId="";
     private LiteralTransliterator.Result current;
     private String pendingExport;
+    private String pendingClipSystem,pendingClipSource;
     private static final int MAX_PREVIEW=60000;
     private boolean busy,loading,internalInput;
     private long inputRevision;
@@ -234,10 +235,11 @@ public final class PaleographyActivity extends AppCompatActivity {
     private void showManage(){
         TransliterationStore.Profile profile=selected();
         String[] options=profile==null?new String[]{"Creează sistem","Formatul fișierului"}:
-                new String[]{"Creează sistem","Editează sistemul","Exportă sistemul","Șterge sistemul","Formatul fișierului"};
+                new String[]{"Creează sistem","Editează sistemul","Exportă sistemul","Șterge sistemul","Formatul fișierului","Sunete înregistrate"};
         new AlertDialog.Builder(this).setTitle("Sisteme").setItems(options,(d,which)->{
             if(which==0){showEditor(null,"source\ttarget\n");return;}
             if(profile==null||which==4){showFormat();return;}
+            if(which==5){showSoundEditor(profile);return;}
             if(which==1){
                 setBusy(true);
                 worker.execute(()->{try{
@@ -255,6 +257,7 @@ public final class PaleographyActivity extends AppCompatActivity {
                         .setNegativeButton("Renunță",null).setPositiveButton("Șterge",(dialog,w)->{
                             setBusy(true);worker.execute(()->{try{
                                 TransliterationStore.delete(this,profile.id);
+                                PaleographyAudioFiles.removeSystem(this,profile.id);
                                 runOnUiThread(()->{if(active()){setBusy(false);reload("");}});
                             }catch(Exception e){fail(e);}});
                         }).show();
@@ -262,10 +265,41 @@ public final class PaleographyActivity extends AppCompatActivity {
         }).setNegativeButton("Închide",null).show();
     }
 
+    private void showSoundEditor(TransliterationStore.Profile profile){
+        EditText exact=new EditText(this);
+        exact.setHint("Caracterul sau grupul-sursă exact");
+        exact.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE|InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        AlertDialog d=new AlertDialog.Builder(this).setTitle("Sunet · "+profile.name)
+                .setView(exact).setNegativeButton("Renunță",null)
+                .setNeutralButton("Elimină",null).setPositiveButton("Atașează",null).create();
+        d.setOnShowListener(v->{
+            d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(w->{
+                String source=exact.getText().toString();
+                if(source.isEmpty()){exact.setError("Introdu sursa exactă.");return;}
+                pendingClipSource=source;pendingClipSystem=profile.id;d.dismiss();
+                Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("audio/*");
+                startActivityForResult(intent,IMPORT_SOUND);
+            });
+            d.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(w->{
+                String source=exact.getText().toString();
+                if(source.isEmpty()){exact.setError("Introdu sursa exactă.");return;}
+                d.dismiss();setBusy(true);
+                worker.execute(()->{try{
+                    PaleographyAudioFiles.remove(this,profile.id,source);
+                    runOnUiThread(()->{if(active()){setBusy(false);status.setText("Sunet eliminat.");}});
+                }catch(Exception e){fail(e);}});
+            });
+        });
+        d.show();
+    }
+
     private void showFormat(){
         String message="UTF-8: TSV, CSV sau JSON.\n\n"
-                +"TSV: două coloane separate prin TAB, source și target.\n"
-                +"CSV: source,target; folosește ghilimele pentru virgule.\n"
+                +"TSV/CSV: source, target, sound (opțional), language (opțional).\n"
+                +"Exemplu CSV: Ж,Zh,je,ro-RO\n"
+                +"Sunetul scris se sintetizează numai cu o voce locală; limba implicită este ro-RO. Fără sunet definit nu se ghicește.\n"
+                +"Sisteme → Sunete înregistrate: atașează un fișier audio scurt la sursa exactă. Înregistrarea are prioritate și este stocată separat de tabelul exportat.\n"
                 +"JSON: {\"name\":\"Sistem\",\"rules\":[{\"source\":\"Ж\",\"target\":\"Zh\"}]}\n\n"
                 +"Regulile sunt sensibile la majuscule. Caracterele neacoperite rămân neschimbate. "
                 +"Pentru spațiu, TAB, rând nou ori simboluri speciale poți folosi JSON sau escapările TSV.";
@@ -329,6 +363,17 @@ public final class PaleographyActivity extends AppCompatActivity {
     }
     @Override protected void onActivityResult(int request,int result,@Nullable Intent data){
         super.onActivityResult(request,result,data);
+        if(request==IMPORT_SOUND){
+            final String id=pendingClipSystem,source=pendingClipSource;
+            pendingClipSystem=null;pendingClipSource=null;
+            if(result!=RESULT_OK||data==null||data.getData()==null||id==null||source==null)return;
+            final Uri uri=data.getData();setBusy(true);
+            worker.execute(()->{try{
+                PaleographyAudioFiles.attach(this,id,source,uri);
+                runOnUiThread(()->{if(active()){setBusy(false);status.setText("Sunet atașat.");}});
+            }catch(Exception e){fail(e);}});
+            return;
+        }
         if(request!=IMPORT_RULES&&request!=IMPORT_TEXT&&request!=SAVE_TEXT&&request!=SAVE_RULES)return;
         if(result!=RESULT_OK||data==null||data.getData()==null){pendingExport=null;return;}
         final Uri uri=data.getData();

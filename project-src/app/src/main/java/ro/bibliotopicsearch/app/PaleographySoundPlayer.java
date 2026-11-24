@@ -38,7 +38,7 @@ final class PaleographySoundPlayer implements AutoCloseable{
         if(change<=0)main.post(()->{cancelLine();focusHeld=false;});
     };
     private static final class Heard{
-        PaleographyLine line;long lastSeen;
+        PaleographyLine line;long lastSeen;int nextIndex;boolean completed;
         Heard(PaleographyLine line,long now){this.line=line;lastSeen=now;}
     }
     private final List<Heard> heard=new ArrayList<>();
@@ -46,6 +46,7 @@ final class PaleographySoundPlayer implements AutoCloseable{
     private List<PaleographyLine> visible=Collections.emptyList();
     private Map<String,File> clips=Collections.emptyMap();
     private PaleographyLine playing;
+    private Heard activeHeard;
     private List<LiteralTransliterator.RuleMatch> queue=Collections.emptyList();
     private LiteralTransliterator.RuleMatch cue;
     private int index,ttsState;
@@ -107,15 +108,17 @@ final class PaleographySoundPlayer implements AutoCloseable{
     private void startNext(){
         if(!enabled||closed||playing!=null)return;
         for(PaleographyLine line:visible){
-            boolean done=false;
-            for(Heard h:heard)if(same(h.line,line)){done=true;break;}
-            if(done)continue;
+            Heard previous=null;
+            for(Heard h:heard)if(same(h.line,line)){previous=h;break;}
+            if(previous!=null&&previous.completed)continue;
             List<LiteralTransliterator.RuleMatch> cues=new ArrayList<>();
             for(LiteralTransliterator.RuleMatch m:line.matches)if(hasSound(m))cues.add(m);
             if(cues.isEmpty())continue;
             if(!requestFocus())return;
-            heard.add(new Heard(line,SystemClock.elapsedRealtime()));
-            playing=line;queue=cues;index=0;next();return;
+            if(previous==null){previous=new Heard(line,SystemClock.elapsedRealtime());heard.add(previous);}
+            activeHeard=previous;playing=line;queue=cues;
+            index=Math.min(previous.nextIndex,cues.size());
+            next();return;
         }
         abandonFocus();
     }
@@ -135,7 +138,8 @@ final class PaleographySoundPlayer implements AutoCloseable{
     private void next(){
         if(!enabled||closed||playing==null){cancelLine();return;}
         if(index>=queue.size()){
-            finishCue();playing=null;queue=Collections.emptyList();index=0;
+            if(activeHeard!=null)activeHeard.completed=true;
+            finishCue();playing=null;activeHeard=null;queue=Collections.emptyList();index=0;
             startNext();return;
         }
         finishCue();
@@ -228,6 +232,7 @@ final class PaleographySoundPlayer implements AutoCloseable{
     }
     private void complete(long id){
         if(id!=token||playing==null)return;
+        if(activeHeard!=null)activeHeard.nextIndex=index;
         next();
     }
     private void arm(long id,long ms){
@@ -250,7 +255,7 @@ final class PaleographySoundPlayer implements AutoCloseable{
         cue=null;audible=false;listener.highlight(null,null);
     }
     private void cancelLine(){
-        finishCue();playing=null;queue=Collections.emptyList();index=0;abandonFocus();
+        finishCue();playing=null;activeHeard=null;queue=Collections.emptyList();index=0;abandonFocus();
     }
     @Override public void close(){
         closed=true;enabled=false;clear(true);main.removeCallbacksAndMessages(null);
