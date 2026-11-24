@@ -62,11 +62,12 @@ public final class AppPrefs {
     }
 
     public static int compareChars(Context context) {
-        return prefs(context).getInt("literal_compare_chars_v115", 0);
+        int value = prefs(context).getInt("literal_compare_chars_v115", 0);
+        return value <= 0 ? 0 : Math.max(3, value);
     }
 
     public static void setCompareChars(Context context, int value) {
-        prefs(context).edit().putInt("literal_compare_chars_v115", Math.max(0, value)).apply();
+        prefs(context).edit().putInt("literal_compare_chars_v115", value <= 0 ? 0 : Math.max(3, value)).apply();
     }
 
     public static int precision(Context context) {

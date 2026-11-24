@@ -101,7 +101,7 @@ public final class SettingsActivity extends AppCompatActivity {
         chars.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                 AppPrefs.setCompareChars(SettingsActivity.this, progress);
-                updateCharsLabel(progress);
+                updateCharsLabel(AppPrefs.compareChars(SettingsActivity.this));
             }
             @Override public void onStartTrackingTouch(SeekBar seekBar) {}
             @Override public void onStopTrackingTouch(SeekBar seekBar) {}
@@ -274,7 +274,7 @@ public final class SettingsActivity extends AppCompatActivity {
         if (value >= 80) zone = "precis";
         else if (value >= 50) zone = "echilibrat";
         else zone = "stabil";
-        precisionValue.setText(value + "% • " + zone);
+        precisionValue.setText(value == 100 ? "100% · coordonate OCR curente" : value + "% • " + zone);
     }
 
     private int dp(int value) {

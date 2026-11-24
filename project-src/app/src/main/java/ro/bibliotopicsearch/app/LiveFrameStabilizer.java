@@ -32,8 +32,7 @@ final class LiveFrameStabilizer {
         List<TemporalEvidence.Observation<MatchHit>> observations = new ArrayList<>(hits.size());
         for (MatchHit raw : hits) {
             MatchHit hit = raw.withTimestamp(timestamp);
-            // A repair can be corroborated by a literal reading of the same map
-            // term; distinct map/node identities always stay separate.
+            // Distinct map/node identities always stay separate.
             // Include the actual text in the identity: a changed OCR word
             // cannot inherit geometry or confirmation from another reading.
             String key = hit.identityKey() + "\u0001" + hit.originalText + "\u0001" + hit.kind;

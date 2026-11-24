@@ -1,3 +1,13 @@
+# 1.1.5 — Detecție literală verificabilă
+
+- Modul implicit este Exact: termen integral, fără trunchiere, fără potriviri de prefix sau subșir. Cuvintele cu diacritice diferite nu sunt confundate. Titlurile nodurilor fără termeni, corectarea OCR și reunirea la cratimă se activează numai explicit din Setări.
+- Setările de potrivire și stabilizare folosesc chei noi pentru a nu reactiva automat valorile permisive din versiunile anterioare. Hărțile, culorile, selecțiile, dicționarul și preferințele de afișare rămân neschimbate.
+- Punctuația dintre cuvinte este păstrată în index; numerele compuse și cuvintele cu cratimă nu sunt fragmentate pentru a crea potriviri false. Expresiile traversează rândurile numai în același bloc/coloană și cu spațiere plauzibilă.
+- Textul OCR și elementele sale sunt aliniate după offseturi reale. Marcajele folosesc dreptunghiuri pe element/simbol; un fragment care nu poate fi localizat fără a acoperi alt cuvânt este respins. Suprapunerile tematice păstrează identitatea și culoarea fiecărei hărți.
+- Rezultatele expiră la cel mult 900 ms de la captură; nu se mai rețin marcaje absente din ultimul OCR. Modificarea zoomului ori transformării camerei invalidează cadrele vechi.
+- Reconstrucțiile opționale se bazează pe un termen integral existent, elimină alternativele ambigue și necesită confirmare pe cadre stabile. Textul brut rămâne accesibil prin atingerea marcajului.
+- Teste de regresie: stat/statuie, art/partid, date numerice, punctuație, diacritice, hărți suprapuse, titluri implicite, fragmente la cratimă, delimitarea coloanelor, alinierea textului și expirarea cadrelor. Motorul ML Kit poate continua să citească greșit caractere; măsurarea preciziei reale necesită pagini și dispozitive reprezentative.
+
 # 1.1.4 — Culoare proprie pentru fiecare hartă
 
 - O singură culoare RGB pentru fiecare profil, aleasă în Bibliotecă (pătratul colorat), în dialogul de creare sau în editorul hărții.

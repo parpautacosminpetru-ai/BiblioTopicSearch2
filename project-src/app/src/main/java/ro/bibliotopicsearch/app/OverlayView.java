@@ -95,6 +95,7 @@ public final class OverlayView extends View {
             List<MatchHit> group = entry.getValue();
             MatchHit first = group.get(0);
             RectF box = paddedBox(geometry.get(entry.getKey()));
+            if (box.isEmpty()) continue;
             // Deduplicate by map ID, never by colour: several nodes of the
             // same map share a band; two maps may intentionally share RGB.
             Map<String, Integer> colors = new java.util.TreeMap<>();
@@ -141,7 +142,7 @@ public final class OverlayView extends View {
     private RectF paddedBox(RectF source) {
         RectF box = new RectF(source);
         // Keep the marker within the actual OCR rectangle.
-        box.intersect(0f, 0f, getWidth(), getHeight());
+        if (!box.intersect(0f, 0f, getWidth(), getHeight())) box.setEmpty();
         return box;
     }
 

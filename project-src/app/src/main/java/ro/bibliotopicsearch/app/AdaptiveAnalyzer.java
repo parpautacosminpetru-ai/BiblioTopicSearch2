@@ -23,22 +23,31 @@ final class AdaptiveAnalyzer implements ImageAnalysis.Analyzer {
     private final Active active;
     private final ErrorListener errorListener;
     private volatile boolean transformAvailable;
+    private Matrix previousTransform;
+    private final Runnable transformChanged;
     private long thermalReadAt = -10000L;
     private int thermal;
 
     AdaptiveAnalyzer(MlKitAnalyzer delegate, AdaptiveOcrPolicy policy, PowerManager power,
-                     Active active, ErrorListener errorListener) {
+                     Active active, ErrorListener errorListener, Runnable transformChanged) {
         this.delegate = delegate;
         this.policy = policy;
         this.power = power;
         this.active = active;
         this.errorListener = errorListener;
+        this.transformChanged = transformChanged;
     }
 
     @Override public int getTargetCoordinateSystem() { return delegate.getTargetCoordinateSystem(); }
     @Override public Size getDefaultTargetResolution() { return delegate.getDefaultTargetResolution(); }
-    @Override public void updateTransform(@Nullable Matrix matrix) {
+    @Override public synchronized void updateTransform(@Nullable Matrix matrix) {
+        boolean changed = matrix == null ? previousTransform != null : !matrix.equals(previousTransform);
+        if (changed) {
+            transformAvailable = false;
+            transformChanged.run();
+        }
         delegate.updateTransform(matrix);
+        previousTransform = matrix == null ? null : new Matrix(matrix);
         transformAvailable = matrix != null;
     }
 

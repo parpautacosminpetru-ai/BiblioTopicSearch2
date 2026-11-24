@@ -72,7 +72,7 @@ import java.util.concurrent.Executors;
 public final class MainActivity extends AppCompatActivity {
     private static final int REQ_CAMERA = 101;
     private static final int REQ_SAVE_FRAME = 501;
-    private static final long MAX_RESULT_AGE_MS = 900L;
+    private final FrameFreshness frameFreshness = new FrameFreshness();
     private static final String TAG = "BiblioLive";
 
     private PreviewView previewView;
@@ -90,6 +90,7 @@ public final class MainActivity extends AppCompatActivity {
     private final LiveFrameStabilizer stabilizer = new LiveFrameStabilizer();
     private volatile int scanPrecision = 100;
     private long overlayDeadline;
+    private float previousZoom = -1f;
     private boolean lowRam, reducedResolution;
     private volatile long lastResolutionChange = -60000L;
     private volatile int recoveryAttempts;
@@ -383,6 +384,15 @@ public final class MainActivity extends AppCompatActivity {
         cameraController.setTapToFocusEnabled(true);
         cameraController.setPinchToZoomEnabled(true);
         previewView.setController(cameraController);
+        previewView.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob) -> {
+            if (l != ol || t != ot || r != or || b != ob) invalidateViewport();
+        });
+        cameraController.getZoomState().observe(this, zoom -> {
+            if (zoom == null) return;
+            float ratio = zoom.getZoomRatio();
+            if (previousZoom >= 0 && Math.abs(ratio-previousZoom) > 0.001f) invalidateViewport();
+            previousZoom = ratio;
+        });
         recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         cameraController.bindToLifecycle(this);
         idleStatus();
@@ -424,7 +434,8 @@ public final class MainActivity extends AppCompatActivity {
                         return;
                     }
                     Text text = result.getValue(client);
-                    frameJobs.offer(new Frame(epoch, plan, text, started));
+                    if (frameFreshness.accepts(started, SystemClock.elapsedRealtime()))
+                        frameJobs.offer(new Frame(epoch, plan, text, started));
                     // Rate/resolution decisions run independently of matching.
                     long now = SystemClock.elapsedRealtime();
                     if (now - lastResolutionChange >= 20000L &&
@@ -440,8 +451,19 @@ public final class MainActivity extends AppCompatActivity {
                     if (!accepts(epoch)) return;
                     if (policy.finish(timestamp, SystemClock.elapsedRealtime(), false) >= 0)
                         handleOcrFailure(epoch, plan, policy, error);
-                });
+                }, () -> { if (accepts(epoch)) invalidateViewport(); });
         cameraController.setImageAnalysisAnalyzer(analysisExecutor, analyzer);
+    }
+
+    private void invalidateViewport() {
+        long changed = frameFreshness.invalidate(SystemClock.elapsedRealtime());
+        mainHandler.post(() -> {
+            if (destroyed || !resumed || frozen) return;
+            if (overlayDeadline != 0 && overlayDeadline - FrameFreshness.MAX_AGE_MS <= changed) {
+                clearMatches();
+                idleStatus();
+            }
+        });
     }
 
     private void considerResolution(long epoch, AdaptiveOcrPolicy policy) {
@@ -510,10 +532,11 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void matchFrame(Frame frame) {
-        if (!accepts(frame.epoch) || SystemClock.elapsedRealtime() - frame.receivedAt > MAX_RESULT_AGE_MS) return;
+        if (!accepts(frame.epoch) || !frameFreshness.accepts(frame.receivedAt, SystemClock.elapsedRealtime())) return;
         try {
             List<MatchHit> hits = TopicMatcher.find(frame.text, frame.plan);
             if (!accepts(frame.epoch)) return;
+            if (!frameFreshness.accepts(frame.receivedAt, SystemClock.elapsedRealtime())) return;
             hits = stabilizer.update(frame.epoch, frame.text, hits, frame.receivedAt, scanPrecision);
             if (!accepts(frame.epoch)) return;
             uiJobs.offer(new FrameResult(frame, hits, countRecognizedWords(frame.text)));
@@ -524,7 +547,7 @@ public final class MainActivity extends AppCompatActivity {
 
     private void applyFrame(FrameResult result) {
         if (!accepts(result.frame.epoch) || searchPlan != result.frame.plan ||
-                SystemClock.elapsedRealtime() - result.frame.receivedAt > MAX_RESULT_AGE_MS) return;
+                !frameFreshness.accepts(result.frame.receivedAt, SystemClock.elapsedRealtime())) return;
         applyHits(result.hits, result.words, result.frame.plan.termCount(), result.frame.receivedAt);
     }
 
@@ -682,7 +705,7 @@ public final class MainActivity extends AppCompatActivity {
         if (!resumed || frozen || !ocrEnabled) return;
         mainHandler.removeCallbacks(staleOverlayClear);
         // Freshness is measured from camera acquisition, not UI delivery.
-        overlayDeadline = capturedAt + MAX_RESULT_AGE_MS;
+        overlayDeadline = frameFreshness.deadline(capturedAt);
         long remaining = overlayDeadline - SystemClock.elapsedRealtime();
         if (remaining <= 0) { clearMatches(); idleStatus(); return; }
         mainHandler.postDelayed(staleOverlayClear, remaining);
@@ -792,7 +815,8 @@ public final class MainActivity extends AppCompatActivity {
             );
             Canvas canvas = new Canvas(composite);
             canvas.drawBitmap(bitmap, null, new Rect(0, 0, composite.getWidth(), composite.getHeight()), null);
-            if (overlayDeadline > SystemClock.elapsedRealtime()) overlayView.draw(canvas);
+            if (overlayDeadline != 0 && frameFreshness.accepts(overlayDeadline - FrameFreshness.MAX_AGE_MS,
+                    SystemClock.elapsedRealtime())) overlayView.draw(canvas);
 
             frozenBitmap = composite;
             frozen = true;
