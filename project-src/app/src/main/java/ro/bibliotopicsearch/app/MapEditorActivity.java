@@ -62,34 +62,18 @@ public final class MapEditorActivity extends AppCompatActivity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(16), dp(16), dp(16), dp(28));
-        root.setBackgroundColor(Color.rgb(244, 240, 230));
+        root.setBackgroundColor(Color.rgb(246, 248, 251));
         scroll.addView(root);
 
-        TextView title = heading("HARTĂ DE CĂUTARE", 22);
+        TextView title = heading("Hartă de căutare", 22);
         root.addView(title);
-
-        TextView help = body(
-                "Harta este complet flexibilă: poți crea noduri și subnoduri fără categorii prestabilite. " +
-                "Poți adăuga termenii direct cu + TERMEN DE CĂUTAT; în editorul text se pot separa și cu |. " +
-                "Dacă un nod nu are încă termeni, titlul lui este folosit temporar ca termen. " +
-                "Poți și încărca harta dintr-un document TXT, MD sau DOCX. " +
-                "Aplicația nu interpretează sensul; caută strict ce introduci tu."
-        );
-        help.setPadding(0, dp(4), 0, dp(10));
-        root.addView(help);
 
         nameEdit = new EditText(this);
         nameEdit.setHint("Numele hărții");
         nameEdit.setSingleLine(true);
         root.addView(nameEdit, full(dp(50)));
 
-        MapProfile activeProfile = TopicLibraryStore.getActive(this);
-        TextView folderInfo = body("Folder: " + activeProfile.folder + "  •  harta activă");
-        folderInfo.setTextSize(12);
-        folderInfo.setPadding(0, 0, 0, dp(6));
-        root.addView(folderInfo);
-
-        Button addRoot = button("+ NOD PRINCIPAL");
+        Button addRoot = button("+ Nod");
         root.addView(addRoot, full(dp(48)));
         addRoot.setOnClickListener(v -> showAddNodeDialog(null));
 
@@ -110,9 +94,9 @@ public final class MapEditorActivity extends AppCompatActivity {
         advancedContainer.addView(mapEdit, full(dp(260)));
 
         LinearLayout actions = row();
-        Button save = button("SALVEAZĂ / ANALIZEAZĂ");
-        Button importButton = button("ÎNCARCĂ DOCUMENT");
-        Button exportButton = button("EXPORTĂ HARTA");
+        Button save = button("Salvează");
+        Button importButton = button("Importă");
+        Button exportButton = button("Exportă");
         actions.addView(save, weighted());
         actions.addView(importButton, weighted());
         actions.addView(exportButton, weighted());
@@ -128,7 +112,7 @@ public final class MapEditorActivity extends AppCompatActivity {
         importButton.setOnClickListener(v -> importMap());
         exportButton.setOnClickListener(v -> exportMap());
 
-        TextView nodesTitle = heading("ARBORELE HĂRȚII", 18);
+        TextView nodesTitle = heading("Noduri", 18);
         nodesTitle.setPadding(0, dp(18), 0, dp(6));
         root.addView(nodesTitle);
 
@@ -152,7 +136,7 @@ public final class MapEditorActivity extends AppCompatActivity {
             refreshNodes();
         });
 
-        TextView levelsTitle = heading("FILTRU PE NIVEL", 15);
+        TextView levelsTitle = heading("Niveluri", 15);
         levelsTitle.setPadding(0, dp(10), 0, dp(4));
         root.addView(levelsTitle);
 
@@ -164,15 +148,8 @@ public final class MapEditorActivity extends AppCompatActivity {
         nodeContainer.setOrientation(LinearLayout.VERTICAL);
         root.addView(nodeContainer);
 
-        TextView footer = body(
-                "Culoarea nodului este vizibilă permanent. Atinge săgeata pentru pliere; " +
-                "ține apăsat pe un card pentru activare/dezactivare rapidă. " +
-                "Editorul cu # rămâne disponibil ca mod avansat pentru import sau editări masive."
-        );
-        footer.setPadding(0, dp(12), 0, 0);
-        root.addView(footer);
-
         setContentView(scroll);
+        UiInsets.apply(scroll);
     }
 
 
@@ -230,7 +207,7 @@ public final class MapEditorActivity extends AppCompatActivity {
         }
 
         if (currentMap.nodes.isEmpty()) {
-            TextView empty = body("Nu există noduri. Adaugă cel puțin o linie care începe cu #.");
+            TextView empty = body("Niciun nod");
             nodeContainer.addView(empty);
             return;
         }
@@ -269,11 +246,8 @@ public final class MapEditorActivity extends AppCompatActivity {
         titleBox.setOrientation(LinearLayout.VERTICAL);
         TextView title = heading(node.title, 15);
         title.setTextColor(Color.rgb(29, 39, 51));
-        TextView path = body("L" + node.level + " • " + node.path);
-        path.setTextSize(10.5f);
-        path.setMaxLines(1);
+        title.setMaxLines(2);
         titleBox.addView(title);
-        titleBox.addView(path);
         header.addView(titleBox, new LinearLayout.LayoutParams(0, dp(46), 1f));
 
         if (hasChildren(node)) {

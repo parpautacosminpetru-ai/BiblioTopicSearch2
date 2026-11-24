@@ -108,103 +108,112 @@ public final class TopicMatcher {
         return find(text, compile(context, map));
     }
 
+    private static final class Token {
+        final String value, original;
+        final RectF box;
+        final int element, line;
+        Token(String value, String original, RectF box, int element, int line) {
+            this.value = value;
+            this.original = original;
+            this.box = box;
+            this.element = element;
+            this.line = line;
+        }
+    }
+
+    static List<String> tokenize(String original, boolean stripDiacritics) {
+        String value = normalize(original, stripDiacritics);
+        if (value.isEmpty()) return Collections.emptyList();
+        return java.util.Arrays.asList(value.split(" "));
+    }
+
     public static List<MatchHit> find(Text text, SearchPlan plan) {
         List<MatchHit> hits = new ArrayList<>();
         if (text == null || plan == null || plan.termCount <= 0) return hits;
-
         long now = System.currentTimeMillis();
         Set<String> dedupe = new HashSet<>();
-
+        int elementId = 0, lineId = 0;
         for (Text.TextBlock block : text.getTextBlocks()) {
+            List<Token> previous = Collections.emptyList();
+            Text.Line previousLine = null;
             for (Text.Line line : block.getLines()) {
-                List<Text.Element> elements = line.getElements();
-                if (elements == null || elements.isEmpty()) continue;
-
-                int size = elements.size();
-                String[] normalizedElements = new String[size];
-                String[] originalElements = new String[size];
-                RectF[] boxes = new RectF[size];
-
-                // Fiecare cuvânt OCR este normalizat o singură dată pe cadru.
-                // În versiunea veche era normalizat din nou pentru fiecare termen din hartă.
-                for (int i = 0; i < size; i++) {
-                    Text.Element element = elements.get(i);
-                    originalElements[i] = element.getText();
-                    normalizedElements[i] = normalize(element.getText(), plan.stripDiacritics);
+                if (Thread.currentThread().isInterrupted()) return Collections.emptyList();
+                List<Token> tokens = new ArrayList<>();
+                for (Text.Element element : line.getElements()) {
+                    String original = element.getText();
                     Rect box = element.getBoundingBox();
-                    boxes[i] = box == null ? null : new RectF(box);
-                }
-
-                // Termeni de un singur cuvânt.
-                if (plan.indexes.containsKey(1)) {
-                    for (int i = 0; i < size; i++) {
-                        if (boxes[i] == null) continue;
-                        String actual = normalizedElements[i];
-                        for (CompiledTerm term : plan.candidates(1, actual)) {
-                            if (matches(actual, term.normalized, plan.mode, plan.compareChars)) {
-                                addHit(
-                                        hits,
-                                        dedupe,
-                                        new RectF(boxes[i]),
-                                        originalElements[i],
-                                        term.raw,
-                                        term.node,
-                                        now
-                                );
-                            }
-                        }
+                    RectF geometry = box == null ? null : new RectF(box);
+                    int id = elementId++;
+                    for (String token : tokenize(original, plan.stripDiacritics)) {
+                        tokens.add(new Token(token, original, geometry, id, lineId));
                     }
                 }
-
-                // Expresiile cu mai multe cuvinte sunt construite o singură dată
-                // pentru fiecare fereastră, apoi comparate cu termenii de aceeași lungime.
-                for (int tokenCount : plan.tokenCounts) {
-                    if (tokenCount <= 1 || tokenCount > size) continue;
-
-                    for (int start = 0; start + tokenCount <= size; start++) {
-                        StringBuilder phrase = new StringBuilder();
-                        StringBuilder original = new StringBuilder();
-                        RectF union = null;
-                        boolean valid = true;
-
-                        for (int i = start; i < start + tokenCount; i++) {
-                            if (boxes[i] == null) {
-                                valid = false;
-                                break;
-                            }
-                            if (phrase.length() > 0) {
-                                phrase.append(' ');
-                                original.append(' ');
-                            }
-                            phrase.append(normalizedElements[i]);
-                            original.append(originalElements[i]);
-                            if (union == null) union = new RectF(boxes[i]);
-                            else union.union(boxes[i]);
-                        }
-
-                        if (!valid || union == null) continue;
-                        String actualPhrase = phrase.toString().trim();
-                        if (actualPhrase.isEmpty()) continue;
-
-                        for (CompiledTerm term : plan.candidates(tokenCount, actualPhrase)) {
-                            if (matches(actualPhrase, term.normalized, plan.mode, plan.compareChars)) {
-                                addHit(
-                                        hits,
-                                        dedupe,
-                                        union,
-                                        original.toString(),
-                                        term.raw,
-                                        term.node,
-                                        now
-                                );
-                            }
-                        }
-                    }
+                scan(tokens, -1, plan, hits, dedupe, now);
+                if (!previous.isEmpty() && !tokens.isEmpty() && canJoin(previousLine, line)) {
+                    List<Token> both = new ArrayList<>(previous.size() + tokens.size());
+                    both.addAll(previous);
+                    both.addAll(tokens);
+                    scan(both, previous.size(), plan, hits, dedupe, now);
                 }
+                previous = tokens;
+                previousLine = line;
+                lineId++;
             }
         }
-
         return hits;
+    }
+
+    private static boolean canJoin(Text.Line previous, Text.Line next) {
+        if (previous == null || next == null) return false;
+        Rect a = previous.getBoundingBox(), b = next.getBoundingBox();
+        if (a == null || b == null || a.height() <= 0 || b.height() <= 0) return false;
+        String last = previous.getText().trim();
+        if (last.endsWith(".") || last.endsWith("!") || last.endsWith("?") ||
+                last.endsWith(":") || last.endsWith(";") || last.endsWith("-")) return false;
+        int height = Math.max(a.height(), b.height());
+        int gap = b.top - a.bottom;
+        int overlap = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        // Do not join unrelated columns or large vertical gaps.
+        return gap >= -height / 3 && gap <= height * 1.5f &&
+                overlap > 0 && b.centerY() > a.centerY();
+    }
+
+    /** boundary < 0 means one line; otherwise only windows crossing the line break. */
+    private static void scan(List<Token> tokens, int boundary, SearchPlan plan,
+                             List<MatchHit> hits, Set<String> dedupe, long now) {
+        int max = plan.tokenCounts.get(plan.tokenCounts.size() - 1);
+        int first = boundary < 0 ? 0 : Math.max(0, boundary - max + 1);
+        int limit = boundary < 0 ? tokens.size() : boundary;
+        for (int start = first; start < limit; start++) {
+            if (Thread.currentThread().isInterrupted()) return;
+            StringBuilder phrase = new StringBuilder();
+            for (int end = start; end < tokens.size() && end - start < max; end++) {
+                Token token = tokens.get(end);
+                if (token.box == null) break;
+                if (phrase.length() > 0) phrase.append(' ');
+                phrase.append(token.value);
+                int count = end - start + 1;
+                if ((boundary >= 0 && end < boundary) || !plan.indexes.containsKey(count)) continue;
+                List<CompiledTerm> found = plan.candidates(count, phrase.toString());
+                if (found.isEmpty()) continue;
+
+                List<RectF> segments = new ArrayList<>();
+                StringBuilder original = new StringBuilder();
+                int lastLine = -1, lastElement = -1;
+                for (int i = start; i <= end; i++) {
+                    Token part = tokens.get(i);
+                    if (part.line != lastLine) segments.add(new RectF(part.box));
+                    else segments.get(segments.size() - 1).union(part.box);
+                    if (part.element != lastElement) {
+                        if (original.length() > 0) original.append(part.line == lastLine ? ' ' : '\n');
+                        original.append(part.original);
+                    }
+                    lastLine = part.line;
+                    lastElement = part.element;
+                }
+                for (CompiledTerm term : found) addHit(hits, dedupe, segments, original.toString(), term, now);
+            }
+        }
     }
 
     private static int countTokens(String normalized) {
@@ -221,20 +230,13 @@ public final class TopicMatcher {
         return Math.max(1, count);
     }
 
-    private static void addHit(
-            List<MatchHit> hits,
-            Set<String> dedupe,
-            RectF box,
-            String original,
-            String searchTerm,
-            TopicNode node,
-            long timestamp
-    ) {
-        int cx = Math.round(box.centerX() / 4f);
-        int cy = Math.round(box.centerY() / 4f);
-        String key = node.identityKey() + "|" + searchTerm + "|" + cx + "|" + cy;
-        if (dedupe.add(key)) {
-            hits.add(new MatchHit(box, original, searchTerm, node, timestamp));
+    private static void addHit(List<MatchHit> hits, Set<String> dedupe,
+                               List<RectF> segments, String original, CompiledTerm term, long timestamp) {
+        StringBuilder key = new StringBuilder(term.node.identityKey()).append('|').append(term.raw);
+        for (RectF box : segments) key.append('|').append(box.left).append(':').append(box.top)
+                .append(':').append(box.right).append(':').append(box.bottom);
+        if (dedupe.add(key.toString())) {
+            hits.add(new MatchHit(segments, original, term.raw, term.node, timestamp));
         }
     }
 

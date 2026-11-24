@@ -126,9 +126,12 @@ public final class OverlayView extends View {
             RectF box = fresh.box;
             if (nearest != null) {
                 usedOld.add(nearestIndex);
-                box = blend(nearest.box, fresh.box, currentWeight);
+                if (fresh.segments.size() == 1 && nearest.segments.size() == 1)
+                    box = blend(nearest.box, fresh.box, currentWeight);
             }
-            adjusted.add(new MatchHit(box, fresh.originalText, fresh.searchTerm, fresh.node, fresh.detectedAt));
+            if (fresh.segments.size() == 1) {
+                adjusted.add(new MatchHit(box, fresh.originalText, fresh.searchTerm, fresh.node, fresh.detectedAt));
+            } else adjusted.add(fresh);
         }
 
         // Evită pâlpâirea când OCR-ul pierde termenul pentru un singur cadru.
@@ -189,15 +192,17 @@ public final class OverlayView extends View {
         // Equal OCR boxes may belong to several maps: draw each colour in a
         // separate band instead of painting the last map over all others.
         Map<String, List<MatchHit>> groups = new LinkedHashMap<>();
-        for (MatchHit hit : hits) {
-            RectF box = hit.box;
+        Map<String, RectF> geometry = new HashMap<>();
+        for (MatchHit hit : hits) for (RectF box : hit.segments) {
             String key = Math.round(box.left / 4f) + ":" + Math.round(box.top / 4f) + ":" +
                     Math.round(box.right / 4f) + ":" + Math.round(box.bottom / 4f);
             groups.computeIfAbsent(key, ignored -> new ArrayList<>()).add(hit);
+            geometry.putIfAbsent(key, box);
         }
-        for (List<MatchHit> group : groups.values()) {
+        for (Map.Entry<String, List<MatchHit>> entry : groups.entrySet()) {
+            List<MatchHit> group = entry.getValue();
             MatchHit first = group.get(0);
-            RectF box = paddedBox(first.box);
+            RectF box = paddedBox(geometry.get(entry.getKey()));
             Set<Integer> colors = new LinkedHashSet<>();
             boolean flashing = false;
             for (MatchHit hit : group) {
@@ -229,7 +234,7 @@ public final class OverlayView extends View {
             int fullBudget = Math.min(8, hits.size());
             int fullDrawn = 0;
             for (MatchHit hit : hits) {
-                RectF box = paddedBox(hit.box);
+                RectF box = paddedBox(hit.segments.get(0));
                 boolean wantFull = fullDrawn < fullBudget;
                 boolean fullWasDrawn = drawSmartLabel(canvas, hit, box, occupied, wantFull);
                 if (fullWasDrawn) fullDrawn++;
@@ -372,9 +377,11 @@ public final class OverlayView extends View {
         List<MatchHit> matches = new ArrayList<>();
         for (int i = hits.size() - 1; i >= 0; i--) {
             MatchHit hit = hits.get(i);
-            RectF expanded = new RectF(hit.box);
-            expanded.inset(-dp(6), -dp(6));
-            if (expanded.contains(x, y)) matches.add(hit);
+            for (RectF part : hit.segments) {
+                RectF expanded = new RectF(part);
+                expanded.inset(-dp(6), -dp(6));
+                if (expanded.contains(x, y)) { matches.add(hit); break; }
+            }
         }
         return matches;
     }

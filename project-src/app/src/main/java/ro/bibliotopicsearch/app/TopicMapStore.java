@@ -110,7 +110,9 @@ public final class TopicMapStore {
                 }
 
                 current = new TopicNode(profileId, name, path.toString(), title, level);
-                int defaultColor = DEFAULT_COLORS[nodes.size() % DEFAULT_COLORS.length];
+                int offset = profileId == null || "default".equals(profileId)
+                        ? 0 : (profileId.hashCode() & Integer.MAX_VALUE) % DEFAULT_COLORS.length;
+                int defaultColor = DEFAULT_COLORS[(nodes.size() + offset) % DEFAULT_COLORS.length];
                 current.color = getNodeColorForProfile(context, profileId, current.path, defaultColor);
                 current.symbol = getNodeSymbolForProfile(context, profileId, current.path, defaultSymbol(level));
                 current.enabled = getNodeEnabledForProfile(context, profileId, current.path, true);

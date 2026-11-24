@@ -45,18 +45,11 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(16), dp(16), dp(16), dp(28));
-        root.setBackgroundColor(Color.rgb(244, 240, 230));
+        root.setBackgroundColor(Color.rgb(246, 248, 251));
         scroll.addView(root);
 
-        TextView title = heading("BIBLIOTECA DE TEME", 24);
+        TextView title = heading("Biblioteca de teme", 24);
         root.addView(title);
-
-        TextView help = body(
-                "Păstrează mai multe hărți local și activează numai harta pe care o cercetezi acum. " +
-                "Pentru subfoldere poți scrie o cale, de exemplu Medievală/Reforma."
-        );
-        help.setPadding(0, dp(4), 0, dp(10));
-        root.addView(help);
 
         summary = body("");
         summary.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
@@ -74,14 +67,19 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         });
 
         LinearLayout buttons = row();
-        Button newMap = button("+ HARTĂ NOUĂ");
-        Button editActive = button("EDITEAZĂ ACTIVA");
+        Button newMap = button("+ Hartă");
+        Button editActive = button("Toate OCR");
         buttons.addView(newMap, weighted());
         buttons.addView(editActive, weighted());
         root.addView(buttons);
 
         newMap.setOnClickListener(v -> showCreateDialog());
-        editActive.setOnClickListener(v -> startActivity(new Intent(this, MapEditorActivity.class)));
+        editActive.setOnClickListener(v -> {
+            java.util.Set<String> ids = new java.util.LinkedHashSet<>();
+            for (MapProfile profile : TopicLibraryStore.list(this)) ids.add(profile.id);
+            TopicLibraryStore.setScanProfiles(this, ids);
+            refresh();
+        });
 
         libraryContainer = new LinearLayout(this);
         libraryContainer.setOrientation(LinearLayout.VERTICAL);
@@ -89,12 +87,15 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         root.addView(libraryContainer);
 
         setContentView(scroll);
+        UiInsets.apply(scroll);
     }
 
     private void refresh() {
         List<MapProfile> maps = TopicLibraryStore.list(this);
         MapProfile active = TopicLibraryStore.getActive(this);
-        summary.setText(maps.size() + " hărți salvate • activă: " + active.name);
+        java.util.Set<String> selected = new java.util.LinkedHashSet<>();
+        for (MapProfile profile : TopicLibraryStore.scanProfiles(this, maps)) selected.add(profile.id);
+        summary.setText(maps.size() + " hărți · " + selected.size() + " OCR");
         libraryContainer.removeAllViews();
 
         String query = filterEdit == null ? "" : filterEdit.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
@@ -112,12 +113,13 @@ public final class TopicLibraryActivity extends AppCompatActivity {
             folder.setPadding(dp(4), dp(12), 0, dp(4));
             libraryContainer.addView(folder);
             for (MapProfile profile : entry.getValue()) {
-                libraryContainer.addView(mapCard(profile, profile.id.equals(active.id)));
+                libraryContainer.addView(mapCard(profile, profile.id.equals(active.id), selected));
             }
         }
     }
 
-    private View mapCard(MapProfile profile, boolean active) {
+    private View mapCard(MapProfile profile, boolean active, java.util.Set<String> selected) {
+        boolean scanning = selected.contains(profile.id);
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(12), dp(10), dp(12), dp(10));
@@ -137,33 +139,13 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         TextView title = heading((active ? "● " : "") + profile.name, 16);
         title.setTextColor(active ? Color.rgb(36, 59, 83) : Color.rgb(23, 32, 42));
         header.addView(title, new LinearLayout.LayoutParams(0, dp(38), 1f));
-        TextView badge = smallBadge(active ? "ACTIVĂ" : profile.folder, active);
+        TextView badge = smallBadge(scanning ? "OCR ✓" : "OCR —", scanning);
         header.addView(badge);
         card.addView(header);
 
-        TopicMap parsed = TopicMapStore.parseForProfile(this, profile.id, profile.name, profile.rawText);
-        int terms = 0;
-        for (TopicNode node : parsed.nodes) terms += Math.max(1, node.terms.size());
-        TextView info = body(parsed.nodes.size() + " noduri • " + terms + " termeni de căutare");
-        info.setTextSize(12);
-        card.addView(info);
-
-        LinearLayout palette = row();
-        int dots = 0;
-        for (TopicNode node : parsed.nodes) {
-            if (dots >= 10) break;
-            TextView dot = new TextView(this);
-            dot.setText("●");
-            dot.setTextSize(16);
-            dot.setTextColor(node.color);
-            palette.addView(dot, new LinearLayout.LayoutParams(dp(22), dp(28)));
-            dots++;
-        }
-        if (dots > 0) card.addView(palette);
-
         LinearLayout actions = row();
-        Button activate = button(active ? "DESCHIDE" : "ACTIVEAZĂ");
-        Button edit = button("EDITEAZĂ");
+        Button activate = button(scanning ? "Oprește OCR" : "Pornește OCR");
+        Button edit = button("Editează");
         Button more = button("⋯");
         actions.addView(activate, weighted());
         actions.addView(edit, weighted());
@@ -171,18 +153,17 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         card.addView(actions);
 
         activate.setOnClickListener(v -> {
-            TopicLibraryStore.setActive(this, profile.id);
-            finish();
+            java.util.Set<String> changed = new java.util.LinkedHashSet<>(selected);
+            if (!changed.add(profile.id)) changed.remove(profile.id);
+            TopicLibraryStore.setScanProfiles(this, changed);
+            refresh();
         });
         edit.setOnClickListener(v -> {
             TopicLibraryStore.setActive(this, profile.id);
             startActivity(new Intent(this, MapEditorActivity.class));
         });
         more.setOnClickListener(v -> showMapMenu(profile));
-        card.setOnClickListener(v -> {
-            TopicLibraryStore.setActive(this, profile.id);
-            refresh();
-        });
+
         return card;
     }
 
@@ -194,7 +175,7 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         name.setHint("Numele hărții");
         name.setSingleLine(true);
         EditText folder = new EditText(this);
-        folder.setHint("Folder: ex. Medievală/Reforma");
+        folder.setHint("Folder");
         folder.setSingleLine(true);
         folder.setText("General");
         box.addView(name);

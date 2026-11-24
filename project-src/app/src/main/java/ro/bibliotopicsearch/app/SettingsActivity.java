@@ -46,10 +46,10 @@ public final class SettingsActivity extends AppCompatActivity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(16), dp(16), dp(16), dp(30));
-        root.setBackgroundColor(Color.rgb(244, 240, 230));
+        root.setBackgroundColor(Color.rgb(246, 248, 251));
         scroll.addView(root);
 
-        root.addView(heading("SETĂRI DE CĂUTARE", 22));
+        root.addView(heading("Setări de căutare", 22));
 
         root.addView(label("Potrivire"));
         RadioGroup modes = new RadioGroup(this);
@@ -57,7 +57,7 @@ public final class SettingsActivity extends AppCompatActivity {
         RadioButton exact = radio("Exact");
         RadioButton prefix = radio("Începe cu");
         RadioButton contains = radio("Conține");
-        RadioButton flexible = radio("Toate simultan (Exact + Începe cu + Conține)");
+        RadioButton flexible = radio("Flexibil");
         modes.addView(exact);
         modes.addView(prefix);
         modes.addView(contains);
@@ -77,11 +77,7 @@ public final class SettingsActivity extends AppCompatActivity {
             else AppPrefs.setMatchMode(this, AppPrefs.MatchMode.PREFIX);
         });
 
-        Switch diacritics = toggle(
-                "Ignoră diacriticele",
-                "Ex.: universității poate fi comparat cu universitatii.",
-                AppPrefs.ignoreDiacritics(this)
-        );
+        Switch diacritics = toggle("Ignoră diacriticele", AppPrefs.ignoreDiacritics(this));
         diacritics.setOnCheckedChangeListener((b, checked) -> AppPrefs.setIgnoreDiacritics(this, checked));
         root.addView(diacritics);
 
@@ -89,7 +85,7 @@ public final class SettingsActivity extends AppCompatActivity {
         SeekBar chars = new SeekBar(this);
         chars.setMax(24);
         chars.setProgress(AppPrefs.compareChars(this));
-        root.addView(label("Primele N caractere (0 = termen complet)"));
+        root.addView(label("Lungimea potrivirii"));
         root.addView(charsValue);
         root.addView(chars);
         updateCharsLabel(chars.getProgress());
@@ -103,13 +99,7 @@ public final class SettingsActivity extends AppCompatActivity {
         });
 
         root.addView(sectionGap());
-        root.addView(heading("ȚINTIRE PE CAMERĂ", 18));
-        TextView targetingHelp = body(
-                "MlKitAnalyzer furnizează coordonate raportate direct la imaginea PreviewView. " +
-                "Reglajul de mai jos controlează numai cât de mult netezim mișcarea dintre cadre."
-        );
-        root.addView(targetingHelp);
-
+        root.addView(heading("Stabilizare OCR", 18));
         precisionValue = valueText();
         SeekBar precision = new SeekBar(this);
         precision.setMax(100);
@@ -126,32 +116,20 @@ public final class SettingsActivity extends AppCompatActivity {
             @Override public void onStopTrackingTouch(SeekBar seekBar) {}
         });
 
-        Switch labels = toggle(
-                "Etichete plutitoare (opțional)",
-                "Implicit textul rămâne liber, iar legenda este sus. Activează doar dacă vrei etichete lângă potriviri.",
-                AppPrefs.floatingLabels(this)
-        );
+        Switch labels = toggle("Etichete plutitoare", AppPrefs.floatingLabels(this));
         labels.setOnCheckedChangeListener((b, checked) -> AppPrefs.setFloatingLabels(this, checked));
         root.addView(labels);
 
-        Switch haptic = toggle(
-                "Vibrație discretă",
-                "Semnal scurt când apare o zonă nouă cu potriviri.",
-                AppPrefs.haptic(this)
-        );
+        Switch haptic = toggle("Vibrație", AppPrefs.haptic(this));
         haptic.setOnCheckedChangeListener((b, checked) -> AppPrefs.setHaptic(this, checked));
         root.addView(haptic);
 
-        Switch sound = toggle(
-                "Semnal audio discret",
-                "Oprit implicit. Nu este necesar pentru funcționarea aplicației.",
-                AppPrefs.sound(this)
-        );
+        Switch sound = toggle("Semnal audio", AppPrefs.sound(this));
         sound.setOnCheckedChangeListener((b, checked) -> AppPrefs.setSound(this, checked));
         root.addView(sound);
 
         root.addView(sectionGap());
-        root.addView(heading("DICȚIONAR LOCAL", 18));
+        root.addView(heading("Dicționar local", 18));
         dictionaryStatus = body("");
         root.addView(dictionaryStatus);
         updateDictionaryStatus();
@@ -166,13 +144,13 @@ public final class SettingsActivity extends AppCompatActivity {
         dictButtons.addView(clear, new LinearLayout.LayoutParams(0, dp(48), 1f));
         root.addView(dictButtons);
 
-        TextView dictHelp = body(
-                "Format: term,definition,synonyms,antonyms,source. " +
-                "Dicționarul rămâne local; aplicația nu caută definiții pe internet."
-        );
-        root.addView(dictHelp);
-
         importCsv.setOnClickListener(v -> chooseDictionary());
+        importCsv.setOnLongClickListener(v -> {
+            new AlertDialog.Builder(this).setTitle("Format CSV")
+                    .setMessage("term,definition,synonyms,antonyms,source")
+                    .setPositiveButton("OK", null).show();
+            return true;
+        });
         clear.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle("Golești dicționarul?")
                 .setMessage("Vor fi șterse numai intrările importate local.")
@@ -184,6 +162,7 @@ public final class SettingsActivity extends AppCompatActivity {
                 .show());
 
         setContentView(scroll);
+        UiInsets.apply(scroll);
     }
 
     private void chooseDictionary() {
@@ -225,9 +204,9 @@ public final class SettingsActivity extends AppCompatActivity {
         dictionaryStatus.setText(count + " intrări locale.");
     }
 
-    private Switch toggle(String title, String subtitle, boolean checked) {
+    private Switch toggle(String title, boolean checked) {
         Switch view = new Switch(this);
-        view.setText(title + "\n" + subtitle);
+        view.setText(title);
         view.setTextSize(14);
         view.setChecked(checked);
         view.setPadding(0, dp(8), 0, dp(8));

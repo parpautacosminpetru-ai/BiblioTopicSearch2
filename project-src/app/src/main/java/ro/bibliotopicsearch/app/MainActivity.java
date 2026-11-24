@@ -515,6 +515,9 @@ public final class MainActivity extends AppCompatActivity {
         overlayView.clearHits();
         overlayView.updateHits(visible, AppPrefs.precision(this), floatingLabelsEnabled);
         updateLegend(visible);
+        if (!frozen && ocrEnabled && !latestAllHits.isEmpty()) {
+            setStatus(visible.size() + " potriviri", Color.rgb(98, 211, 255));
+        }
     }
 
     private void clearMatches() {
@@ -532,7 +535,9 @@ public final class MainActivity extends AppCompatActivity {
             counts.put(id, counts.getOrDefault(id, 0) + 1);
             first.putIfAbsent(id, hit);
         }
-        String signature = counts.toString();
+        StringBuilder signatureText = new StringBuilder(counts.toString());
+        for (MatchHit hit : first.values()) signatureText.append('|').append(hit.node.color);
+        String signature = signatureText.toString();
         if (signature.equals(lastLegendSignature)) return;
         lastLegendSignature = signature;
         legendPanel.removeAllViews();
