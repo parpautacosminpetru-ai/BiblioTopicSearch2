@@ -1,3 +1,12 @@
+# 1.1.6 — Verificare OCR în cadre consecutive
+
+- Un termen literal trebuie să reapară în aceeași poziție și în aceeași hartă în minimum două citiri OCR; trei pentru încredere intermediară/necunoscută sau pentru scene cu continuitate necunoscută. Scorurile pozitive sub 0,72 sunt respinse. Scorurile sunt semnale euristice ML Kit, nu probabilități calibrate.
+- Verificarea independentă a textului brut și a apartenenței la nod/hartă are loc după căutarea în index. Marcajele folosesc numai geometria din cadrul curent; dispar imediat dacă textul nu mai este confirmat.
+- Un eșantion mic al luminanței urmărește schimbarea fizică a paginii și invalidează cadrele vechi. Nu modifică imaginea și nu rulează un al doilea OCR.
+- Editorul are „Testează harta”: text introdus manual sau imagine locală, pentru izolarea erorilor lexicale de erorile OCR. Testul pe o imagine afișează candidați, nu confirmări live. Harta testată rămâne independentă de selecția live.
+- Teste unitare de regresie și test Android end-to-end pe o pagină tipografică sintetică. Compilarea testului Android nu echivalează cu rularea pe dispozitiv.
+- Nu include rectificare geometrică a curburii paginii sau un model OCR separat pentru tipărituri istorice; acestea necesită evaluare cu imagini reprezentative și transformare corectă a coordonatelor.
+
 # 1.1.5 — Detecție literală verificabilă
 
 - Modul implicit este Exact: termen integral, fără trunchiere, fără potriviri de prefix sau subșir. Cuvintele cu diacritice diferite nu sunt confundate. Titlurile nodurilor fără termeni, corectarea OCR și reunirea la cratimă se activează numai explicit din Setări.

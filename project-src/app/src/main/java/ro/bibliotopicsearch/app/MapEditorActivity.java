@@ -84,6 +84,15 @@ public final class MapEditorActivity extends AppCompatActivity {
             });
         });
 
+        Button testMap = button("Testează harta");
+        root.addView(testMap, full(dp(48)));
+        testMap.setOnClickListener(v -> {
+            saveRawWithoutRefresh();
+            Intent intent = new Intent(this, MapTestActivity.class);
+            intent.putExtra(MapTestActivity.PROFILE_ID, TopicLibraryStore.getActive(this).id);
+            startActivity(intent);
+        });
+
         Button addRoot = button("+ Nod");
         root.addView(addRoot, full(dp(48)));
         addRoot.setOnClickListener(v -> showAddNodeDialog(null));

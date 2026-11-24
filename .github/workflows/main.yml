@@ -36,7 +36,7 @@ jobs:
           yes | "$MANAGER" --licenses >/dev/null || true
           "$MANAGER" --sdk_root="$SDK" "platforms;android-36" "build-tools;35.0.0"
       - name: Unit tests and build
-        run: gradle --no-daemon -p project-src :app:testDebugUnitTest :app:assembleDebug
+        run: gradle --no-daemon -p project-src :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
       - name: Test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -47,12 +47,12 @@ jobs:
       - name: Prepare APK
         run: |
           mkdir -p output
-          cp project-src/app/build/outputs/apk/debug/app-debug.apk output/BiblioTopicSearch-Aug11-MultiMap-OCR-1.1.5.apk
+          cp project-src/app/build/outputs/apk/debug/app-debug.apk output/BiblioTopicSearch-Aug11-MultiMap-OCR-1.1.6.apk
           cd output
-          sha256sum BiblioTopicSearch-Aug11-MultiMap-OCR-1.1.5.apk > BiblioTopicSearch-Aug11-MultiMap-OCR-1.1.5.apk.sha256
+          sha256sum BiblioTopicSearch-Aug11-MultiMap-OCR-1.1.6.apk > BiblioTopicSearch-Aug11-MultiMap-OCR-1.1.6.apk.sha256
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: BiblioTopicSearch-Aug11-MultiMap-OCR-1.1.5
+          name: BiblioTopicSearch-Aug11-MultiMap-OCR-1.1.6
           path: output/
           if-no-files-found: error
