@@ -37,6 +37,14 @@ public final class AppPrefs {
         prefs(context).edit().putBoolean("ignore_diacritics", value).apply();
     }
 
+    public static boolean ocrRepair(Context context) {
+        return prefs(context).getBoolean("ocr_repair", true);
+    }
+
+    public static void setOcrRepair(Context context, boolean value) {
+        prefs(context).edit().putBoolean("ocr_repair", value).apply();
+    }
+
     public static int compareChars(Context context) {
         return prefs(context).getInt("compare_chars", 0);
     }

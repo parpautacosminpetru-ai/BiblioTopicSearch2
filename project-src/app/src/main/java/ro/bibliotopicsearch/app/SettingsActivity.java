@@ -80,6 +80,9 @@ public final class SettingsActivity extends AppCompatActivity {
         Switch diacritics = toggle("Ignoră diacriticele", AppPrefs.ignoreDiacritics(this));
         diacritics.setOnCheckedChangeListener((b, checked) -> AppPrefs.setIgnoreDiacritics(this, checked));
         root.addView(diacritics);
+        Switch repair = toggle("Corectare OCR prudentă", AppPrefs.ocrRepair(this));
+        repair.setOnCheckedChangeListener((b, checked) -> AppPrefs.setOcrRepair(this, checked));
+        root.addView(repair);
 
         charsValue = valueText();
         SeekBar chars = new SeekBar(this);

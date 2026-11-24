@@ -44,15 +44,17 @@ public final class TopicMatcher {
         private final Map<Integer, TermIndex<CompiledTerm>> indexes;
         private final List<Integer> tokenCounts;
         private final int termCount;
+        private final boolean repairEnabled;
 
         private SearchPlan(boolean stripDiacritics, int compareChars, AppPrefs.MatchMode mode,
-                           Map<Integer, TermIndex<CompiledTerm>> indexes, List<Integer> tokenCounts, int termCount) {
+                           Map<Integer, TermIndex<CompiledTerm>> indexes, List<Integer> tokenCounts, int termCount, boolean repairEnabled) {
             this.stripDiacritics = stripDiacritics;
             this.compareChars = compareChars;
             this.mode = mode;
             this.indexes = indexes;
             this.tokenCounts = tokenCounts;
             this.termCount = termCount;
+            this.repairEnabled = repairEnabled;
         }
 
         public int termCount() { return termCount; }
@@ -66,6 +68,28 @@ public final class TopicMatcher {
                 default: return index.contains(actual);
             }
         }
+
+        List<CompiledTerm> exactCandidates(int count, String value) {
+            TermIndex<CompiledTerm> index = indexes.get(count);
+            if (index == null || value.isEmpty()) return Collections.emptyList();
+            List<CompiledTerm> exact = new ArrayList<>();
+            for (CompiledTerm term : index.exact(shorten(value, compareChars))) {
+                if (term.normalized.equals(value)) exact.add(term);
+            }
+            return exact;
+        }
+
+        List<CompiledTerm> repairedCandidates(String token) {
+            if (!repairEnabled || !candidates(1, token).isEmpty()) return Collections.emptyList();
+            List<CompiledTerm> found = Collections.emptyList();
+            for (String variant : OcrRepair.digitVariants(token)) {
+                List<CompiledTerm> exact = exactCandidates(1, variant);
+                if (exact.isEmpty()) continue;
+                if (!found.isEmpty()) return Collections.emptyList(); // ambiguous spelling
+                found = exact; // preserve all maps sharing this one spelling
+            }
+            return found;
+        }
     }
 
     private static String shorten(String term, int length) {
@@ -74,10 +98,14 @@ public final class TopicMatcher {
 
     public static SearchPlan compile(Context context, TopicMap map) {
         return compile(map, AppPrefs.ignoreDiacritics(context), AppPrefs.compareChars(context),
-                AppPrefs.getMatchMode(context));
+                AppPrefs.getMatchMode(context), AppPrefs.ocrRepair(context));
     }
 
     static SearchPlan compile(TopicMap map, boolean stripDiacritics, int compareChars, AppPrefs.MatchMode mode) {
+        return compile(map, stripDiacritics, compareChars, mode, true);
+    }
+
+    static SearchPlan compile(TopicMap map, boolean stripDiacritics, int compareChars, AppPrefs.MatchMode mode, boolean repairEnabled) {
         Map<Integer, TermIndex<CompiledTerm>> indexes = new HashMap<>();
         int termCount = 0;
         if (map != null) {
@@ -91,7 +119,7 @@ public final class TopicMatcher {
                     if (normalized.isEmpty()) continue;
                     int count = countTokens(normalized);
                     String key = shorten(normalized, compareChars);
-                    if (!seen.add(count + ":" + key)) continue;
+                    if (!seen.add(count + ":" + normalized)) continue;
                     CompiledTerm term = new CompiledTerm(raw, normalized, count, node);
                     indexes.computeIfAbsent(count, ignored -> new TermIndex<>()).add(key, term);
                     termCount++;
@@ -100,7 +128,7 @@ public final class TopicMatcher {
         }
         List<Integer> counts = new ArrayList<>(indexes.keySet());
         Collections.sort(counts);
-        return new SearchPlan(stripDiacritics, compareChars, mode, indexes, counts, termCount);
+        return new SearchPlan(stripDiacritics, compareChars, mode, indexes, counts, termCount, repairEnabled);
     }
 
     /** Compatibilitate pentru apelurile vechi. MainActivity folosește planul compilat. */
@@ -112,12 +140,18 @@ public final class TopicMatcher {
         final String value, original;
         final RectF box;
         final int element, line;
+        final Token left, right;
         Token(String value, String original, RectF box, int element, int line) {
+            this(value, original, box, element, line, null, null);
+        }
+        Token(String value, String original, RectF box, int element, int line, Token left, Token right) {
             this.value = value;
             this.original = original;
             this.box = box;
             this.element = element;
             this.line = line;
+            this.left = left;
+            this.right = right;
         }
     }
 
@@ -148,12 +182,18 @@ public final class TopicMatcher {
                         tokens.add(new Token(token, original, geometry, id, lineId));
                     }
                 }
-                scan(tokens, -1, plan, hits, dedupe, now);
-                if (!previous.isEmpty() && !tokens.isEmpty() && canJoin(previousLine, line)) {
-                    List<Token> both = new ArrayList<>(previous.size() + tokens.size());
-                    both.addAll(previous);
-                    both.addAll(tokens);
-                    scan(both, previous.size(), plan, hits, dedupe, now);
+                scan(tokens, -1, -1, plan, hits, dedupe, now);
+                if (!previous.isEmpty() && !tokens.isEmpty() && adjacent(previousLine, line)) {
+                    String end = previousLine.getText().trim();
+                    if (hasBreakHyphen(end)) {
+                        scanJoined(previous, tokens, plan, hits, dedupe, now);
+                    } else if (!end.endsWith(".") && !end.endsWith("!") && !end.endsWith("?") &&
+                            !end.endsWith(":") && !end.endsWith(";")) {
+                        List<Token> both = new ArrayList<>(previous.size() + tokens.size());
+                        both.addAll(previous);
+                        both.addAll(tokens);
+                        scan(both, previous.size(), -1, plan, hits, dedupe, now);
+                    }
                 }
                 previous = tokens;
                 previousLine = line;
@@ -163,27 +203,46 @@ public final class TopicMatcher {
         return hits;
     }
 
-    private static boolean canJoin(Text.Line previous, Text.Line next) {
+    private static boolean hasBreakHyphen(String text) {
+        return text.endsWith("-") || text.endsWith("‐") || text.endsWith("‑") || text.endsWith("\u00ad");
+    }
+
+    private static boolean adjacent(Text.Line previous, Text.Line next) {
         if (previous == null || next == null) return false;
         Rect a = previous.getBoundingBox(), b = next.getBoundingBox();
         if (a == null || b == null || a.height() <= 0 || b.height() <= 0) return false;
-        String last = previous.getText().trim();
-        if (last.endsWith(".") || last.endsWith("!") || last.endsWith("?") ||
-                last.endsWith(":") || last.endsWith(";") || last.endsWith("-")) return false;
         int height = Math.max(a.height(), b.height());
         int gap = b.top - a.bottom;
         int overlap = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-        // Do not join unrelated columns or large vertical gaps.
         return gap >= -height / 3 && gap <= height * 1.5f &&
                 overlap > 0 && b.centerY() > a.centerY();
     }
 
-    /** boundary < 0 means one line; otherwise only windows crossing the line break. */
-    private static void scan(List<Token> tokens, int boundary, SearchPlan plan,
+    private static void scanJoined(List<Token> previous, List<Token> next, SearchPlan plan,
+                                   List<MatchHit> hits, Set<String> dedupe, long now) {
+        Token left = previous.get(previous.size() - 1), right = next.get(0);
+        // Reconstruct only a visibly hyphenated word, not a standalone dash.
+        if (left.box == null || right.box == null || !hasBreakHyphen(left.original.trim())) return;
+        String value = left.value;
+        if (!value.endsWith("-") && left.original.endsWith("\u00ad")) value += "-";
+        for (String joined : OcrRepair.joinedVariants(value, right.value)) {
+            List<Token> both = new ArrayList<>(previous.size() + next.size() - 1);
+            both.addAll(previous.subList(0, previous.size() - 1));
+            int at = both.size();
+            both.add(new Token(joined, "", left.box, left.element, left.line, left, right));
+            both.addAll(next.subList(1, next.size()));
+            scan(both, -1, at, plan, hits, dedupe, now);
+        }
+    }
+
+    /** A repaired line break must occur inside the window; a standard cross-line
+     * window must span the boundary. Only exact full terms justify reconstruction. */
+    private static void scan(List<Token> tokens, int boundary, int joinedIndex, SearchPlan plan,
                              List<MatchHit> hits, Set<String> dedupe, long now) {
         int max = plan.tokenCounts.get(plan.tokenCounts.size() - 1);
-        int first = boundary < 0 ? 0 : Math.max(0, boundary - max + 1);
-        int limit = boundary < 0 ? tokens.size() : boundary;
+        int pivot = joinedIndex >= 0 ? joinedIndex : boundary;
+        int first = pivot < 0 ? 0 : Math.max(0, pivot - max + 1);
+        int limit = joinedIndex >= 0 ? joinedIndex + 1 : boundary >= 0 ? boundary : tokens.size();
         for (int start = first; start < limit; start++) {
             if (Thread.currentThread().isInterrupted()) return;
             StringBuilder phrase = new StringBuilder();
@@ -193,15 +252,27 @@ public final class TopicMatcher {
                 if (phrase.length() > 0) phrase.append(' ');
                 phrase.append(token.value);
                 int count = end - start + 1;
-                if ((boundary >= 0 && end < boundary) || !plan.indexes.containsKey(count)) continue;
-                List<CompiledTerm> found = plan.candidates(count, phrase.toString());
+                if ((pivot >= 0 && end < pivot) || !plan.indexes.containsKey(count)) continue;
+                String actual = phrase.toString();
+                MatchHit.Kind kind = joinedIndex >= 0 ? MatchHit.Kind.LINE_JOIN : MatchHit.Kind.LITERAL;
+                List<CompiledTerm> found = joinedIndex >= 0 ? plan.exactCandidates(count, actual) : plan.candidates(count, actual);
+                if (found.isEmpty() && joinedIndex < 0 && boundary < 0 && count == 1) {
+                    found = plan.repairedCandidates(actual);
+                    if (!found.isEmpty()) kind = MatchHit.Kind.OCR_REPAIR;
+                }
                 if (found.isEmpty()) continue;
-
+                List<Token> evidence = new ArrayList<>();
+                for (int i = start; i <= end; i++) {
+                    Token part = tokens.get(i);
+                    if (part.left != null) {
+                        evidence.add(part.left);
+                        evidence.add(part.right);
+                    } else evidence.add(part);
+                }
                 List<RectF> segments = new ArrayList<>();
                 StringBuilder original = new StringBuilder();
                 int lastLine = -1, lastElement = -1;
-                for (int i = start; i <= end; i++) {
-                    Token part = tokens.get(i);
+                for (Token part : evidence) {
                     if (part.line != lastLine) segments.add(new RectF(part.box));
                     else segments.get(segments.size() - 1).union(part.box);
                     if (part.element != lastElement) {
@@ -211,7 +282,7 @@ public final class TopicMatcher {
                     lastLine = part.line;
                     lastElement = part.element;
                 }
-                for (CompiledTerm term : found) addHit(hits, dedupe, segments, original.toString(), term, now);
+                for (CompiledTerm term : found) addHit(hits, dedupe, segments, original.toString(), term, now, kind);
             }
         }
     }
@@ -231,12 +302,12 @@ public final class TopicMatcher {
     }
 
     private static void addHit(List<MatchHit> hits, Set<String> dedupe,
-                               List<RectF> segments, String original, CompiledTerm term, long timestamp) {
+                               List<RectF> segments, String original, CompiledTerm term, long timestamp, MatchHit.Kind kind) {
         StringBuilder key = new StringBuilder(term.node.identityKey()).append('|').append(term.raw);
         for (RectF box : segments) key.append('|').append(box.left).append(':').append(box.top)
                 .append(':').append(box.right).append(':').append(box.bottom);
         if (dedupe.add(key.toString())) {
-            hits.add(new MatchHit(segments, original, term.raw, term.node, timestamp));
+            hits.add(new MatchHit(segments, original, term.raw, term.node, timestamp, kind, false));
         }
     }
 
