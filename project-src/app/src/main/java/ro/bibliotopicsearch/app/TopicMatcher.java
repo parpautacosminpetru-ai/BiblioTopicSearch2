@@ -351,7 +351,7 @@ public final class TopicMatcher {
 
     public static String normalize(String value, boolean stripDiacritics) {
         if (value == null) return "";
-        String out = Normalizer.normalize(value.toLowerCase(Locale.ROOT), Normalizer.Form.NFC)
+        String out = Normalizer.normalize(value.replace("\u00ad", "").toLowerCase(Locale.ROOT), Normalizer.Form.NFC)
                 .replace('ş', 'ș').replace('ţ', 'ț')
                 .replace('’', '\'').replace('–', '-').replace('‑', '-').replace('‐', '-');
         if (stripDiacritics) {

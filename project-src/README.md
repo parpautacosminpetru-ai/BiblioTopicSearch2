@@ -1,3 +1,13 @@
+# 1.1.3 — OCR adaptiv și detecție stabilă
+
+- OCR local ML Kit cu admitere controlată a cadrelor și pauze adaptate latenței și temperaturii raportate de Android (API 29+).
+- Rezoluție preferată 1600×1200, mod economic 960×720; revenire doar după performanță stabilă, cu interval minim de 20 s. CameraX alege cea mai apropiată rezoluție suportată.
+- Compararea ancorelor OCR din cadre succesive: schimbarea paginii sau mișcarea camerei întrerupe stabilizarea și păstrarea marcajelor.
+- Corectări prudente ale unei singure cifre confundate cu o literă, doar pentru un termen integral existent în hărțile selectate și confirmare în două cadre; opțiunea se poate opri din Setări.
+- Reunirea cuvintelor despărțite vizibil la sfârșitul rândului, cu potrivire exactă și geometrie separată pentru ambele rânduri. Textul OCR brut nu este modificat.
+- Recuperare după erori OCR repetate cu pauză progresivă. Potrivirile incerte nu sunt inventate; motorul OCR de bază rămâne ML Kit.
+- Teste unitare pentru reguli, hărți multiple, controlul ritmului, continuitatea paginii și confirmarea temporală. Calitatea imaginii, latența și consumul trebuie măsurate pe telefon fizic; nu se promite o acuratețe absolută.
+
 # BiblioTopicSearch 1.1.2 — MultiMap OCR (August 11 baseline)
 
 This branch starts from the original 2026-08-11 archive at commit

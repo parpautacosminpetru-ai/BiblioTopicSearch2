@@ -31,9 +31,6 @@ public final class OverlayView extends View {
     private final Paint labelConnectorPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     private List<MatchHit> hits = new ArrayList<>();
-    private Set<String> previousOccurrenceKeys = new HashSet<>();
-    private Set<String> flashingOccurrenceKeys = new HashSet<>();
-    private long flashUntil = 0L;
     private boolean showLabels = true;
     private OnHitTapListener tapListener;
 
@@ -69,8 +66,6 @@ public final class OverlayView extends View {
 
     public void clearHits() {
         hits = new ArrayList<>();
-        previousOccurrenceKeys.clear();
-        flashingOccurrenceKeys.clear();
         invalidate();
     }
 
@@ -78,116 +73,17 @@ public final class OverlayView extends View {
         return new ArrayList<>(hits);
     }
 
-    /**
-     * 100 = coordonatele OCR curente au prioritate maximă (precizie mare).
-     * Valori mai mici aplică mai multă netezire și păstrează foarte scurt o
-     * potrivire dacă OCR-ul o ratează într-un singur cadru.
-     */
+    /** Geometry and confirmation are computed on the matching worker. */
     public void updateHits(List<MatchHit> incoming, int precision, boolean labels) {
         showLabels = labels;
-        List<MatchHit> old = hits;
-        List<MatchHit> adjusted = new ArrayList<>();
-        Set<Integer> usedOld = new HashSet<>();
-        Map<String, List<Integer>> oldByIdentity = new HashMap<>();
-        for (int i = 0; i < old.size(); i++) {
-            oldByIdentity
-                    .computeIfAbsent(old.get(i).identityKey(), ignored -> new ArrayList<>())
-                    .add(i);
-        }
-
-        int safePrecision = Math.max(0, Math.min(100, precision));
-        float currentWeight = 0.35f + 0.65f * (safePrecision / 100f);
-        float maxDistance = dp(34f + (100 - safePrecision) * 0.55f);
-        long holdMs = 70L + (100 - safePrecision) * 2L;
-        long now = System.currentTimeMillis();
-
-        for (MatchHit fresh : incoming) {
-            MatchHit nearest = null;
-            int nearestIndex = -1;
-            float nearestDistance = Float.MAX_VALUE;
-
-            List<Integer> sameIdentity = oldByIdentity.get(fresh.identityKey());
-            if (sameIdentity != null) {
-                for (int i : sameIdentity) {
-                    if (usedOld.contains(i)) continue;
-                    MatchHit previous = old.get(i);
-
-                    float dx = previous.box.centerX() - fresh.box.centerX();
-                    float dy = previous.box.centerY() - fresh.box.centerY();
-                    float distance = (float) Math.sqrt(dx * dx + dy * dy);
-                    if (distance < nearestDistance && distance <= maxDistance) {
-                        nearestDistance = distance;
-                        nearest = previous;
-                        nearestIndex = i;
-                    }
-                }
-            }
-
-            RectF box = fresh.box;
-            if (nearest != null) {
-                usedOld.add(nearestIndex);
-                if (fresh.segments.size() == 1 && nearest.segments.size() == 1)
-                    box = blend(nearest.box, fresh.box, currentWeight);
-            }
-            if (fresh.segments.size() == 1) {
-                adjusted.add(new MatchHit(box, fresh.originalText, fresh.searchTerm, fresh.node, fresh.detectedAt));
-            } else adjusted.add(fresh);
-        }
-
-        // Evită pâlpâirea când OCR-ul pierde termenul pentru un singur cadru.
-        for (int i = 0; i < old.size(); i++) {
-            if (usedOld.contains(i)) continue;
-            MatchHit previous = old.get(i);
-            if (now - previous.detectedAt <= holdMs) {
-                adjusted.add(previous);
-            }
-        }
-
-        Set<String> nowKeys = occurrenceKeys(adjusted);
-        Set<String> newKeys = new HashSet<>(nowKeys);
-        newKeys.removeAll(previousOccurrenceKeys);
-        if (!newKeys.isEmpty()) {
-            flashingOccurrenceKeys = newKeys;
-            flashUntil = now + 220L;
-        }
-        previousOccurrenceKeys = nowKeys;
-        hits = adjusted;
+        hits = new ArrayList<>(incoming);
         invalidate();
-
-        if (flashUntil > now) {
-            postInvalidateDelayed(70L);
-        }
-    }
-
-    private RectF blend(RectF oldBox, RectF newBox, float currentWeight) {
-        float previousWeight = 1f - currentWeight;
-        return new RectF(
-                oldBox.left * previousWeight + newBox.left * currentWeight,
-                oldBox.top * previousWeight + newBox.top * currentWeight,
-                oldBox.right * previousWeight + newBox.right * currentWeight,
-                oldBox.bottom * previousWeight + newBox.bottom * currentWeight
-        );
-    }
-
-    private Set<String> occurrenceKeys(List<MatchHit> values) {
-        Set<String> keys = new HashSet<>();
-        for (MatchHit hit : values) {
-            keys.add(occurrenceKey(hit));
-        }
-        return keys;
-    }
-
-    private String occurrenceKey(MatchHit hit) {
-        int x = Math.round(hit.box.centerX() / Math.max(1f, dp(8)));
-        int y = Math.round(hit.box.centerY() / Math.max(1f, dp(8)));
-        return hit.identityKey() + "|" + x + "|" + y;
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        long now = System.currentTimeMillis();
-        boolean flashActive = now < flashUntil;
+        // No flashing or periodic redraw: stable, readable evidence.
 
         // Equal OCR boxes may belong to several maps: draw each colour in a
         // separate band instead of painting the last map over all others.
@@ -204,18 +100,18 @@ public final class OverlayView extends View {
             MatchHit first = group.get(0);
             RectF box = paddedBox(geometry.get(entry.getKey()));
             Set<Integer> colors = new LinkedHashSet<>();
-            boolean flashing = false;
+            boolean allHeld = true;
             for (MatchHit hit : group) {
                 colors.add(hit.node.color);
-                flashing |= flashActive && flashingOccurrenceKeys.contains(occurrenceKey(hit));
+                allHeld &= hit.retained;
             }
             int color = first.node.color;
             fillPaint.setStyle(Paint.Style.FILL);
-            fillPaint.setColor(withAlpha(color, flashing ? 90 : 42));
+            fillPaint.setColor(withAlpha(color, allHeld ? 24 : 42));
             canvas.drawRoundRect(box, dp(3), dp(3), fillPaint);
             if (colors.size() == 1) {
-                strokePaint.setColor(withAlpha(color, 245));
-                strokePaint.setStrokeWidth(dp(flashing ? 3 : 2));
+                strokePaint.setColor(withAlpha(color, allHeld ? 140 : 245));
+                strokePaint.setStrokeWidth(dp(2));
                 canvas.drawRoundRect(box, dp(3), dp(3), strokePaint);
             } else {
                 float step = box.width() / colors.size();
@@ -242,7 +138,6 @@ public final class OverlayView extends View {
             }
         }
 
-        if (flashActive) postInvalidateDelayed(70L);
     }
 
     private RectF paddedBox(RectF source) {

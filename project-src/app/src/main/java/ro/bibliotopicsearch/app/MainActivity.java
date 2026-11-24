@@ -3,6 +3,8 @@ package ro.bibliotopicsearch.app;
 import static androidx.camera.core.ImageAnalysis.COORDINATE_SYSTEM_VIEW_REFERENCED;
 
 import android.Manifest;
+import android.app.ActivityManager;
+import android.os.PowerManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
@@ -70,7 +72,7 @@ import java.util.concurrent.Executors;
 public final class MainActivity extends AppCompatActivity {
     private static final int REQ_CAMERA = 101;
     private static final int REQ_SAVE_FRAME = 501;
-    private static final long STALE_OVERLAY_MS = 900L;
+    private static final long STALE_OVERLAY_MS = 1000L;
     private static final long MAX_RESULT_AGE_MS = 1600L;
     private static final String TAG = "BiblioLive";
 
@@ -85,7 +87,12 @@ public final class MainActivity extends AppCompatActivity {
 
     private LifecycleCameraController cameraController;
     private TextRecognizer recognizer;
-    private MlKitAnalyzer analyzer;
+    private AdaptiveAnalyzer analyzer;
+    private final LiveFrameStabilizer stabilizer = new LiveFrameStabilizer();
+    private volatile int scanPrecision = 90;
+    private boolean lowRam, reducedResolution;
+    private volatile long lastResolutionChange = -60000L;
+    private volatile int recoveryAttempts;
     private final ExecutorService analysisExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService matchExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService planExecutor = Executors.newSingleThreadExecutor();
@@ -116,11 +123,11 @@ public final class MainActivity extends AppCompatActivity {
         final long epoch, receivedAt;
         final TopicMatcher.SearchPlan plan;
         final Text text;
-        Frame(long epoch, TopicMatcher.SearchPlan plan, Text text) {
+        Frame(long epoch, TopicMatcher.SearchPlan plan, Text text, long startedAt) {
             this.epoch = epoch;
             this.plan = plan;
             this.text = text;
-            receivedAt = SystemClock.elapsedRealtime();
+            receivedAt = startedAt;
         }
     }
 
@@ -163,6 +170,8 @@ public final class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         resumed = true;
+        scanPrecision = AppPrefs.precision(this);
+        recoveryAttempts = 0;
         ocrEnabled = AppPrefs.ocrEnabled(this);
         floatingLabelsEnabled = AppPrefs.floatingLabels(this);
         updateOcrButton();
@@ -369,9 +378,10 @@ public final class MainActivity extends AppCompatActivity {
         cameraController = new LifecycleCameraController(this);
         cameraController.setEnabledUseCases(CameraController.IMAGE_ANALYSIS);
         cameraController.setImageAnalysisBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST);
-        cameraController.setImageAnalysisResolutionSelector(new ResolutionSelector.Builder()
-                .setResolutionStrategy(new ResolutionStrategy(new Size(1280, 960),
-                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER)).build());
+        ActivityManager am = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        lowRam = am != null && am.isLowRamDevice();
+        reducedResolution = lowRam;
+        setAnalysisResolution(reducedResolution);
         cameraController.setTapToFocusEnabled(true);
         cameraController.setPinchToZoomEnabled(true);
         previewView.setController(cameraController);
@@ -385,21 +395,110 @@ public final class MainActivity extends AppCompatActivity {
         return resumed && !destroyed && ocrEnabled && !frozen && scanEpoch == epoch;
     }
 
+    private void setAnalysisResolution(boolean reduced) {
+        Size target = reduced ? new Size(960, 720) : new Size(1600, 1200);
+        cameraController.setImageAnalysisResolutionSelector(new ResolutionSelector.Builder()
+                .setResolutionStrategy(new ResolutionStrategy(target,
+                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER)).build());
+    }
+
     private void attachAnalyzer() {
         TopicMatcher.SearchPlan plan = searchPlan;
         if (!resumed || destroyed || frozen || !ocrEnabled || plan == null ||
-                cameraController == null || recognizer == null || analyzer != null) return;
+                cameraController == null || analyzer != null) return;
+        if (recognizer == null) {
+            try { recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS); }
+            catch (RuntimeException error) { Log.w(TAG, "OCR unavailable", error); return; }
+        }
         long epoch = ++scanEpoch;
         TextRecognizer client = recognizer;
-        analyzer = new MlKitAnalyzer(Collections.singletonList(client), COORDINATE_SYSTEM_VIEW_REFERENCED,
+        AdaptiveOcrPolicy policy = new AdaptiveOcrPolicy();
+        PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
+        MlKitAnalyzer delegate = new MlKitAnalyzer(Collections.singletonList(client), COORDINATE_SYSTEM_VIEW_REFERENCED,
                 analysisExecutor, result -> {
                     if (!accepts(epoch)) return;
+                    long timestamp = result.getTimestamp();
+                    Throwable error = result.getThrowable(client);
+                    long started = policy.finish(timestamp, SystemClock.elapsedRealtime(), error == null);
+                    if (started < 0) return;
+                    if (error != null) {
+                        handleOcrFailure(epoch, plan, policy, error);
+                        return;
+                    }
                     Text text = result.getValue(client);
-                    // Release the camera callback immediately; matching never runs on the
-                    // CameraX/ML Kit executor or the main thread.
-                    frameJobs.offer(new Frame(epoch, plan, text));
+                    frameJobs.offer(new Frame(epoch, plan, text, started));
+                    // Rate/resolution decisions run independently of matching.
+                    long now = SystemClock.elapsedRealtime();
+                    if (now - lastResolutionChange >= 20000L &&
+                            (policy.shouldReduceResolution() || policy.canRestoreResolution())) {
+                        mainHandler.post(() -> considerResolution(epoch, policy));
+                    }
+                    if (recoveryAttempts > 0) mainHandler.post(() -> {
+                        if (accepts(epoch)) recoveryAttempts = 0;
+                    });
+                });
+        analyzer = new AdaptiveAnalyzer(delegate, policy, power, () -> accepts(epoch),
+                (timestamp, error) -> {
+                    if (!accepts(epoch)) return;
+                    if (policy.finish(timestamp, SystemClock.elapsedRealtime(), false) >= 0)
+                        handleOcrFailure(epoch, plan, policy, error);
                 });
         cameraController.setImageAnalysisAnalyzer(analysisExecutor, analyzer);
+    }
+
+    private void considerResolution(long epoch, AdaptiveOcrPolicy policy) {
+        if (!accepts(epoch) || SystemClock.elapsedRealtime() - lastResolutionChange < 20000L) return;
+        boolean next = reducedResolution;
+        if (!reducedResolution && policy.shouldReduceResolution()) next = true;
+        else if (reducedResolution && !lowRam && policy.canRestoreResolution()) next = false;
+        if (next == reducedResolution) return;
+        stopAnalysis();
+        clearMatches();
+        lastResolutionChange = SystemClock.elapsedRealtime();
+        try {
+            setAnalysisResolution(next);
+            reducedResolution = next;
+        } catch (RuntimeException error) {
+            Log.w(TAG, "Adaptive resolution unavailable; keep current mode", error);
+            try { setAnalysisResolution(reducedResolution); }
+            catch (RuntimeException ignored) { Log.w(TAG, "Resolution fallback unavailable", ignored); }
+        }
+        attachAnalyzer();
+    }
+
+    private void handleOcrFailure(long epoch, TopicMatcher.SearchPlan plan, AdaptiveOcrPolicy policy, Throwable error) {
+        Log.w(TAG, "OCR frame failed", error);
+        if (!accepts(epoch)) return;
+        // Invalid recognizer output is never treated as evidence of a page.
+        frameJobs.offer(new Frame(epoch, plan, null, SystemClock.elapsedRealtime()));
+        if (policy.consecutiveFailures() < 3) return;
+        mainHandler.post(() -> {
+            if (!accepts(epoch)) return;
+            stopAnalysis();
+            clearMatches();
+            if (recognizer != null) recognizer.close();
+            recognizer = null;
+            long generation = scanEpoch;
+            long delay = Math.min(8000L, 1000L << Math.min(3, recoveryAttempts++));
+            setStatus("OCR se reia…", Color.rgb(244, 188, 77));
+            mainHandler.postDelayed(() -> {
+                if (destroyed || !resumed || frozen || !ocrEnabled || scanEpoch != generation) return;
+                recreateRecognizer();
+            }, delay);
+        });
+    }
+
+    private void recreateRecognizer() {
+        if (recognizer == null) {
+            try { recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS); }
+            catch (RuntimeException error) {
+                Log.w(TAG, "OCR restart failed", error);
+                setStatus("OCR indisponibil", Color.rgb(235, 100, 100));
+                return;
+            }
+        }
+        attachAnalyzer();
+        idleStatus();
     }
 
     private void stopAnalysis() {
@@ -415,6 +514,8 @@ public final class MainActivity extends AppCompatActivity {
         if (!accepts(frame.epoch) || SystemClock.elapsedRealtime() - frame.receivedAt > MAX_RESULT_AGE_MS) return;
         try {
             List<MatchHit> hits = TopicMatcher.find(frame.text, frame.plan);
+            if (!accepts(frame.epoch)) return;
+            hits = stabilizer.update(frame.epoch, frame.text, hits, frame.receivedAt, scanPrecision);
             if (!accepts(frame.epoch)) return;
             uiJobs.offer(new FrameResult(frame, hits, countRecognizedWords(frame.text)));
         } catch (RuntimeException e) {
@@ -578,6 +679,7 @@ public final class MainActivity extends AppCompatActivity {
     private void applyHits(List<MatchHit> hits, int recognizedWords, int searchableTerms) {
         if (!resumed || frozen || !ocrEnabled) return;
         mainHandler.removeCallbacks(staleOverlayClear);
+        // At lower cadence, stale boxes should disappear rather than remain on a turned page.
         mainHandler.postDelayed(staleOverlayClear, STALE_OVERLAY_MS);
         latestAllHits = hits == null ? Collections.emptyList() : hits;
         List<MatchHit> visibleHits = filterVisibleHits(latestAllHits);
@@ -586,13 +688,13 @@ public final class MainActivity extends AppCompatActivity {
         if (searchableTerms <= 0) {
             setStatus("Niciun termen activ", Color.rgb(244, 188, 77));
         } else {
-            String label = recognizedWords + " cuvinte · " + visibleHits.size() + " potriviri";
+            String label = visibleHits.size() + " potriviri";
             setStatus(label, visibleHits.isEmpty() ? Color.rgb(163, 221, 183) : Color.rgb(98, 211, 255));
         }
         if (!visibleHits.isEmpty()) {
             Set<String> nodes = new HashSet<>();
-            for (MatchHit hit : visibleHits) nodes.add(hit.node.identityKey());
-            maybeFeedback(visibleHits, nodes);
+            for (MatchHit hit : visibleHits) if (!hit.retained) nodes.add(hit.node.identityKey());
+            if (!nodes.isEmpty()) maybeFeedback(visibleHits, nodes);
         }
     }
 
@@ -730,6 +832,9 @@ public final class MainActivity extends AppCompatActivity {
                 .append("\nNod: ").append(hit.node.path)
                 .append("\nTermen căutat: ").append(hit.searchTerm)
                 .append("\nText OCR: ").append(hit.originalText);
+        if (hit.kind == MatchHit.Kind.OCR_REPAIR) message.append("\\nPotrivire OCR confirmată în cadre succesive");
+        else if (hit.kind == MatchHit.Kind.LINE_JOIN) message.append("\\nCuvânt reunit la capăt de rând");
+        if (hit.retained) message.append("\\nPotrivire din cadrul anterior");
         if (entry != null) {
             message.append("\n\nDEFINIȚIE\n").append(entry.definition);
             if (!entry.synonyms.isEmpty()) message.append("\n\nSinonime: ").append(entry.synonyms);
