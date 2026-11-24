@@ -13,7 +13,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -117,7 +116,7 @@ public final class OverlayView extends View {
                 float step = box.width() / colors.size();
                 float left = box.left;
                 for (int c : colors) {
-                    fillPaint.setColor(withAlpha(c, 245));
+                    fillPaint.setColor(withAlpha(c, allHeld ? 140 : 245));
                     canvas.drawRect(left, box.top, left + step, box.top + dp(3), fillPaint);
                     canvas.drawRect(left, box.bottom - dp(3), left + step, box.bottom, fillPaint);
                     left += step;

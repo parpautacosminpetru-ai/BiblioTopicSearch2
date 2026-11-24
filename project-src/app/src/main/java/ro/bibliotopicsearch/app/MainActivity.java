@@ -81,7 +81,7 @@ public final class MainActivity extends AppCompatActivity {
     private OverlayView overlayView;
     private Button mapButton;
     private TextView statusText;
-    private Button ocrButton, freezeButton, saveButton, torchButton, labelsButton, nodesButton;
+    private Button ocrButton, freezeButton, saveButton, torchButton;
     private HorizontalScrollView legendScroll;
     private LinearLayout legendPanel;
 
@@ -142,6 +142,7 @@ public final class MainActivity extends AppCompatActivity {
         }
     }
 
+    private final Runnable retainedExpiry = this::expireRetained;
     private final Runnable staleOverlayClear = () -> {
         if (resumed && !frozen && ocrEnabled && !destroyed) {
             clearMatches();
@@ -175,7 +176,6 @@ public final class MainActivity extends AppCompatActivity {
         ocrEnabled = AppPrefs.ocrEnabled(this);
         floatingLabelsEnabled = AppPrefs.floatingLabels(this);
         updateOcrButton();
-        updateLabelsButton();
         reloadPlan();
     }
 
@@ -212,7 +212,6 @@ public final class MainActivity extends AppCompatActivity {
         clearMatches();
         searchPlan = null;
         mapButton.setEnabled(false);
-        nodesButton.setEnabled(false);
         mapButton.setText("Hărți…");
         if (!frozen) setStatus("Se încarcă hărțile…", Color.rgb(244, 188, 77));
         planJobs.offer(++planRequest);
@@ -236,7 +235,6 @@ public final class MainActivity extends AppCompatActivity {
                 syncVisibleNodes();
                 mapButton.setText("Hărți " + ids.size() + "/" + profiles.size() + "  ▾");
                 mapButton.setEnabled(true);
-                nodesButton.setEnabled(true);
                 idleStatus();
                 attachAnalyzer();
             });
@@ -309,6 +307,11 @@ public final class MainActivity extends AppCompatActivity {
         header.addView(mapButton, new LinearLayout.LayoutParams(0, dp(48), 1f));
         ocrButton = toolbarButton("OCR");
         header.addView(ocrButton, toolbarLp());
+        Button moreButton = toolbarButton("⋯");
+        moreButton.setMinWidth(dp(48));
+        moreButton.setContentDescription("Meniu");
+        header.addView(moreButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        moreButton.setOnClickListener(v -> showQuickMenu());
         top.addView(header);
         statusText = new TextView(this);
         statusText.setTextSize(12);
@@ -329,36 +332,28 @@ public final class MainActivity extends AppCompatActivity {
         root.addView(top, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP));
 
-        HorizontalScrollView toolScroll = new HorizontalScrollView(this);
-        toolScroll.setHorizontalScrollBarEnabled(false);
-        toolScroll.setFillViewport(true);
-        toolScroll.setBackgroundColor(Color.argb(225, 18, 28, 38));
         LinearLayout toolbar = new LinearLayout(this);
         toolbar.setGravity(Gravity.CENTER_VERTICAL);
-        toolbar.setPadding(dp(6), dp(4), dp(6), dp(4));
-        nodesButton = toolbarButton("Noduri");
-        nodesButton.setEnabled(false);
-        labelsButton = toolbarButton("Etichete");
-        Button libraryButton = toolbarButton("Bibliotecă");
+        toolbar.setBackgroundColor(Color.argb(225, 18, 28, 38));
+        toolbar.setPadding(dp(4), dp(4), dp(4), dp(4));
+        Button libraryButton = toolbarButton("Teme");
+        torchButton = toolbarButton("Lumină");
         freezeButton = toolbarButton("Cadru");
         saveButton = toolbarButton("Salvează");
-        torchButton = toolbarButton("Lumină");
-        Button settingsButton = toolbarButton("Setări");
-        for (Button button : new Button[]{libraryButton, nodesButton, labelsButton,
-                freezeButton, saveButton, torchButton, settingsButton}) {
-            toolbar.addView(button, toolbarLp());
+        for (Button button : new Button[]{libraryButton, torchButton, freezeButton, saveButton}) {
+            button.setMinWidth(0);
+            button.setMinimumWidth(0);
+            button.setPadding(dp(2), 0, dp(2), 0);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(48), 1f);
+            lp.setMargins(dp(2), 0, dp(2), 0);
+            toolbar.addView(button, lp);
         }
-        toolScroll.addView(toolbar, new HorizontalScrollView.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(56)));
-        root.addView(toolScroll, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+        root.addView(toolbar, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 dp(56), Gravity.BOTTOM));
 
         mapButton.setOnClickListener(v -> showMapSelection());
         ocrButton.setOnClickListener(v -> toggleOcr());
-        nodesButton.setOnClickListener(v -> showNodeSelection());
-        labelsButton.setOnClickListener(v -> toggleFloatingLabels());
         libraryButton.setOnClickListener(v -> openLibrary());
-        settingsButton.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         freezeButton.setOnClickListener(v -> toggleFreeze());
         saveButton.setOnClickListener(v -> saveFrozenFrame());
         torchButton.setOnClickListener(v -> toggleTorch());
@@ -508,6 +503,7 @@ public final class MainActivity extends AppCompatActivity {
         frameJobs.clear();
         uiJobs.clear();
         mainHandler.removeCallbacks(staleOverlayClear);
+        mainHandler.removeCallbacks(retainedExpiry);
     }
 
     private void matchFrame(Frame frame) {
@@ -551,17 +547,18 @@ public final class MainActivity extends AppCompatActivity {
     private void toggleFloatingLabels() {
         floatingLabelsEnabled = !floatingLabelsEnabled;
         AppPrefs.setFloatingLabels(this, floatingLabelsEnabled);
-        updateLabelsButton();
         redrawVisibleHits();
     }
 
-    private void updateLabelsButton() {
-        if (labelsButton == null) return;
-        labelsButton.setText(floatingLabelsEnabled ? "Etichete ●" : "Etichete");
-        labelsButton.setContentDescription(floatingLabelsEnabled ? "Ascunde etichetele" : "Afișează etichetele");
-        labelsButton.setBackgroundTintList(ColorStateList.valueOf(
-                floatingLabelsEnabled ? Color.rgb(123, 88, 154) : Color.rgb(53, 92, 125)
-        ));
+    private void showQuickMenu() {
+        String labels = floatingLabelsEnabled ? "Ascunde etichetele" : "Afișează etichetele";
+        new AlertDialog.Builder(this).setItems(new String[]{"Noduri afișate", labels, "Setări"},
+                (dialog, which) -> {
+                    if (which == 0) {
+                        if (topicMap != null && searchPlan != null) showNodeSelection();
+                    } else if (which == 1) toggleFloatingLabels();
+                    else startActivity(new Intent(this, SettingsActivity.class));
+                }).setNegativeButton("Închide", null).show();
     }
 
     private void syncVisibleNodes() {
@@ -616,12 +613,13 @@ public final class MainActivity extends AppCompatActivity {
         overlayView.clearHits();
         overlayView.updateHits(visible, AppPrefs.precision(this), floatingLabelsEnabled);
         updateLegend(visible);
-        if (!frozen && ocrEnabled && !latestAllHits.isEmpty()) {
-            setStatus(visible.size() + " potriviri", Color.rgb(98, 211, 255));
+        if (!frozen && ocrEnabled && searchPlan != null && searchPlan.termCount() > 0) {
+            setStatus(visible.isEmpty() ? "" : visible.size() + " potriviri", Color.rgb(98, 211, 255));
         }
     }
 
     private void clearMatches() {
+        mainHandler.removeCallbacks(retainedExpiry);
         latestAllHits = Collections.emptyList();
         if (overlayView != null) overlayView.clearHits();
         updateLegend(latestAllHits);
@@ -682,13 +680,14 @@ public final class MainActivity extends AppCompatActivity {
         // At lower cadence, stale boxes should disappear rather than remain on a turned page.
         mainHandler.postDelayed(staleOverlayClear, STALE_OVERLAY_MS);
         latestAllHits = hits == null ? Collections.emptyList() : hits;
+        trimAndScheduleRetained();
         List<MatchHit> visibleHits = filterVisibleHits(latestAllHits);
         overlayView.updateHits(visibleHits, AppPrefs.precision(this), floatingLabelsEnabled);
         updateLegend(visibleHits);
         if (searchableTerms <= 0) {
             setStatus("Niciun termen activ", Color.rgb(244, 188, 77));
         } else {
-            String label = visibleHits.size() + " potriviri";
+            String label = visibleHits.isEmpty() ? "" : visibleHits.size() + " potriviri";
             setStatus(label, visibleHits.isEmpty() ? Color.rgb(163, 221, 183) : Color.rgb(98, 211, 255));
         }
         if (!visibleHits.isEmpty()) {
@@ -698,6 +697,28 @@ public final class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void trimAndScheduleRetained() {
+        mainHandler.removeCallbacks(retainedExpiry);
+        long now = SystemClock.elapsedRealtime(), next = Long.MAX_VALUE;
+        List<MatchHit> remaining = new ArrayList<>(latestAllHits.size());
+        for (MatchHit hit : latestAllHits) {
+            if (hit.retained) {
+                long deadline = hit.detectedAt + TemporalEvidence.HOLD_MS;
+                if (deadline <= now) continue;
+                next = Math.min(next, deadline);
+            }
+            remaining.add(hit);
+        }
+        if (remaining.size() != latestAllHits.size()) latestAllHits = remaining;
+        if (next != Long.MAX_VALUE) mainHandler.postDelayed(retainedExpiry, Math.max(1L, next - now));
+    }
+
+    private void expireRetained() {
+        if (destroyed || frozen || !resumed || !ocrEnabled) return;
+        trimAndScheduleRetained();
+        redrawVisibleHits();
+    }
+
     private void idleStatus() {
         if (frozen) setStatus("Cadru fix", Color.rgb(244, 188, 77));
         else if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
@@ -705,13 +726,14 @@ public final class MainActivity extends AppCompatActivity {
         else if (!ocrEnabled) setStatus("OCR în pauză", Color.rgb(190, 200, 210));
         else if (searchPlan == null) setStatus("Se încarcă hărțile…", Color.rgb(244, 188, 77));
         else if (searchPlan.termCount() == 0) setStatus("Niciun termen activ", Color.rgb(244, 188, 77));
-        else setStatus("OCR live", Color.rgb(163, 221, 183));
+        else setStatus("", Color.rgb(163, 221, 183));
     }
 
     private void setStatus(String text, int color) {
         if (statusText != null) {
             if (!TextUtils.equals(statusText.getText(), text)) statusText.setText(text);
             statusText.setTextColor(color);
+            statusText.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
         }
     }
 
@@ -832,9 +854,9 @@ public final class MainActivity extends AppCompatActivity {
                 .append("\nNod: ").append(hit.node.path)
                 .append("\nTermen căutat: ").append(hit.searchTerm)
                 .append("\nText OCR: ").append(hit.originalText);
-        if (hit.kind == MatchHit.Kind.OCR_REPAIR) message.append("\\nPotrivire OCR confirmată în cadre succesive");
-        else if (hit.kind == MatchHit.Kind.LINE_JOIN) message.append("\\nCuvânt reunit la capăt de rând");
-        if (hit.retained) message.append("\\nPotrivire din cadrul anterior");
+        if (hit.kind == MatchHit.Kind.OCR_REPAIR) message.append("\nPotrivire OCR confirmată în cadre succesive");
+        else if (hit.kind == MatchHit.Kind.LINE_JOIN) message.append("\nCuvânt reunit la capăt de rând");
+        if (hit.retained) message.append("\nPotrivire din cadrul anterior");
         if (entry != null) {
             message.append("\n\nDEFINIȚIE\n").append(entry.definition);
             if (!entry.synonyms.isEmpty()) message.append("\n\nSinonime: ").append(entry.synonyms);

@@ -42,6 +42,10 @@ public final class MatchHit {
         this.detectedAt = detectedAt;
     }
 
+    MatchHit withTimestamp(long timestamp) {
+        return new MatchHit(segments, originalText, searchTerm, node, timestamp, kind, retained);
+    }
+
     MatchHit withGeometry(List<RectF> boxes, boolean held) {
         return new MatchHit(boxes, originalText, searchTerm, node, detectedAt, kind, held);
     }

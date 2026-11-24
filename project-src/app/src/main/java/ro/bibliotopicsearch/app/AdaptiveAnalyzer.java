@@ -10,23 +10,24 @@ import androidx.annotation.Nullable;
 import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.ImageProxy;
 import androidx.camera.mlkit.vision.MlKitAnalyzer;
-import java.util.function.BooleanSupplier;
+
 
 /** Skip overloaded frames before invoking ML Kit, without losing CameraX's
  * view-referenced transform. A skipped image is always closed. */
 final class AdaptiveAnalyzer implements ImageAnalysis.Analyzer {
+    interface Active { boolean isActive(); }
     interface ErrorListener { void failed(long timestamp, RuntimeException error); }
     private final MlKitAnalyzer delegate;
     private final AdaptiveOcrPolicy policy;
     private final PowerManager power;
-    private final BooleanSupplier active;
+    private final Active active;
     private final ErrorListener errorListener;
     private volatile boolean transformAvailable;
     private long thermalReadAt = -10000L;
     private int thermal;
 
     AdaptiveAnalyzer(MlKitAnalyzer delegate, AdaptiveOcrPolicy policy, PowerManager power,
-                     BooleanSupplier active, ErrorListener errorListener) {
+                     Active active, ErrorListener errorListener) {
         this.delegate = delegate;
         this.policy = policy;
         this.power = power;
@@ -44,7 +45,7 @@ final class AdaptiveAnalyzer implements ImageAnalysis.Analyzer {
     @Override public void analyze(@NonNull ImageProxy image) {
         long now = SystemClock.elapsedRealtime();
         long timestamp = image.getImageInfo().getTimestamp();
-        if (!active.getAsBoolean() || !transformAvailable) {
+        if (!active.isActive() || !transformAvailable) {
             image.close();
             return;
         }

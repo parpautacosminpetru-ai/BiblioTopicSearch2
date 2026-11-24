@@ -30,7 +30,8 @@ final class LiveFrameStabilizer {
         PageContinuity.State state = PageContinuity.compare(previous, sample);
         previous = sample;
         List<TemporalEvidence.Observation<MatchHit>> observations = new ArrayList<>(hits.size());
-        for (MatchHit hit : hits) {
+        for (MatchHit raw : hits) {
+            MatchHit hit = raw.withTimestamp(timestamp);
             // A repair can be corroborated by a literal reading of the same map
             // term; distinct map/node identities always stay separate.
             observations.add(new TemporalEvidence.Observation<>(hit.identityKey(), hit.box.centerX(),

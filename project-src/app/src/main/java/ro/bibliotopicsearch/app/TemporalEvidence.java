@@ -12,7 +12,7 @@ import java.util.Set;
 final class TemporalEvidence<T> {
     private static final float CELL = 48f;
     private static final long MAX_CONFIRM_MS = 2400L;
-    private static final long HOLD_MS = 350L;
+    static final long HOLD_MS = 350L;
 
     static final class Observation<T> {
         final String key;

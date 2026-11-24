@@ -80,9 +80,11 @@ public final class TopicMatcher {
         }
 
         List<CompiledTerm> repairedCandidates(String token) {
-            if (!repairEnabled || !candidates(1, token).isEmpty()) return Collections.emptyList();
+            if (!repairEnabled) return Collections.emptyList();
+            List<String> variants = OcrRepair.digitVariants(token);
+            if (variants.isEmpty() || !candidates(1, token).isEmpty()) return Collections.emptyList();
             List<CompiledTerm> found = Collections.emptyList();
-            for (String variant : OcrRepair.digitVariants(token)) {
+            for (String variant : variants) {
                 List<CompiledTerm> exact = exactCandidates(1, variant);
                 if (exact.isEmpty()) continue;
                 if (!found.isEmpty()) return Collections.emptyList(); // ambiguous spelling

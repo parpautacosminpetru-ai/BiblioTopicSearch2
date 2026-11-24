@@ -6,6 +6,10 @@ on:
       - feature/aug11-multimap-live-ocr-20261124
   workflow_dispatch:
 
+concurrency:
+  group: aug11-ocr-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -43,12 +47,12 @@ jobs:
       - name: Prepare APK
         run: |
           mkdir -p output
-          cp project-src/app/build/outputs/apk/debug/app-debug.apk output/BiblioTopicSearch-Aug11-MultiMap-OCR.apk
+          cp project-src/app/build/outputs/apk/debug/app-debug.apk output/BiblioTopicSearch-Aug11-MultiMap-OCR-1.1.3.apk
           cd output
-          sha256sum BiblioTopicSearch-Aug11-MultiMap-OCR.apk > BiblioTopicSearch-Aug11-MultiMap-OCR.apk.sha256
+          sha256sum BiblioTopicSearch-Aug11-MultiMap-OCR-1.1.3.apk > BiblioTopicSearch-Aug11-MultiMap-OCR-1.1.3.apk.sha256
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: BiblioTopicSearch-Aug11-MultiMap-OCR
+          name: BiblioTopicSearch-Aug11-MultiMap-OCR-1.1.3
           path: output/
           if-no-files-found: error
