@@ -105,6 +105,13 @@ final class HistoricalOcr {
     static String recognize(Context c,List<String> names,int mode,Bitmap bitmap){
         try(Session session=new Session(c,names,mode)){return session.read(bitmap);}
     }
+    static final class Recognition {
+        final String text;final List<LocatedMark> lines;
+        Recognition(String text,List<LocatedMark> lines){this.text=text;this.lines=Collections.unmodifiableList(new ArrayList<>(lines));}
+    }
+    static Recognition locate(Context c,List<String> names,int mode,Bitmap bitmap){
+        try(Session session=new Session(c,names,mode)){return session.readDetailed(bitmap);}
+    }
     static final class Session implements AutoCloseable {
         private final TessBaseAPI api;
         Session(Context c,List<String> names,int mode){
@@ -126,6 +133,29 @@ final class HistoricalOcr {
             if(bitmap==null||bitmap.isRecycled())throw new IllegalArgumentException("Imagine indisponibilă.");
             try{api.setImage(bitmap);String value=api.getUTF8Text();return value==null?"":value;}
             finally{api.clear();}
+        }
+        Recognition readDetailed(Bitmap bitmap){
+            if(bitmap==null||bitmap.isRecycled())throw new IllegalArgumentException("Imagine indisponibilă.");
+            List<LocatedMark> marks=new ArrayList<>();
+            com.googlecode.tesseract.android.ResultIterator it=null;
+            try{
+                api.setImage(bitmap);String value=api.getUTF8Text();if(value==null)value="";
+                if(!value.trim().isEmpty()){
+                    it=api.getResultIterator();
+                    if(it!=null){
+                        int level=TessBaseAPI.PageIteratorLevel.RIL_TEXTLINE;it.begin();
+                        do{
+                            String line=it.getUTF8Text(level);android.graphics.Rect box=it.getBoundingRect(level);
+                            float score=it.confidence(level);
+                            if(line!=null&&!line.trim().isEmpty()&&box!=null&&box.intersect(0,0,bitmap.getWidth(),bitmap.getHeight())){
+                                String label=Float.isNaN(score)?"OCR":String.format(java.util.Locale.ROOT,"OCR %.0f",score);
+                                marks.add(new LocatedMark(new android.graphics.RectF(box),label,line.trim(),false));
+                            }
+                        }while(marks.size()<400&&it.next(level));
+                    }
+                }
+                return new Recognition(value,marks);
+            }finally{try{if(it!=null)it.delete();}finally{api.clear();}}
         }
         @Override public void close(){api.recycle();}
     }

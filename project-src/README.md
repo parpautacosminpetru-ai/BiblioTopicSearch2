@@ -1,3 +1,11 @@
+# Biblio Paleografie 1.5.0 — segmentare și poziții verificabile
+
+- Butonul Segmentează semne propune zone din imagine prin separarea benzilor și spațiilor dintre forme, fără a presupune alfabetul. Direcțiile LTR, RTL și coloane verticale sunt alese explicit. Contururile sunt proiectate pe imaginea exact analizată; maximum 400 de zone per analiză, cu avertisment la limită. Scrierea legată, semnele suprapuse, coloanele și diacriticele separate necesită verificare manuală; nu este un segmentator universal perfect.
+- Atinge o zonă pentru a vedea decupajul, propunerile catalogului și distanțele vizuale. Confirmă un semn Unicode sau un cod propriu, opțional salvează exemplul. Propunerile nu sunt acceptate automat. Revizuiește semne deschide transcrierea cu [?] pentru toate zonele neconfirmate, în ordinea aleasă.
+- Tesseract furnizează pozițiile reale ale rândurilor recunoscute prin ResultIterator. În OCR istoric și la Verifică cadrul se pot inspecta rândurile pe imaginea exactă. Nu se proiectează coordonate vechi pe camera în mișcare și nu se consideră scorul OCR o certitudine.
+- Pachetul Android rămâne ro.bibliotopicsearch.paleography.universal; actualizarea compatibilă cu semnătura 1.4.2 păstrează datele. Teste JVM și Android pentru segmentare, ordine, necunoscute și coordonate native; APK-ul este publicat doar după trecerea testelor.
+- Rămân necesare: evaluarea pe manuscrise reale, modele HTR specifice, detectarea automată a scrierii, arhivarea și backup-ul integral, suprapunerea universală în timp real și semnarea de producție.
+
 # Biblio Paleografie 1.4.2 — verificare Android
 
 - Ecran de pornire independent de cameră, hărți și transliterare. Acces clar la cameră, galerie, modele, text și Biblio.

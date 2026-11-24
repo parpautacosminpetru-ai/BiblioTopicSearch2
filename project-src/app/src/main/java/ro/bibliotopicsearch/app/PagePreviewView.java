@@ -17,6 +17,10 @@ import java.util.Map;
 
 final class PagePreviewView extends View {
     interface OnHits {void onHits(List<MatchHit> hits);}
+    interface OnMark {void onMark(int index);}
+    private List<LocatedMark> located=Collections.emptyList();
+    private OnMark markListener;
+    private int pressedMark=-1;
     private final Paint imagePaint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
     private final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF frame=new RectF();
@@ -34,7 +38,12 @@ final class PagePreviewView extends View {
 
     PagePreviewView(Context context){super(context);setBackgroundColor(Color.rgb(21,27,35));}
     void setListener(OnHits listener){this.listener=listener;}
+    void showLocated(Bitmap bitmap,List<LocatedMark> marks,OnMark listener){
+        showResult(bitmap,Collections.emptyList());located=new ArrayList<>(marks);markListener=listener;invalidate();
+    }
+    private void resetLocated(){located=Collections.emptyList();markListener=null;pressedMark=-1;}
     void showOriginal(Bitmap bitmap,float[] corners){
+        resetLocated();
         this.bitmap=bitmap;quad=corners.clone();editing=true;regionMode=false;regionSelected=false;hits=Collections.emptyList();paleography=Collections.emptyList();invalidate();
     }
     void selectRegion(Bitmap bitmap){
@@ -42,10 +51,10 @@ final class PagePreviewView extends View {
     }
     boolean hasRegionSelection(){return editing&&regionMode&&regionSelected;}
     void showResult(Bitmap bitmap,List<MatchHit> hits){
-        this.bitmap=bitmap;this.hits=hits;editing=false;paleography=Collections.emptyList();invalidate();
+        resetLocated();this.bitmap=bitmap;this.hits=hits;editing=false;paleography=Collections.emptyList();invalidate();
     }
     void showPaleography(Bitmap bitmap,List<PaleographyLine> lines){
-        this.bitmap=bitmap;hits=Collections.emptyList();paleography=lines;editing=false;invalidate();
+        resetLocated();this.bitmap=bitmap;hits=Collections.emptyList();paleography=lines;editing=false;invalidate();
     }
     void setSpeaking(PaleographyLine line,LiteralTransliterator.RuleMatch cue){
         speaking=line;spokenCue=cue;invalidate();
@@ -105,6 +114,27 @@ final class PagePreviewView extends View {
         }
         paleographyRenderer.draw(canvas,paleography,speaking,spokenCue);
         canvas.restore();
+        // Draw labels in display coordinates so small boxes don't obscure original ink.
+        if(!located.isEmpty()){
+            int save=canvas.save();canvas.clipRect(frame);
+            float sx=frame.width()/bitmap.getWidth(),sy=frame.height()/bitmap.getHeight();
+            ink.setTextSize(dp(10));ink.setTypeface(android.graphics.Typeface.DEFAULT);
+            for(LocatedMark mark:located){
+                RectF q=new RectF(frame.left+mark.bounds.left*sx,frame.top+mark.bounds.top*sy,
+                        frame.left+mark.bounds.right*sx,frame.top+mark.bounds.bottom*sy);
+                ink.setColor(mark.confirmed?0xff31d49e:0xffffcb66);ink.setStrokeWidth(dp(1.4f));ink.setStyle(Paint.Style.STROKE);canvas.drawRect(q,ink);
+                ink.setStyle(Paint.Style.FILL);
+                // Only display a short label; full candidate or transcription appears on tap.
+                String label=mark.label;int cp=label.codePointCount(0,label.length());
+                if(cp>14)label=label.substring(0,label.offsetByCodePoints(0,14))+"…";
+                float baseline=Math.max(frame.top+dp(10),q.top-dp(2)),right=Math.min(frame.right,q.left+ink.measureText(label)+dp(4));
+                if(right-q.left>=dp(8)){
+                    canvas.drawRect(q.left,baseline-dp(11),right,baseline+dp(2),ink);
+                    ink.setColor(0xff17202b);canvas.drawText(label,q.left+dp(2),baseline,ink);
+                }
+            }
+            canvas.restoreToCount(save);
+        }
     }
     @Override public boolean onTouchEvent(MotionEvent event){
         if(!isEnabled()||!layoutFrame())return false;
@@ -149,6 +179,20 @@ final class PagePreviewView extends View {
             if(event.getActionMasked()==MotionEvent.ACTION_UP||event.getActionMasked()==MotionEvent.ACTION_CANCEL){
                 dragged=-1;getParent().requestDisallowInterceptTouchEvent(false);performClick();return true;
             }
+        }else if(!located.isEmpty()&&markListener!=null){
+            int action=event.getActionMasked();
+            if(action==MotionEvent.ACTION_DOWN||action==MotionEvent.ACTION_UP){
+                float px=(x-frame.left)*bitmap.getWidth()/frame.width(),py=(y-frame.top)*bitmap.getHeight()/frame.height();
+                float margin=dp(6)*bitmap.getWidth()/frame.width();int best=-1;double distance=Double.MAX_VALUE;
+                for(int i=0;i<located.size();i++){
+                    RectF q=located.get(i).bounds;
+                    if(px<q.left-margin||px>q.right+margin||py<q.top-margin||py>q.bottom+margin)continue;
+                    double d=Math.hypot(px-q.centerX(),py-q.centerY());if(d<distance){distance=d;best=i;}
+                }
+                if(action==MotionEvent.ACTION_DOWN){pressedMark=best;return true;}
+                if(best>=0&&best==pressedMark){performClick();markListener.onMark(best);}pressedMark=-1;return true;
+            }
+            return true;
         }else if(event.getActionMasked()==MotionEvent.ACTION_UP&&frame.contains(x,y)&&listener!=null){
             float px=(x-frame.left)*bitmap.getWidth()/frame.width(),py=(y-frame.top)*bitmap.getHeight()/frame.height();
             List<MatchHit> found=new ArrayList<>();

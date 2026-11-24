@@ -46,7 +46,9 @@ public final class PageReviewActivity extends AppCompatActivity {
     private List<MatchHit> verified=Collections.emptyList(),candidates=Collections.emptyList();
     private PagePreviewView page;
     private TextView status;
-    private Button open,edit,analyse,historical,transliterateDraft,compareOriginal;
+    private Button open,edit,analyse,historical,transliterateDraft,compareOriginal,segmentButton,reviewMarks;
+    private GlyphStudy glyphStudy;
+    private List<LocatedMark> ocrMarks=Collections.emptyList();
     private LinearLayout historicalPanel;
     private android.widget.EditText historicalText;
     private boolean historicalOriginal;
@@ -75,6 +77,12 @@ public final class PageReviewActivity extends AppCompatActivity {
         historical=button("OCR istoric");
         for(Button button:new Button[]{open,edit,analyse,historical})bar.addView(button,new LinearLayout.LayoutParams(0,dp(48),1));
         root.addView(bar);
+        LinearLayout reviewBar=new LinearLayout(this);
+        segmentButton=button("Segmentează semne");reviewMarks=button("Revizuiește semne");
+        reviewBar.addView(segmentButton,new LinearLayout.LayoutParams(0,dp(44),1));
+        reviewBar.addView(reviewMarks,new LinearLayout.LayoutParams(0,dp(44),1));root.addView(reviewBar);
+        segmentButton.setOnClickListener(v->chooseSegmentation());
+        reviewMarks.setOnClickListener(v->reviewGlyphs());
         page=new PagePreviewView(this);page.setListener(this::showHits);
         soundPlayer=new PaleographySoundPlayer(this,new PaleographySoundPlayer.Listener(){
             @Override public void highlight(PaleographyLine line,LiteralTransliterator.RuleMatch cue){
@@ -105,7 +113,8 @@ public final class PageReviewActivity extends AppCompatActivity {
         compareOriginal.setOnClickListener(v->{
             if(source==null||busy)return;
             historicalOriginal=!historicalOriginal;
-            page.showResult(historicalOriginal||review==null?source:review,Collections.emptyList());
+            if(!historicalOriginal&&review!=null&&!ocrMarks.isEmpty())page.showLocated(review,ocrMarks,this::showOcrLine);
+            else page.showResult(historicalOriginal||review==null?source:review,Collections.emptyList());
             compareOriginal.setText(historicalOriginal?"Corectată":"Original");
         });
         transliterateDraft.setOnClickListener(v->{
@@ -142,8 +151,13 @@ public final class PageReviewActivity extends AppCompatActivity {
         });
         analyse.setOnClickListener(v->readLatinPage());
         setContentView(root);UiInsets.apply(root);
-        Bitmap draft=PageDraft.take();
-        if(draft!=null)useSource(draft);
+        PageDraft.Analysis draft=PageDraft.takeAnalysis();
+        if(draft!=null&&draft.bitmap!=null){
+            useSource(draft.bitmap);
+            if(!draft.text.isEmpty()||!draft.marks.isEmpty()){
+                review=source;showingResult=true;ocrMarks=draft.marks;showHistoricalDraft(draft.text,"OCR din cadrul analizat");
+            }
+        }
         else if(saved!=null&&saved.getString("source_uri")!=null){
             sourceUri=Uri.parse(saved.getString("source_uri"));loadImage(sourceUri,saved.getString("historical_text",""));
         }else{status.setText("Alege o imagine sau importă un model OCR.");setBusy(false);
@@ -159,7 +173,7 @@ public final class PageReviewActivity extends AppCompatActivity {
     }
     private void useSource(Bitmap bitmap){
         Bitmap oldSource=source,oldReview=review;
-        source=bitmap;review=null;verified=Collections.emptyList();candidates=Collections.emptyList();
+        source=bitmap;review=null;glyphStudy=null;ocrMarks=Collections.emptyList();verified=Collections.emptyList();candidates=Collections.emptyList();
         historicalPanel.setVisibility(View.GONE);historicalText.setText("");historicalOriginal=false;
         lastOcrText="";rawPageOcr=null;correctedPageOcr=null;paleographyLines=Collections.emptyList();
         showingPaleography=false;paleographySystem="";soundPlayer.setEnabled(false);soundClips=Collections.emptyMap();paleography.setText("Paleografie");paleography.setVisibility(View.GONE);
@@ -206,7 +220,7 @@ public final class PageReviewActivity extends AppCompatActivity {
                     if(isFinishing()||isDestroyed()){output.recycle();return;}
                     Bitmap old=review;review=output;showingResult=true;lastOcrText=result;
                     verified=Collections.emptyList();candidates=Collections.emptyList();rawPageOcr=null;correctedPageOcr=null;paleographyLines=Collections.emptyList();
-                    setBusy(false);showHistoricalDraft(result,"OCR latin (candidat)");
+                    ocrMarks=Collections.emptyList();setBusy(false);showHistoricalDraft(result,"OCR latin (candidat)");
                     if(result.isEmpty())status.setText("Niciun text recunoscut. Încearcă altă scriere sau transcriere manuală.");
                     if(old!=null&&old!=source&&old!=output&&!old.isRecycled())old.recycle();
                 });
@@ -288,6 +302,102 @@ public final class PageReviewActivity extends AppCompatActivity {
     private void pickHistoricalModel(){
         Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
         startActivityForResult(intent,PICK_MODEL);
+    }
+    private void chooseSegmentation(){
+        if(busy||source==null)return;
+        final RectF zone;
+        if(page.hasRegionSelection()){
+            float[] q=page.corners();zone=new RectF(q[0]*source.getWidth(),q[1]*source.getHeight(),q[4]*source.getWidth(),q[5]*source.getHeight());
+        }else zone=new RectF(0,0,source.getWidth(),source.getHeight());
+        android.widget.EditText system=new android.widget.EditText(this);system.setSingleLine(true);
+        system.setHint("Catalog / sistem de scriere");
+        system.setText(getPreferences(MODE_PRIVATE).getString("glyph_system","Sistemul meu"));
+        new AlertDialog.Builder(this).setTitle("Segmentează formele")
+            .setMessage("Selectează catalogul. Poți începe și fără exemple. Pentru texte cu coloane, selectează întâi o singură zonă.")
+            .setView(system).setNegativeButton("Renunță",null)
+            .setPositiveButton("Direcție",(d,w)->{
+                String name;
+                try{name=GlyphLibrary.validate(system.getText().toString(),"Sistem");}catch(IllegalArgumentException e){status.setText(e.getMessage());return;}
+                getPreferences(MODE_PRIVATE).edit().putString("glyph_system",name).apply();
+                new AlertDialog.Builder(this).setTitle("Ordine de lectură")
+                    .setItems(new String[]{"Orizontal: stânga → dreapta","Orizontal: dreapta → stânga","Vertical: coloane de la dreapta","Vertical: coloane de la stânga"},(x,dir)->{
+                        if(glyphStudy!=null&&glyphStudy.confirmedCount()>0)new AlertDialog.Builder(this).setTitle("Reanalizezi pagina?")
+                            .setMessage("Exportă mai întâi confirmările existente. O nouă segmentare le înlocuiește.")
+                            .setNegativeButton("Renunță",null).setPositiveButton("Continuă",(a,b)->segment(zone,name,dir)).show();
+                        else segment(zone,name,dir);
+                    }).setNegativeButton("Renunță",null).show();
+            }).show();
+    }
+    private void segment(RectF zone,String system,int direction){
+        final Bitmap input=source;setBusy(true);soundPlayer.setEnabled(false);status.setText("Se separă formele grafice…");
+        worker.execute(()->{
+            try{
+                GlyphStudy study=GlyphStudy.analyse(input,zone,direction,system,GlyphLibrary.examples(this,system));
+                runOnUiThread(()->{if(isFinishing()||isDestroyed())return;
+                    glyphStudy=study;setBusy(false);showGlyphStudy();
+                });
+            }catch(Exception e){error(e);}
+        });
+    }
+    private void showGlyphStudy(){
+        if(glyphStudy==null||source==null)return;
+        historicalPanel.setVisibility(View.GONE);showingPaleography=false;soundPlayer.setEnabled(false);
+        paleography.setVisibility(View.GONE);showCandidates.setVisibility(View.GONE);
+        page.showLocated(source,glyphStudy.marks(),this::confirmGlyph);
+        reviewMarks.setEnabled(!busy);
+        status.setText(glyphStudy.regions.size()+" zone propuse · "+glyphStudy.confirmedCount()+" confirmate"+
+                (glyphStudy.truncated?" · limită 400: analizează o zonă mai mică":"")+" · atinge un contur pentru revizuire");
+    }
+    private void reviewGlyphs(){
+        if(glyphStudy==null||busy)return;
+        if(glyphStudy.regions.isEmpty()){status.setText("Nu s-au detectat zone. Încearcă o imagine mai clară sau selectează manual.");return;}
+        new AlertDialog.Builder(this).setTitle("Revizuire / transcriere")
+            .setItems(new String[]{"Revizuiește următoarea zonă neconfirmată","Afișează contururile","Deschide transcrierea în atelier"},(d,i)->{
+                if(i==0){for(int n=0;n<glyphStudy.regions.size();n++)if(glyphStudy.regions.get(n).confirmed==null){showGlyphStudy();confirmGlyph(n);return;}status.setText("Toate zonele sunt confirmate.");}
+                else if(i==1)showGlyphStudy();
+                else PaleographyActivity.open(this,glyphStudy.transcription(),"Semne confirmate manual; [?] = necunoscut");
+            }).setNegativeButton("Închide",null).show();
+    }
+    private void confirmGlyph(int index){
+        if(glyphStudy==null||busy||index<0||index>=glyphStudy.regions.size())return;
+        GlyphStudy.Region region=glyphStudy.regions.get(index);LinearLayout content=new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);content.setPadding(dp(16),0,dp(16),dp(8));
+        android.widget.ImageView cropView=new android.widget.ImageView(this);
+        int l=Math.max(0,(int)Math.floor(region.box.left)),t=Math.max(0,(int)Math.floor(region.box.top));
+        int r=Math.min(source.getWidth(),(int)Math.ceil(region.box.right)),b=Math.min(source.getHeight(),(int)Math.ceil(region.box.bottom));
+        Bitmap crop=Bitmap.createBitmap(source,l,t,Math.max(1,r-l),Math.max(1,b-t));
+        cropView.setImageBitmap(crop);cropView.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        content.addView(cropView,new LinearLayout.LayoutParams(-1,dp(100)));
+        android.widget.EditText field=new android.widget.EditText(this);field.setSingleLine(true);field.setHint("Semn sau cod confirmat de tine");
+        field.setText(region.confirmed==null?"":region.confirmed);content.addView(field);
+        for(GlyphShape.Candidate c:region.candidates){
+            Button option=button(c.label+" · distanță "+String.format(java.util.Locale.ROOT,"%.2f",c.distance));
+            option.setOnClickListener(v->field.setText(c.label));content.addView(option);
+        }
+        android.widget.CheckBox learn=new android.widget.CheckBox(this);learn.setText("Memorează și forma ca exemplu");learn.setEnabled(region.shape!=null);content.addView(learn);
+        android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.addView(content);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Zona "+(index+1)+" / "+glyphStudy.regions.size())
+            .setView(scroll).setNegativeButton("Renunță",null)
+            .setNeutralButton("Necunoscut",(d,w)->{region.confirmed=null;showGlyphStudy();})
+            .setPositiveButton("Confirmă",null).create();
+        dialog.setOnShowListener(v->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(w->{
+            String label;try{label=GlyphLibrary.validate(field.getText().toString(),"Semn");}catch(IllegalArgumentException e){field.setError(e.getMessage());return;}
+            boolean remember=learn.isChecked()&&region.shape!=null;dialog.dismiss();region.confirmed=label;showGlyphStudy();
+            if(remember){String system=glyphStudy.system;setBusy(true);worker.execute(()->{
+                try{GlyphLibrary.add(this,system,label,region.shape);
+                    runOnUiThread(()->{if(!isFinishing()&&!isDestroyed()){setBusy(false);showGlyphStudy();}});
+                }catch(Exception e){error(e);}
+            });}
+        }));
+        dialog.setOnDismissListener(d->{if(crop!=source&&!crop.isRecycled()){cropView.setImageDrawable(null);crop.recycle();}});
+        dialog.show();
+    }
+    private void showOcrLine(int index){
+        if(busy||index<0||index>=ocrMarks.size())return;
+        LocatedMark mark=ocrMarks.get(index);
+        new AlertDialog.Builder(this).setTitle(mark.label+" · candidat OCR")
+            .setMessage(mark.detail).setPositiveButton("În atelier",(d,w)->PaleographyActivity.open(this,mark.detail,"Rând OCR de verificat"))
+            .setNegativeButton("Închide",null).show();
     }
     private void selectGlyphRegion(){
         if(busy||source==null)return;
@@ -376,7 +486,8 @@ public final class PageReviewActivity extends AppCompatActivity {
         showCandidates.setVisibility(View.GONE);paleography.setVisibility(View.GONE);
         historicalOriginal=review==null;compareOriginal.setText(historicalOriginal?"Corectată":"Original");
         compareOriginal.setEnabled(review!=null);
-        page.showResult(review==null?source:review,Collections.emptyList());
+        if(review!=null&&!ocrMarks.isEmpty())page.showLocated(review,ocrMarks,this::showOcrLine);
+        else page.showResult(review==null?source:review,Collections.emptyList());
         status.setText(origin+" · verifică manual înainte de citare");
     }
     private void historicalAnalyse(List<String> models,int mode){
@@ -393,7 +504,8 @@ public final class PageReviewActivity extends AppCompatActivity {
             try{
                 rectified=small?PageImageProcessor.rectifyGlyph(input,quad):PageImageProcessor.rectify(input,quad,curve,straighten);
                 enhanced=PageImageProcessor.historicalContrast(rectified,strength);
-                String text=HistoricalOcr.recognize(this,models,mode,enhanced);
+                HistoricalOcr.Recognition recognition=HistoricalOcr.locate(this,models,mode,enhanced);
+                String text=recognition.text;
                 if(text.length()>LiteralTransliterator.MAX_INPUT)throw new IllegalArgumentException("Text prea lung; selectează o zonă mai mică.");
                 if(Thread.currentThread().isInterrupted())return;
                 Bitmap output=enhanced;enhanced=null;
@@ -402,6 +514,7 @@ public final class PageReviewActivity extends AppCompatActivity {
                     Bitmap old=review;review=output;showingResult=true;
                     verified=Collections.emptyList();candidates=Collections.emptyList();
                     lastOcrText="";rawPageOcr=null;correctedPageOcr=null;paleographyLines=Collections.emptyList();
+                    ocrMarks=recognition.lines;
                     setBusy(false);showHistoricalDraft(text,"OCR "+model+" (candidat)");
                     if(text.isEmpty())status.setText("Niciun text recunoscut. Transcrie manual sau încearcă alt model.");
                     if(old!=null&&old!=source&&old!=output&&!old.isRecycled())old.recycle();
@@ -547,6 +660,7 @@ public final class PageReviewActivity extends AppCompatActivity {
         historical.setEnabled(!value);
         historicalText.setEnabled(!value);transliterateDraft.setEnabled(!value);
         compareOriginal.setEnabled(!value&&review!=null);
+        segmentButton.setEnabled(!value&&source!=null);reviewMarks.setEnabled(!value&&glyphStudy!=null);
     }
     private void error(Exception e){
         runOnUiThread(()->{if(!isFinishing()&&!isDestroyed()){setBusy(false);status.setText("OCR: "+(e.getMessage()==null?"eroare":e.getMessage()));}});

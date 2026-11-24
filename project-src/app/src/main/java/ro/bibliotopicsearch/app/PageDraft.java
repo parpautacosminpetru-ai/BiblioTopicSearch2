@@ -1,15 +1,24 @@
 package ro.bibliotopicsearch.app;
 
 import android.graphics.Bitmap;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
-/** Single-use in-process handoff; the camera image is not written to disk. */
+/** Single-use handoff; geometry and OCR are bound to the captured bitmap. */
 final class PageDraft {
-    private static final AtomicReference<Bitmap> SLOT=new AtomicReference<>();
-    private PageDraft(){}
-    static void offer(Bitmap bitmap){
-        Bitmap old=SLOT.getAndSet(bitmap);
-        if(old!=null&&old!=bitmap&&!old.isRecycled())old.recycle();
+    static final class Analysis{
+        final Bitmap bitmap;final String text;final List<LocatedMark> marks;
+        Analysis(Bitmap bitmap,String text,List<LocatedMark> marks){this.bitmap=bitmap;this.text=text;this.marks=Collections.unmodifiableList(new ArrayList<>(marks));}
     }
-    static Bitmap take(){return SLOT.getAndSet(null);}
+    private static final AtomicReference<Analysis> SLOT=new AtomicReference<>();
+    private PageDraft(){}
+    static void offer(Bitmap bitmap){offerAnalysis(bitmap,"",Collections.emptyList());}
+    static void offerAnalysis(Bitmap bitmap,String text,List<LocatedMark> marks){
+        Analysis old=SLOT.getAndSet(bitmap==null?null:new Analysis(bitmap,text,marks));
+        if(old!=null&&old.bitmap!=bitmap&&!old.bitmap.isRecycled())old.bitmap.recycle();
+    }
+    static Analysis takeAnalysis(){return SLOT.getAndSet(null);}
+    static Bitmap take(){Analysis item=takeAnalysis();return item==null?null:item.bitmap;}
 }

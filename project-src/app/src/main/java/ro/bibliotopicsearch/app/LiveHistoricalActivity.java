@@ -41,6 +41,7 @@ public final class LiveHistoricalActivity extends AppCompatActivity {
     private long generation;
     private String lastText="";
     private Bitmap lastFrame;
+    private List<LocatedMark> lastMarks=Collections.emptyList();
     private HistoricalOcr.Session session; // worker only
     private String sessionKey="";
     private final Runnable tick=this::sample;
@@ -79,7 +80,7 @@ public final class LiveHistoricalActivity extends AppCompatActivity {
             if(ready&&running){streamWaitStarted=0;main.removeCallbacks(tick);main.post(tick);}
         });
         status=new TextView(this);status.setText("Latin rapid inclus · Alege scrierea pentru alte modele.");root.addView(status);
-        TextView notice=new TextView(this);notice.setText("Candidat din ultimul cadru analizat, nu suprapunere live certificată.");root.addView(notice);
+        TextView notice=new TextView(this);notice.setText("Candidat din ultimul cadru. Verifică cadrul pentru contururi OCR exacte (modele Tesseract).");root.addView(notice);
         android.widget.ScrollView scroll=new android.widget.ScrollView(this);
         text=new TextView(this);text.setTextSize(19);text.setTextIsSelectable(true);text.setGravity(Gravity.TOP|Gravity.START);scroll.addView(text);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,2));
         inspect=button("Verifică cadrul");translit=button("Transliterează");
@@ -95,7 +96,7 @@ public final class LiveHistoricalActivity extends AppCompatActivity {
         });
         start.setOnClickListener(v->{if(running){stop();status.setText("Oprit · ultimul cadru rămâne disponibil.");}else begin();});
         inspect.setOnClickListener(v->{if(lastFrame==null)return;stop();
-            Bitmap copy=lastFrame.copy(Bitmap.Config.ARGB_8888,false);PageDraft.offer(copy);startActivity(new Intent(this,PageReviewActivity.class));});
+            Bitmap copy=lastFrame.copy(Bitmap.Config.ARGB_8888,false);PageDraft.offerAnalysis(copy,lastText,lastMarks);startActivity(new Intent(this,PageReviewActivity.class));});
         translit.setOnClickListener(v->{if(lastText.isEmpty())return;stop();PaleographyActivity.open(this,lastText,"OCR universal · candidat");});
         setContentView(root);UiInsets.apply(root);
         if(ActivityCompat.checkSelfPermission(this,Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED)setup();
@@ -142,7 +143,7 @@ public final class LiveHistoricalActivity extends AppCompatActivity {
         running=true;generation++;streamWaitStarted=android.os.SystemClock.elapsedRealtime();start.setText("Oprește");status.setText("Se așteaptă imaginea camerei…");main.removeCallbacks(tick);main.post(tick);
     }
     private void stop(){running=false;generation++;main.removeCallbacks(tick);if(start!=null)start.setText("Pornește");}
-    private void clearLast(){if(lastFrame!=null){lastFrame.recycle();lastFrame=null;}lastText="";text.setText("");inspect.setEnabled(false);translit.setEnabled(false);}
+    private void clearLast(){if(lastFrame!=null){lastFrame.recycle();lastFrame=null;}lastText="";lastMarks=Collections.emptyList();text.setText("");inspect.setEnabled(false);translit.setEnabled(false);}
     private void sample(){
         if(!running||!resumed||destroyed)return;
         if(preview.getPreviewStreamState().getValue()!=PreviewView.StreamState.STREAMING){
@@ -165,7 +166,7 @@ public final class LiveHistoricalActivity extends AppCompatActivity {
         String key=(selected.isEmpty()?"Latin rapid":HistoricalModelName.expression(selected))+":"+layout;
         inFlight=true;
         worker.execute(()->{
-            String result="",failure=null;
+            String result="",failure=null;List<LocatedMark> marks=Collections.emptyList();
             try{
                 if(selected.isEmpty()){
                     if(session!=null){session.close();session=null;sessionKey="";}
@@ -173,16 +174,16 @@ public final class LiveHistoricalActivity extends AppCompatActivity {
                     result=com.google.android.gms.tasks.Tasks.await(latin.process(com.google.mlkit.vision.common.InputImage.fromBitmap(frame,0)),30,java.util.concurrent.TimeUnit.SECONDS).getText();
                 }else{
                     if(session==null||!key.equals(sessionKey)){if(session!=null)session.close();session=null;session=new HistoricalOcr.Session(this,selected,layout);sessionKey=key;}
-                    result=session.read(frame);
+                    HistoricalOcr.Recognition recognized=session.readDetailed(frame);result=recognized.text;marks=recognized.lines;
                 }
                 if(result.length()>LiteralTransliterator.MAX_INPUT)throw new IllegalArgumentException("Text prea lung; restrânge zona.");
             }catch(Exception|LinkageError e){failure=e.getMessage()==null?"Motor OCR indisponibil.":e.getMessage();if(session!=null){try{session.close();}catch(RuntimeException ignored){}session=null;}sessionKey="";}
-            final String value=result,error=failure;
+            final String value=result,error=failure;final List<LocatedMark> frameMarks=marks;
             main.post(()->{
                 inFlight=false;
                 if(destroyed||!running||!resumed||epoch!=generation){frame.recycle();if(running&&!destroyed){main.removeCallbacks(tick);main.postDelayed(tick,300);}return;}
                 if(error!=null){frame.recycle();stop();status.setText("OCR: "+error);return;}
-                if(lastFrame!=null)lastFrame.recycle();lastFrame=frame;lastText=value;
+                if(lastFrame!=null)lastFrame.recycle();lastFrame=frame;lastText=value;lastMarks=frameMarks;
                 text.setText(value);inspect.setEnabled(true);translit.setEnabled(!value.isEmpty());
                 status.setText(value.isEmpty()?"Ultimul cadru: niciun text recunoscut.":"Ultimul cadru · "+key.substring(0,key.lastIndexOf(':'))+" · de verificat");
                 main.removeCallbacks(tick);main.postDelayed(tick,1200);
