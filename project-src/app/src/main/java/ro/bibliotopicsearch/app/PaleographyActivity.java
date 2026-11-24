@@ -98,6 +98,7 @@ public final class PaleographyActivity extends AppCompatActivity {
         source.setHint("Text original");
         source.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE|InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         source.setGravity(Gravity.TOP|Gravity.START);source.setMinLines(4);source.setMaxLines(10);
+        source.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(LiteralTransliterator.MAX_INPUT)});
         root.addView(source,new LinearLayout.LayoutParams(-1,-2));
         LinearLayout textBar=row();
         importText=button("Importă text");
@@ -119,7 +120,7 @@ public final class PaleographyActivity extends AppCompatActivity {
         manage.setOnClickListener(v->showManage());
         apply.setOnClickListener(v->transliterate());
         copy.setOnClickListener(v->{
-            if(current==null)return;
+            if(current==null||current.text.length()>100000)return;
             ClipboardManager clipboard=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
             if(clipboard!=null)clipboard.setPrimaryClip(ClipData.newPlainText("Transliterare",current.text));
         });
@@ -129,7 +130,7 @@ public final class PaleographyActivity extends AppCompatActivity {
             @Override public void beforeTextChanged(CharSequence s,int start,int count,int after){}
             @Override public void onTextChanged(CharSequence s,int start,int before,int count){
                 inputRevision++;clearResult();
-                if(!internalInput)origin.setText("Original");
+                if(!internalInput)origin.setText("Text de lucru · editat");
             }
             @Override public void afterTextChanged(Editable e){}
         });
@@ -148,10 +149,13 @@ public final class PaleographyActivity extends AppCompatActivity {
         if(state!=null){
             pendingClipSystem=state.getString("pending_clip_system");
             pendingClipSource=state.getString("pending_clip_source");
+            pendingExport=state.getString("pending_export_file");
         }
         reload(TransliterationStore.selected(this));
         Draft draft=DRAFT.getAndSet(null);
-        if(draft!=null){
+        if(state!=null&&state.containsKey("source_text")){
+            setInput(state.getString("source_text",""),state.getString("source_origin","Original"));
+        }else if(draft!=null){
             setInput(draft.text,draft.origin==null?"Original":draft.origin);
         }
         if(profiles.isEmpty())status.setText("Importă sau creează un sistem.");
@@ -190,7 +194,7 @@ public final class PaleographyActivity extends AppCompatActivity {
         source.setEnabled(!busy);
         apply.setEnabled(!busy&&!selectedId.isEmpty());
         live.setEnabled(!busy&&!selectedId.isEmpty());
-        copy.setEnabled(!busy&&current!=null);save.setEnabled(!busy&&current!=null);
+        copy.setEnabled(!busy&&current!=null&&current.text.length()<=100000);save.setEnabled(!busy&&current!=null);
         missing.setEnabled(!busy&&current!=null&&current.unmappedCharacters>0);
     }
     private void setBusy(boolean value){busy=value;updateButtons();}
@@ -215,7 +219,7 @@ public final class PaleographyActivity extends AppCompatActivity {
                     if(end<result.text.length()&&end>0&&Character.isHighSurrogate(result.text.charAt(end-1)))end--;
                     output.setText(result.text.substring(0,end));
                     status.setText(result.substitutions+" substituții · "+result.unmappedNonWhitespace+
-                            " caractere fără regulă (păstrate)"+(end<result.text.length()?" · Previzualizare parțială; export complet":""));
+                            " caractere fără regulă (păstrate)"+(end<result.text.length()?" · Previzualizare parțială; export complet":"")+(result.text.length()>100000?" · Folosește Exportă pentru textul lung":""));
                     updateButtons();
                 });
             }catch(Exception e){fail(e);}
@@ -359,11 +363,26 @@ public final class PaleographyActivity extends AppCompatActivity {
         startActivityForResult(intent,request);
     }
     private void export(int request,String raw,String filename){
-        pendingExport=raw;
-        Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType(request==SAVE_RULES?"text/tab-separated-values":"text/plain");
-        intent.putExtra(Intent.EXTRA_TITLE,filename);
-        startActivityForResult(intent,request);
+        setBusy(true);
+        worker.execute(()->{
+            java.io.File temp=null;
+            try{
+                temp=java.io.File.createTempFile("paleo-export-",".utf8",getCacheDir());
+                try(java.io.FileOutputStream out=new java.io.FileOutputStream(temp)){
+                    out.write(raw.getBytes(StandardCharsets.UTF_8));out.getFD().sync();
+                }
+                final java.io.File ready=temp;
+                runOnUiThread(()->{
+                    if(!active()){ready.delete();return;}
+                    setBusy(false);pendingExport=ready.getName();
+                    Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType(request==SAVE_RULES?"text/tab-separated-values":"text/plain");
+                    intent.putExtra(Intent.EXTRA_TITLE,filename);
+                    try{startActivityForResult(intent,request);}
+                    catch(RuntimeException e){ready.delete();pendingExport=null;fail(e);}
+                });
+            }catch(Exception e){if(temp!=null)temp.delete();fail(e);}
+        });
     }
     @Override protected void onActivityResult(int request,int result,@Nullable Intent data){
         super.onActivityResult(request,result,data);
@@ -379,15 +398,25 @@ public final class PaleographyActivity extends AppCompatActivity {
             return;
         }
         if(request!=IMPORT_RULES&&request!=IMPORT_TEXT&&request!=SAVE_TEXT&&request!=SAVE_RULES)return;
-        if(result!=RESULT_OK||data==null||data.getData()==null){pendingExport=null;return;}
+        if(result!=RESULT_OK||data==null||data.getData()==null){
+            if(request==SAVE_TEXT||request==SAVE_RULES){java.io.File f=exportFile(pendingExport);if(f!=null)f.delete();pendingExport=null;}
+            return;
+        }
         final Uri uri=data.getData();
         if(request==SAVE_TEXT||request==SAVE_RULES){
-            String raw=pendingExport;pendingExport=null;if(raw==null)return;
-            setBusy(true);worker.execute(()->{try(OutputStream stream=getContentResolver().openOutputStream(uri,"wt")){
-                if(stream==null)throw new IllegalStateException("Fișier indisponibil.");
-                stream.write(raw.getBytes(StandardCharsets.UTF_8));
-                runOnUiThread(()->{if(active()){setBusy(false);status.setText("Exportat.");}});
-            }catch(Exception e){fail(e);}});
+            java.io.File file=exportFile(pendingExport);pendingExport=null;
+            if(file==null||!file.isFile()){status.setText("Exportul temporar a expirat. Repetă transliterarea și exportul.");return;}
+            setBusy(true);worker.execute(()->{
+                try{
+                    try(InputStream input=new java.io.FileInputStream(file);OutputStream stream=getContentResolver().openOutputStream(uri,"wt")){
+                        if(stream==null)throw new IllegalStateException("Fișier indisponibil.");
+                        byte[] buffer=new byte[8192];int n;
+                        while((n=input.read(buffer))!=-1){if(Thread.currentThread().isInterrupted())throw new java.io.InterruptedIOException();stream.write(buffer,0,n);}
+                    }
+                    runOnUiThread(()->{if(active()){setBusy(false);status.setText("Exportat.");}});
+                }catch(Exception e){fail(e);}
+                finally{file.delete();}
+            });
             return;
         }
         setBusy(true);
@@ -404,6 +433,10 @@ public final class PaleographyActivity extends AppCompatActivity {
                 }
             }catch(Exception e){fail(e);}
         });
+    }
+    private java.io.File exportFile(String filename){
+        if(filename==null||!filename.matches("paleo-export-[0-9]+\\.utf8"))return null;
+        return new java.io.File(getCacheDir(),filename);
     }
     private String name(Uri uri){
         try(android.database.Cursor cursor=getContentResolver().query(uri,new String[]{OpenableColumns.DISPLAY_NAME},null,null,null)){
@@ -435,6 +468,9 @@ public final class PaleographyActivity extends AppCompatActivity {
         super.onSaveInstanceState(state);
         state.putString("pending_clip_system",pendingClipSystem);
         state.putString("pending_clip_source",pendingClipSource);
+        state.putString("pending_export_file",pendingExport);
+        state.putString("source_text",source.getText().toString());
+        state.putString("source_origin",origin.getText().toString());
     }
     @Override protected void onDestroy(){worker.shutdownNow();super.onDestroy();}
 }

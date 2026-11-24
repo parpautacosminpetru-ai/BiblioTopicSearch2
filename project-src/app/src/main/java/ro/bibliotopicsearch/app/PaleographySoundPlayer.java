@@ -162,10 +162,10 @@ final class PaleographySoundPlayer implements AutoCloseable{
             player.setAudioAttributes(attributes);player.setDataSource(file.getAbsolutePath());
             player.setOnPreparedListener(p->{
                 if(id!=token||media!=p||playing==null)return;
-                try{p.start();mark(id);}catch(RuntimeException error){complete(id);}
+                try{p.start();mark(id);}catch(RuntimeException error){warn("înregistrare audio");complete(id);}
             });
             player.setOnCompletionListener(p->complete(id));
-            player.setOnErrorListener((p,w,e)->{complete(id);return true;});
+            player.setOnErrorListener((p,w,e)->{warn("înregistrare audio");complete(id);return true;});
             player.prepareAsync();
             arm(id,12000L);
         }catch(Exception error){releaseMedia();warn("înregistrare audio");main.post(()->complete(id));}
@@ -244,6 +244,7 @@ final class PaleographySoundPlayer implements AutoCloseable{
         timeout=()->{
             if(id!=token||playing==null)return;
             if(waitingForTts){waitingForTts=false;ttsState=3;}
+            if(cue!=null)warn(clips.containsKey(cue.rule.source)?"înregistrare audio":(cue.rule.language.isEmpty()?"ro-RO":cue.rule.language));
             complete(id);
         };
         main.postDelayed(timeout,ms);

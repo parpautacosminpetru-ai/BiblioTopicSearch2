@@ -79,7 +79,7 @@ public final class AppPrefs {
     }
 
     public static boolean paleographySound(Context context) {
-        return prefs(context).getBoolean("paleography_sound", true);
+        return prefs(context).getBoolean("paleography_sound", false);
     }
 
     public static void setPaleographySound(Context context, boolean value) {

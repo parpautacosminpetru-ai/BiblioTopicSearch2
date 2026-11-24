@@ -7,11 +7,11 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "ro.bibliotopicsearch.app"
+        applicationId = "ro.bibliotopicsearch.paleography"
         minSdk = 23
         targetSdk = 36
-        versionCode = 13
-        versionName = "1.2.1"
+        versionCode = 21
+        versionName = "1.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -43,6 +43,7 @@ dependencies {
     implementation("androidx.camera:camera-mlkit-vision:$cameraX")
 
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

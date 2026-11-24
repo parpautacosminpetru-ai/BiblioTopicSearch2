@@ -1,3 +1,13 @@
+# Biblio Paleografie 1.3.0 — candidat de verificare
+
+- APK separat (`ro.bibliotopicsearch.paleography`): se instalează alături de Biblio 1.11.1 și de Paleografie 1.2.1. Datele și sistemele vechi nu sunt migrate automat; exportă/importă hărțile și sistemele. Sunetele atașate se transferă separat. Backup Android automat dezactivat în această variantă.
+- În cameră, deschide **Pagină / OCR aprofundat**, alege fotografia sau cadrul, ajustează colțurile și contrastul. **OCR istoric** acceptă modele Tesseract `.traineddata` locale, de exemplu `Cyrillic.traineddata`, `rus.traineddata`, `ell.traineddata` sau un model paleografic propriu, dacă este compatibil. Modelele nu sunt incluse și nu sunt descărcate de aplicație. Folosește fișiere din surse de încredere: https://github.com/tesseract-ocr/tessdata_best/tree/main/script sau https://github.com/tesseract-ocr/tessdata_fast.
+- OCR-ul Tesseract este de pagină, nu live; textul candidat se editează lângă imagine. Se poate alterna originalul cu imaginea corectată; transcrierea manuală nu necesită model. Transliterarea folosește numai regulile proprii. Nu se pretinde recunoaștere universală a manuscriselor, nici localizare vizuală Tesseract certificată.
+- Textul de lucru se păstrează la recrearea ecranului; exportul folosește un fișier temporar pentru a supraviețui pickerului Android, nu stochează automat o arhivă permanentă. Textul foarte lung se exportă în loc de copiere în clipboard.
+- Sunetul este o opțiune explicită (oprit implicit); erorile de redare și timpii de expirare sunt semnalate.
+- CI rulează testele unitare, compilează APK-ul și testele Android, verifică identificatorul și absența permisiunilor de internet/rețea/microfon. Testele native pe imagini reale, modelul importat și TTS necesită dispozitiv fizic. APK debug, nu pachet de producție certificat.
+- Motor OCR suplimentar: Tesseract4Android 4.9.0 (https://github.com/adaptech-cz/Tesseract4Android), dependență de compilare JitPack; fără serviciu OCR extern la execuție.
+
 # 1.2.1 — Paleografie cu sunet sincronizat
 
 - Mod Paleo pe cameră, cadru înghețat și pagină corectată: pronunțiile explicite sunt redate secvențial în ordinea regulilor literale. Echivalentul vizual al caracterului/grupului rostit este evidențiat în rândul suprapus. Regula cea mai lungă rămâne prioritară; caracterele fără sunet definit nu sunt pronunțate prin presupunere.

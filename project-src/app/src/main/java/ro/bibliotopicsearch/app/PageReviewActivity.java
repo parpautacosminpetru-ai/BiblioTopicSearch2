@@ -37,14 +37,18 @@ import java.util.concurrent.TimeUnit;
 /** Still-page review: all geometry is drawn on the very bitmap recognized
  * by OCR, never projected onto a newer camera frame. */
 public final class PageReviewActivity extends AppCompatActivity {
-    private static final int PICK=72;
+    private static final int PICK=72, PICK_MODEL=73;
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
     private Bitmap source,review;
     private float[] corners={0,0,1,0,1,1,0,1};
     private List<MatchHit> verified=Collections.emptyList(),candidates=Collections.emptyList();
     private PagePreviewView page;
     private TextView status;
-    private Button open,edit,analyse;
+    private Button open,edit,analyse,historical,transliterateDraft,compareOriginal;
+    private LinearLayout historicalPanel;
+    private android.widget.EditText historicalText;
+    private boolean historicalOriginal;
+    private String historicalOrigin="Transcriere manuală";
     private SeekBar bow,contrast;
     private CheckBox deskew,showCandidates;
     private boolean busy,showingResult;
@@ -66,7 +70,8 @@ public final class PageReviewActivity extends AppCompatActivity {
         root.setPadding(dp(10),dp(4),dp(10),dp(6));root.setBackgroundColor(Color.rgb(246,248,251));
         LinearLayout bar=new LinearLayout(this);
         open=button("Imagine");edit=button("Colțuri");analyse=button("OCR");
-        for(Button button:new Button[]{open,edit,analyse})bar.addView(button,new LinearLayout.LayoutParams(0,dp(48),1));
+        historical=button("OCR istoric");
+        for(Button button:new Button[]{open,edit,analyse,historical})bar.addView(button,new LinearLayout.LayoutParams(0,dp(48),1));
         root.addView(bar);
         page=new PagePreviewView(this);page.setListener(this::showHits);
         soundPlayer=new PaleographySoundPlayer(this,new PaleographySoundPlayer.Listener(){
@@ -78,6 +83,37 @@ public final class PageReviewActivity extends AppCompatActivity {
             }
         });
         root.addView(page,new LinearLayout.LayoutParams(-1,0,1));
+        historicalPanel=new LinearLayout(this);historicalPanel.setOrientation(LinearLayout.VERTICAL);
+        TextView warning=new TextView(this);
+        warning.setText("Transcriere de lucru — confruntă fiecare semn cu imaginea. Nu este o lectură certificată.");
+        historicalPanel.addView(warning);
+        historicalText=new android.widget.EditText(this);
+        historicalText.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE|android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        historicalText.setGravity(android.view.Gravity.TOP|android.view.Gravity.START);
+        historicalText.setMinLines(2);historicalText.setMaxLines(4);
+        historicalText.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(LiteralTransliterator.MAX_INPUT)});
+        historicalText.setHint("Transcrie sau corectează textul OCR");
+        historicalPanel.addView(historicalText,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout draftBar=new LinearLayout(this);
+        compareOriginal=button("Original");
+        transliterateDraft=button("Transliterează");
+        Button hideDraft=button("Ascunde");
+        for(Button control:new Button[]{compareOriginal,transliterateDraft,hideDraft})draftBar.addView(control,new LinearLayout.LayoutParams(0,dp(44),1));
+        historicalPanel.addView(draftBar);root.addView(historicalPanel);historicalPanel.setVisibility(View.GONE);
+        compareOriginal.setOnClickListener(v->{
+            if(source==null||busy)return;
+            historicalOriginal=!historicalOriginal;
+            page.showResult(historicalOriginal||review==null?source:review,Collections.emptyList());
+            compareOriginal.setText(historicalOriginal?"Corectată":"Original");
+        });
+        transliterateDraft.setOnClickListener(v->{
+            if(!busy)PaleographyActivity.open(this,historicalText.getText().toString(),historicalOrigin+" · de verificat");
+        });
+        hideDraft.setOnClickListener(v->{
+            historicalPanel.setVisibility(View.GONE);
+            if(showingResult&&review!=null)renderResult();else if(source!=null)page.showOriginal(source,corners);
+        });
+        historical.setOnClickListener(v->historicalOptions());
         bow=slider(root,"Curbură",200,100);
         contrast=slider(root,"Contrast",100,55);
         deskew=new CheckBox(this);deskew.setText("Îndreptare automată");deskew.setChecked(true);root.addView(deskew);
@@ -96,7 +132,7 @@ public final class PageReviewActivity extends AppCompatActivity {
         edit.setOnClickListener(v->{
             if(busy||source==null)return;
             if(!showingResult)corners=new float[]{0,0,1,0,1,1,0,1};
-            showingResult=false;showingPaleography=false;
+            showingResult=false;showingPaleography=false;historicalPanel.setVisibility(View.GONE);
             soundPlayer.setEnabled(false);
             paleography.setVisibility(View.GONE);
             page.showOriginal(source,corners);edit.setText("Resetează");showCandidates.setVisibility(View.GONE);
@@ -116,6 +152,7 @@ public final class PageReviewActivity extends AppCompatActivity {
     private void useSource(Bitmap bitmap){
         Bitmap oldSource=source,oldReview=review;
         source=bitmap;review=null;verified=Collections.emptyList();candidates=Collections.emptyList();
+        historicalPanel.setVisibility(View.GONE);historicalText.setText("");historicalOriginal=false;
         lastOcrText="";rawPageOcr=null;correctedPageOcr=null;paleographyLines=Collections.emptyList();
         showingPaleography=false;paleographySystem="";soundPlayer.setEnabled(false);soundClips=Collections.emptyMap();paleography.setText("Paleografie");paleography.setVisibility(View.GONE);
         corners=new float[]{0,0,1,0,1,1,0,1};showingResult=false;
@@ -163,6 +200,7 @@ public final class PageReviewActivity extends AppCompatActivity {
                     if(isFinishing()||isDestroyed()){output.recycle();return;}
                     Bitmap old=review;
                     review=output;verified=agreed;candidates=improved;showingResult=true;
+                    historicalPanel.setVisibility(View.GONE);
                     lastOcrText=pageText;rawPageOcr=before;correctedPageOcr=after;
                     showingPaleography=false;paleographyLines=Collections.emptyList();paleographySystem="";
                     paleography.setText("Paleografie");paleography.setVisibility(pageText.isEmpty()?View.GONE:View.VISIBLE);
@@ -176,6 +214,69 @@ public final class PageReviewActivity extends AppCompatActivity {
                 if(rectified!=null)rectified.recycle();
                 if(enhanced!=null)enhanced.recycle();
             }
+        });
+    }
+    private void historicalOptions(){
+        if(busy||source==null)return;
+        List<String> models=HistoricalOcr.models(this);
+        List<String> options=new ArrayList<>();
+        options.add("Transcriere manuală / continuă textul");
+        options.add("Importă model OCR (.traineddata)");
+        for(String model:models)options.add("OCR local: "+model);
+        new AlertDialog.Builder(this).setTitle("Paleografie — OCR de pagină")
+                .setItems(options.toArray(new String[0]),(d,which)->{
+                    if(which==0){
+                        if(!showingResult)corners=page.corners();
+                        showHistoricalDraft(historicalText.getText().toString(),"Transcriere manuală");
+                    }else if(which==1){
+                        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.setType("*/*");
+                        intent.addCategory(Intent.CATEGORY_OPENABLE);startActivityForResult(intent,PICK_MODEL);
+                    }else {
+                        String model=models.get(which-2);
+                        if(historicalText.length()>0){
+                            new AlertDialog.Builder(this).setTitle("Înlocuiești transcrierea de lucru?")
+                                    .setMessage("OCR-ul nou va înlocui textul din editor. Copiază sau exportă întâi corecturile importante.")
+                                    .setNegativeButton("Renunță",null).setPositiveButton("Rulează OCR",(x,y)->historicalAnalyse(model)).show();
+                        }else historicalAnalyse(model);
+                    }
+                }).setNegativeButton("Închide",null).show();
+    }
+    private void showHistoricalDraft(String text,String origin){
+        historicalOrigin=origin;showingPaleography=false;soundPlayer.setEnabled(false);
+        historicalText.setText(text);historicalPanel.setVisibility(View.VISIBLE);
+        showCandidates.setVisibility(View.GONE);paleography.setVisibility(View.GONE);
+        historicalOriginal=review==null;compareOriginal.setText(historicalOriginal?"Corectată":"Original");
+        compareOriginal.setEnabled(review!=null);
+        page.showResult(review==null?source:review,Collections.emptyList());
+        status.setText(origin+" · verifică manual înainte de citare");
+    }
+    private void historicalAnalyse(String model){
+        if(busy||source==null)return;
+        if(!showingResult&&historicalPanel.getVisibility()!=View.VISIBLE)corners=page.corners();
+        final Bitmap input=source;final float[] quad=corners.clone();
+        final int curve=bow.getProgress()-100,strength=contrast.getProgress();
+        final boolean straighten=deskew.isChecked();
+        soundPlayer.setEnabled(false);setBusy(true);status.setText("OCR local "+model+"…");
+        worker.execute(()->{
+            Bitmap rectified=null,enhanced=null;
+            try{
+                rectified=PageImageProcessor.rectify(input,quad,curve,straighten);
+                enhanced=PageImageProcessor.historicalContrast(rectified,strength);
+                String text=HistoricalOcr.recognize(this,model,enhanced);
+                if(text.length()>LiteralTransliterator.MAX_INPUT)throw new IllegalArgumentException("Text prea lung; selectează o zonă mai mică.");
+                if(Thread.currentThread().isInterrupted())return;
+                Bitmap output=enhanced;enhanced=null;
+                runOnUiThread(()->{
+                    if(isFinishing()||isDestroyed()){output.recycle();return;}
+                    Bitmap old=review;review=output;showingResult=true;
+                    verified=Collections.emptyList();candidates=Collections.emptyList();
+                    lastOcrText="";rawPageOcr=null;correctedPageOcr=null;paleographyLines=Collections.emptyList();
+                    setBusy(false);showHistoricalDraft(text,"OCR "+model+" (candidat)");
+                    if(text.isEmpty())status.setText("Niciun text recunoscut. Transcrie manual sau încearcă alt model.");
+                    if(old!=null&&old!=source&&old!=output&&!old.isRecycled())old.recycle();
+                });
+            }catch(Exception|LinkageError e){error(new IllegalStateException(e.getMessage()==null?"Motor OCR indisponibil.":e.getMessage(),e));}
+            finally{if(rectified!=null)rectified.recycle();if(enhanced!=null)enhanced.recycle();}
         });
     }
     private List<PageEvidence.Reading<MatchHit>> readings(List<MatchHit> hits){
@@ -246,6 +347,17 @@ public final class PageReviewActivity extends AppCompatActivity {
     }
     @Override protected void onActivityResult(int request,int result,@Nullable Intent data){
         super.onActivityResult(request,result,data);
+        if(request==PICK_MODEL){
+            if(result!=RESULT_OK||data==null||data.getData()==null||busy)return;
+            Uri uri=data.getData();setBusy(true);status.setText("Se verifică modelul OCR…");
+            worker.execute(()->{
+                try{
+                    String model=HistoricalOcr.install(this,uri);
+                    runOnUiThread(()->{if(!isFinishing()&&!isDestroyed()){setBusy(false);status.setText("Model instalat: "+model);historicalOptions();}});
+                }catch(Exception|LinkageError e){error(new IllegalStateException(e.getMessage()==null?"Model OCR indisponibil.":e.getMessage(),e));}
+            });
+            return;
+        }
         if(request!=PICK||result!=RESULT_OK||data==null||data.getData()==null||busy)return;
         Uri uri=data.getData();setBusy(true);status.setText("Se deschide imaginea…");
         worker.execute(()->{
@@ -290,6 +402,9 @@ public final class PageReviewActivity extends AppCompatActivity {
         bow.setEnabled(!value);contrast.setEnabled(!value);deskew.setEnabled(!value);showCandidates.setEnabled(!value);
         page.setEnabled(!value);
         paleography.setEnabled(!value);
+        historical.setEnabled(!value&&source!=null);
+        historicalText.setEnabled(!value);transliterateDraft.setEnabled(!value);
+        compareOriginal.setEnabled(!value&&review!=null);
     }
     private void error(Exception e){
         runOnUiThread(()->{if(!isFinishing()&&!isDestroyed()){setBusy(false);status.setText("OCR: "+(e.getMessage()==null?"eroare":e.getMessage()));}});
