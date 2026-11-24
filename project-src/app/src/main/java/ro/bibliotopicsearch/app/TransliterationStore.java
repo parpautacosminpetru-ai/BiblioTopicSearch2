@@ -50,7 +50,11 @@ final class TransliterationStore {
                 Object source=item.get("source"),target=item.get("target");
                 if(!(source instanceof String)||!(target instanceof String))
                     throw new IllegalArgumentException("Regula "+(i+1)+": source și target trebuie să fie șiruri de caractere.");
-                values.add(new LiteralTransliterator.Rule((String)source,(String)target));
+                Object sound=item.has("sound")?item.get("sound"):"";
+                Object language=item.has("language")?item.get("language"):"";
+                if(!(sound instanceof String)||!(language instanceof String))
+                    throw new IllegalArgumentException("sound și language trebuie să fie text.");
+                values.add(new LiteralTransliterator.Rule((String)source,(String)target,(String)sound,(String)language));
             }
             rules=new LiteralTransliterator(values).rules();
         }else rules=TransliterationTable.parse(candidate);

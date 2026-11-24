@@ -34,9 +34,9 @@ final class PaleographyProjection {
             float score=confidence.value();
             if(OcrConfidence.requiredFrames(score,false)==0)continue;
             try{
-                LiteralTransliterator.Result result=engine.apply(raw);
-                if(result.substitutions==0||raw.equals(result.text)||result.text.length()>MAX_LINE_OUTPUT)continue;
-                out.add(new PaleographyLine(raw,result.text,new RectF(box),q,score));
+                LiteralTransliterator.Result result=engine.positioned(raw);
+                if(result.substitutions==0||result.text.length()>MAX_LINE_OUTPUT)continue;
+                out.add(new PaleographyLine(raw,result.text,new RectF(box),q,score,result.matches));
             }catch(IllegalArgumentException invalid){/* keep original image rather than guess */}
         }
         return out;

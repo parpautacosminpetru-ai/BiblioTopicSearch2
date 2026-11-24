@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/** Two-column UTF-8 TSV and CSV. TSV uses explicit backslash escapes;
+/** Two to four column UTF-8 TSV and CSV (optional sound and language). TSV uses explicit backslash escapes;
  * CSV uses normal RFC-style quoted cells. No case folding or trim on rules. */
 final class TransliterationTable {
     static final int MAX_FILE_BYTES=1048576;
@@ -30,10 +30,12 @@ final class TransliterationTable {
         for(int i=0;i<lines.length;i++){
             String line=lines[i];if(line.isEmpty())continue;
             String[] fields=line.split("\\t",-1);
-            if(fields.length!=2)throw new IllegalArgumentException("Rândul "+(i+1)+": sunt necesare două coloane separate prin TAB.");
-            if(first&&header(fields[0],fields[1])){first=false;continue;}
+            if(fields.length<2||fields.length>4)throw new IllegalArgumentException("Rândul "+(i+1)+": sunt necesare 2–4 coloane separate prin TAB.");
+            if(first&&header(fields[0],fields[1])){checkHeader(java.util.Arrays.asList(fields));first=false;continue;}
             first=false;
-            add(out,unescape(fields[0]),unescape(fields[1]),i+1);
+            List<String> values=new ArrayList<>();
+            for(String field:fields)values.add(unescape(field));
+            add(out,values,i+1);
         }
         return new LiteralTransliterator(out).rules();
     }
@@ -45,8 +47,8 @@ final class TransliterationTable {
         int rowNumber=1;
         // Comma is the default; semicolon CSV is supported with an explicit header.
         String firstLine=text.substring(0,firstLineEnd(text)).toLowerCase(Locale.ROOT).replace("\"","");
-        char delimiter=(firstLine.equals("source;target")||firstLine.equals("sursa;destinatie")
-                ||firstLine.equals("sursă;destinație"))?';':',';
+        char delimiter=(firstLine.startsWith("source;target")||firstLine.startsWith("sursa;destinatie")
+                ||firstLine.startsWith("sursă;destinație"))?';':',';
         for(int i=0;i<=text.length();i++){
             boolean eof=i==text.length();char c=eof?'\n':text.charAt(i);
             if(quoted){
@@ -59,13 +61,14 @@ final class TransliterationTable {
             }
             if(c==delimiter){
                 row.add(field.toString());field.setLength(0);afterQuote=false;recordStarted=true;
-                if(row.size()>1)throw new IllegalArgumentException("Prea multe coloane la rândul "+rowNumber+".");
+                if(row.size()>3)throw new IllegalArgumentException("Prea multe coloane la rândul "+rowNumber+".");
             }else if(c=='\r'||c=='\n'){
                 if(c=='\r'&&i+1<text.length()&&text.charAt(i+1)=='\n')i++;
                 if(recordStarted||field.length()>0||afterQuote||!row.isEmpty()){
                     row.add(field.toString());
-                    if(row.size()!=2)throw new IllegalArgumentException("Rândul "+rowNumber+": sunt necesare două coloane CSV.");
-                    if(!(first&&header(row.get(0),row.get(1))))add(out,row.get(0),row.get(1),rowNumber);
+                    if(row.size()<2||row.size()>4)throw new IllegalArgumentException("Rândul "+rowNumber+": sunt necesare 2–4 coloane CSV.");
+                    if(first&&header(row.get(0),row.get(1)))checkHeader(row);
+                    else add(out,row,rowNumber);
                     first=false;
                 }
                 row.clear();field.setLength(0);afterQuote=false;recordStarted=false;rowNumber++;
@@ -83,14 +86,30 @@ final class TransliterationTable {
         return (a.equals("source")&&b.equals("target"))||
                 ((a.equals("sursa")||a.equals("sursă"))&&(b.equals("destinatie")||b.equals("destinație")));
     }
-    private static void add(List<LiteralTransliterator.Rule> out,String a,String b,int line){
+    private static void checkHeader(List<String> fields){
+        if(fields.size()>2&&!java.util.Arrays.asList("sound","pronunciation","sunet","pronunție","pronuntie")
+                .contains(fields.get(2).toLowerCase(Locale.ROOT)))
+            throw new IllegalArgumentException("A treia coloană trebuie să fie sound.");
+        if(fields.size()>3&&!java.util.Arrays.asList("language","locale","limba","limbă")
+                .contains(fields.get(3).toLowerCase(Locale.ROOT)))
+            throw new IllegalArgumentException("A patra coloană trebuie să fie language.");
+    }
+    private static void add(List<LiteralTransliterator.Rule> out,List<String> values,int line){
+        String a=values.get(0),b=values.get(1);
         if(a.isEmpty())throw new IllegalArgumentException("Sursă goală la regula "+line+".");
         if(out.size()>=LiteralTransliterator.MAX_RULES)throw new IllegalArgumentException("Prea multe reguli.");
-        out.add(new LiteralTransliterator.Rule(a,b));
+        out.add(new LiteralTransliterator.Rule(a,b,values.size()>2?values.get(2):"",
+                values.size()>3?values.get(3):""));
     }
     static String format(List<LiteralTransliterator.Rule> rules){
-        StringBuilder out=new StringBuilder("source\ttarget\n");
-        for(LiteralTransliterator.Rule rule:rules)out.append(escape(rule.source)).append('\t').append(escape(rule.target)).append('\n');
+        boolean audio=false;
+        for(LiteralTransliterator.Rule r:rules)if(!r.sound.isEmpty()||!r.language.isEmpty()){audio=true;break;}
+        StringBuilder out=new StringBuilder(audio?"source\ttarget\tsound\tlanguage\n":"source\ttarget\n");
+        for(LiteralTransliterator.Rule rule:rules){
+            out.append(escape(rule.source)).append('\t').append(escape(rule.target));
+            if(audio)out.append('\t').append(escape(rule.sound)).append('\t').append(escape(rule.language));
+            out.append('\n');
+        }
         return out.toString();
     }
     static String escape(String s){

@@ -17,9 +17,12 @@ final class PaleographyLine {
     final float confidence,width,height;
     final StaticLayout layout;
     final Matrix transform;
+    final java.util.List<LiteralTransliterator.RuleMatch> matches;
 
-    PaleographyLine(String source,String target,RectF bounds,float[] corners,float confidence){
+    PaleographyLine(String source,String target,RectF bounds,float[] corners,float confidence,
+                    java.util.List<LiteralTransliterator.RuleMatch> matches){
         this.source=source;this.target=target;this.bounds=new RectF(bounds);this.corners=corners.clone();
+        this.matches=matches;
         this.confidence=confidence;width=PaleographyGeometry.width(corners);height=PaleographyGeometry.height(corners);
         transform=new Matrix();
         if(!transform.setPolyToPoly(new float[]{0,0,width,0,width,height,0,height},0,this.corners,0,4))
