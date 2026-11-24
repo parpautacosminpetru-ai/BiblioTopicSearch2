@@ -578,13 +578,21 @@ public final class MainActivity extends AppCompatActivity {
 
     private void showQuickMenu() {
         String labels = floatingLabelsEnabled ? "Ascunde etichetele" : "Afișează etichetele";
-        new AlertDialog.Builder(this).setItems(new String[]{"Noduri afișate", labels, "Setări"},
+        new AlertDialog.Builder(this).setItems(new String[]{"Noduri afișate", labels, "Pagină / OCR aprofundat", "Setări"},
                 (dialog, which) -> {
                     if (which == 0) {
                         if (topicMap != null && searchPlan != null) showNodeSelection();
                     } else if (which == 1) toggleFloatingLabels();
+                    else if (which == 2) openPageReview();
                     else startActivity(new Intent(this, SettingsActivity.class));
                 }).setNegativeButton("Închide", null).show();
+    }
+
+    private void openPageReview(){
+        // Use a raw preview, never the bitmap with an earlier live overlay.
+        Bitmap raw=frozen?null:previewView.getBitmap();
+        PageDraft.offer(raw);
+        startActivity(new Intent(this,PageReviewActivity.class));
     }
 
     private void syncVisibleNodes() {

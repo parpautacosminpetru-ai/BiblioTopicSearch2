@@ -11,7 +11,7 @@ final class PageCorrectionMath {
         for(int i=0;i<4;i++){
             int j=(i+1)%4,k=(i+2)%4;
             float x=q[i*2],y=q[i*2+1];
-            if(!Float.isFinite(x)||!Float.isFinite(y)||x<0||x>1||y<0||y>1)return false;
+            if(Float.isNaN(x)||Float.isInfinite(x)||Float.isNaN(y)||Float.isInfinite(y)||x<0||x>1||y<0||y>1)return false;
             double ax=q[j*2]-x,ay=q[j*2+1]-y,bx=q[k*2]-q[j*2],by=q[k*2+1]-q[j*2+1];
             if(ax*ax+ay*ay<.0025||ax*by-ay*bx<.004)return false;
             area+=x*q[j*2+1]-y*q[j*2];

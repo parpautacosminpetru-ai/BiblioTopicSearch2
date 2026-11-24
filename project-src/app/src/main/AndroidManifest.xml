@@ -36,6 +36,11 @@
             android:exported="false" />
 
         <activity
+            android:name=".PageReviewActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
             android:name=".MainActivity"
             android:screenOrientation="portrait"
             android:exported="true">

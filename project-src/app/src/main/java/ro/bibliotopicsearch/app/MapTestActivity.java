@@ -68,8 +68,11 @@ public final class MapTestActivity extends AppCompatActivity {
         root.addView(input,new LinearLayout.LayoutParams(-1,-2));
         LinearLayout bar=new LinearLayout(this);bar.setOrientation(LinearLayout.HORIZONTAL);
         run=button("Testează");image=button("Imagine");
+        Button pageButton=button("Pagină");
         bar.addView(run,new LinearLayout.LayoutParams(0,dp(48),1));
-        bar.addView(image,new LinearLayout.LayoutParams(0,dp(48),1));root.addView(bar);
+        bar.addView(image,new LinearLayout.LayoutParams(0,dp(48),1));
+        bar.addView(pageButton,new LinearLayout.LayoutParams(0,dp(48),1));root.addView(bar);
+        pageButton.setOnClickListener(v->{if(busy)return;Intent i=new Intent(this,PageReviewActivity.class);i.putExtra(PROFILE_ID,profileId);startActivity(i);});
         summary=text("",15);root.addView(summary);
         marked=text("",16);marked.setTextIsSelectable(true);marked.setVisibility(View.GONE);root.addView(marked);
         rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);root.addView(rows);
