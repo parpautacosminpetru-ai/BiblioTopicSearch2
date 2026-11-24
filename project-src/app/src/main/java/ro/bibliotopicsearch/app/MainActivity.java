@@ -78,6 +78,12 @@ public final class MainActivity extends AppCompatActivity {
     private PreviewView previewView;
     private ImageView freezeImage;
     private OverlayView overlayView;
+    private PaleographyOverlayView paleographyOverlay;
+    private Button paleoButton;
+    private volatile boolean paleographyEnabled;
+    private volatile LiteralTransliterator livePaleographyEngine;
+    private String livePaleographyName = "";
+    private final PaleographyProjection paleographyProjection = new PaleographyProjection();
     private Button mapButton;
     private TextView statusText;
     private Button ocrButton, freezeButton, saveButton, torchButton;
@@ -112,7 +118,11 @@ public final class MainActivity extends AppCompatActivity {
     private List<MapProfile> allProfiles = Collections.emptyList();
     private Set<String> selectedProfiles = new LinkedHashSet<>();
     private boolean torchEnabled;
-    private Bitmap frozenBitmap;
+    private Bitmap frozenBitmap, frozenOriginal, frozenPaleography;
+    private boolean frozenPaleographyCapture, frozenRevealOriginal, freezeProcessing;
+    private volatile long freezeRevision;
+    private final ExecutorService stillExecutor = Executors.newSingleThreadExecutor();
+    private final LatestOnly<FrozenJob> stillJobs = new LatestOnly<>(stillExecutor, this::analyseFrozenPaleography);
     private ToneGenerator toneGenerator;
     private long lastFeedbackAt;
     private String lastFeedbackSignature = "";
@@ -138,10 +148,21 @@ public final class MainActivity extends AppCompatActivity {
         final Frame frame;
         final List<MatchHit> hits;
         final int words;
-        FrameResult(Frame frame, List<MatchHit> hits, int words) {
+        final List<PaleographyLine> paleography;
+        FrameResult(Frame frame, List<MatchHit> hits, int words, List<PaleographyLine> paleography) {
             this.frame = frame;
             this.hits = hits;
             this.words = words;
+            this.paleography = paleography;
+        }
+    }
+
+    private static final class FrozenJob {
+        final long revision;
+        final Bitmap source;
+        final LiteralTransliterator engine;
+        FrozenJob(long revision,Bitmap source,LiteralTransliterator engine){
+            this.revision=revision;this.source=source;this.engine=engine;
         }
     }
 
@@ -158,6 +179,7 @@ public final class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         ocrEnabled = AppPrefs.ocrEnabled(this);
         floatingLabelsEnabled = AppPrefs.floatingLabels(this);
+        paleographyEnabled = AppPrefs.paleographyLive(this);
         buildUi();
         toneGenerator = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 22);
         overlayView.setOnHitTapListener(this::showHitChoices);
@@ -178,7 +200,9 @@ public final class MainActivity extends AppCompatActivity {
         recoveryAttempts = 0;
         ocrEnabled = AppPrefs.ocrEnabled(this);
         floatingLabelsEnabled = AppPrefs.floatingLabels(this);
+        paleographyEnabled = AppPrefs.paleographyLive(this);
         updateOcrButton();
+        updatePaleoUi();
         reloadPlan();
     }
 
@@ -199,6 +223,8 @@ public final class MainActivity extends AppCompatActivity {
         if (cameraController != null) cameraController.unbind();
         if (recognizer != null) recognizer.close();
         planJobs.close();
+        stillJobs.close();
+        stillExecutor.shutdownNow();
         frameJobs.close();
         uiJobs.close();
         mainHandler.removeCallbacksAndMessages(null);
@@ -214,6 +240,8 @@ public final class MainActivity extends AppCompatActivity {
         stopAnalysis();
         clearMatches();
         searchPlan = null;
+        livePaleographyEngine = null;
+        livePaleographyName = "";
         mapButton.setEnabled(false);
         mapButton.setText("Hărți…");
         if (!frozen) setStatus("Se încarcă hărțile…", Color.rgb(244, 188, 77));
@@ -227,6 +255,22 @@ public final class MainActivity extends AppCompatActivity {
             List<MapProfile> selected = TopicLibraryStore.scanProfiles(this, profiles);
             TopicMap map = TopicMapStore.loadForScanning(this, selected);
             TopicMatcher.SearchPlan plan = TopicMatcher.compile(this, map);
+            LiteralTransliterator imported = null;
+            String systemName = "";
+            if (paleographyEnabled) {
+                String systemId = TransliterationStore.selected(this);
+                try {
+                    if (!systemId.isEmpty()) {
+                        imported = TransliterationStore.engine(this, systemId);
+                        for (TransliterationStore.Profile profile : TransliterationStore.list(this))
+                            if (profile.id.equals(systemId)) systemName = profile.name;
+                    }
+                } catch (RuntimeException error) {
+                    Log.w(TAG, "Paleography system unavailable", error);
+                }
+            }
+            final LiteralTransliterator engine = imported;
+            final String selectedName = systemName;
             Set<String> ids = new LinkedHashSet<>();
             for (MapProfile profile : selected) ids.add(profile.id);
             mainHandler.post(() -> {
@@ -235,6 +279,9 @@ public final class MainActivity extends AppCompatActivity {
                 selectedProfiles = ids;
                 topicMap = map;
                 searchPlan = plan;
+                livePaleographyEngine = engine;
+                livePaleographyName = selectedName;
+                updatePaleoUi();
                 syncVisibleNodes();
                 mapButton.setText("Hărți " + ids.size() + "/" + profiles.size() + "  ▾");
                 mapButton.setEnabled(true);
@@ -300,6 +347,8 @@ public final class MainActivity extends AppCompatActivity {
 
         overlayView = new OverlayView(this);
         root.addView(overlayView, match());
+        paleographyOverlay = new PaleographyOverlayView(this);
+        root.addView(paleographyOverlay, match());
 
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.VERTICAL);
@@ -313,6 +362,15 @@ public final class MainActivity extends AppCompatActivity {
         header.addView(mapButton, new LinearLayout.LayoutParams(0, dp(48), 1f));
         ocrButton = toolbarButton("OCR");
         header.addView(ocrButton, toolbarLp());
+        paleoButton = toolbarButton("Paleo");
+        paleoButton.setMinWidth(dp(64));
+        paleoButton.setContentDescription("Paleografie live; apăsare lungă pentru alegerea sistemului");
+        header.addView(paleoButton, toolbarLp());
+        paleoButton.setOnClickListener(v -> togglePaleography());
+        paleoButton.setOnLongClickListener(v -> {
+            if(!frozen)showPaleographySystems();
+            return true;
+        });
         Button moreButton = toolbarButton("⋯");
         moreButton.setMinWidth(dp(48));
         moreButton.setContentDescription("Meniu");
@@ -371,6 +429,7 @@ public final class MainActivity extends AppCompatActivity {
             return insets;
         });
         ViewCompat.requestApplyInsets(root);
+        updatePaleoUi();
         idleStatus();
     }
 
@@ -534,25 +593,37 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void matchFrame(Frame frame) {
-        if (!accepts(frame.epoch) || !frameFreshness.accepts(frame.receivedAt, SystemClock.elapsedRealtime())) return;
+        if (!accepts(frame.epoch) || !frameFreshness.accepts(frame.receivedAt,SystemClock.elapsedRealtime())) return;
         try {
-            List<MatchHit> hits = TopicMatcher.find(frame.text, frame.plan);
-            if (!accepts(frame.epoch)) return;
-            if (!frameFreshness.accepts(frame.receivedAt, SystemClock.elapsedRealtime())) return;
-            hits = stabilizer.update(frame.epoch, frameFreshness.revision(), frame.text, hits, frame.receivedAt, scanPrecision);
-            if (!accepts(frame.epoch)) return;
-            uiJobs.offer(new FrameResult(frame, hits, countRecognizedWords(frame.text)));
-        } catch (RuntimeException e) {
-            Log.e(TAG, "Frame matching failed", e);
-        }
+            List<MatchHit> hits=Collections.emptyList();
+            List<PaleographyLine> lines=Collections.emptyList();
+            long revision=frameFreshness.revision();
+            if(paleographyEnabled){
+                LiteralTransliterator engine=livePaleographyEngine;
+                if(engine!=null) lines=paleographyProjection.update(frame.epoch,revision,frame.text,engine,frame.receivedAt);
+            }else{
+                hits=TopicMatcher.find(frame.text,frame.plan);
+                if(!accepts(frame.epoch)||!frameFreshness.accepts(frame.receivedAt,SystemClock.elapsedRealtime()))return;
+                hits=stabilizer.update(frame.epoch,revision,frame.text,hits,frame.receivedAt,scanPrecision);
+            }
+            if(!accepts(frame.epoch)||!frameFreshness.accepts(frame.receivedAt,SystemClock.elapsedRealtime()))return;
+            uiJobs.offer(new FrameResult(frame,hits,countRecognizedWords(frame.text),lines));
+        }catch(RuntimeException e){Log.e(TAG,"Frame matching failed",e);}
     }
 
     private void applyFrame(FrameResult result) {
-        if (!accepts(result.frame.epoch) || searchPlan != result.frame.plan ||
-                !frameFreshness.accepts(result.frame.receivedAt, SystemClock.elapsedRealtime())) return;
-        latestOcrText = result.frame.text == null ? "" : result.frame.text.getText();
-        latestOcrAt = result.frame.receivedAt;
-        applyHits(result.hits, result.words, result.frame.plan.termCount(), result.frame.receivedAt);
+        if(!accepts(result.frame.epoch)||searchPlan!=result.frame.plan||
+                !frameFreshness.accepts(result.frame.receivedAt,SystemClock.elapsedRealtime()))return;
+        latestOcrText=result.frame.text==null?"":result.frame.text.getText();
+        latestOcrAt=result.frame.receivedAt;
+        if(paleographyEnabled){
+            if(!beginOverlayFrame(result.frame.receivedAt))return;
+            paleographyOverlay.setLines(result.paleography);
+            setStatus(livePaleographyEngine==null?"Alege un sistem":
+                    result.paleography.isEmpty()?livePaleographyName:
+                    livePaleographyName+" · "+result.paleography.size()+" rânduri",
+                    Color.rgb(163,221,183));
+        }else applyHits(result.hits,result.words,result.frame.plan.termCount(),result.frame.receivedAt);
     }
 
     private void toggleOcr() {
@@ -582,15 +653,67 @@ public final class MainActivity extends AppCompatActivity {
 
     private void showQuickMenu() {
         String labels = floatingLabelsEnabled ? "Ascunde etichetele" : "Afișează etichetele";
-        new AlertDialog.Builder(this).setItems(new String[]{"Noduri afișate", labels, "Pagină / OCR aprofundat", "Paleografie", "Setări"},
+        new AlertDialog.Builder(this).setItems(new String[]{"Noduri afișate", labels, "Pagină / OCR aprofundat", "Sisteme paleografie", "Setări"},
                 (dialog, which) -> {
                     if (which == 0) {
                         if (topicMap != null && searchPlan != null) showNodeSelection();
                     } else if (which == 1) toggleFloatingLabels();
                     else if (which == 2) openPageReview();
-                    else if (which == 3) openPaleography();
+                    else if (which == 3) showPaleographySystems();
                     else startActivity(new Intent(this, SettingsActivity.class));
                 }).setNegativeButton("Închide", null).show();
+    }
+
+    private void togglePaleography(){
+        if(frozen){
+            if(frozenPaleographyCapture){frozenRevealOriginal=!frozenRevealOriginal;displayFrozenPaleography();}
+            return;
+        }
+        paleographyEnabled=!paleographyEnabled;
+        AppPrefs.setPaleographyLive(this,paleographyEnabled);
+        if(paleographyEnabled){
+            ocrEnabled=true;AppPrefs.setOcrEnabled(this,true);updateOcrButton();
+            if(TransliterationStore.list(this).isEmpty()){
+                updatePaleoUi();openPaleography();return;
+            }
+        }
+        updatePaleoUi();reloadPlan();
+    }
+
+    private void updatePaleoUi(){
+        if(paleoButton==null)return;
+        paleoButton.setEnabled(!frozen||frozenPaleographyCapture);
+        paleoButton.setText(frozen&&frozenPaleographyCapture
+                ?(frozenRevealOriginal?"Paleo":"Original")
+                :(paleographyEnabled?"Paleo ●":"Paleo"));
+        paleoButton.setBackgroundTintList(ColorStateList.valueOf(paleographyEnabled
+                ?Color.rgb(116,83,153):Color.rgb(53,92,125)));
+        if(overlayView!=null)overlayView.setVisibility(!frozen&&!paleographyEnabled?View.VISIBLE:View.GONE);
+        if(paleographyOverlay!=null)paleographyOverlay.setVisibility(!frozen&&paleographyEnabled?View.VISIBLE:View.GONE);
+    }
+
+    private void showPaleographySystems(){
+        List<TransliterationStore.Profile> profiles=TransliterationStore.list(this);
+        if(profiles.isEmpty()){openPaleography();return;}
+        String selected=TransliterationStore.selected(this);
+        String[] labels=new String[profiles.size()];
+        int checked=-1;
+        for(int i=0;i<profiles.size();i++){
+            labels[i]=profiles.get(i).toString();
+            if(profiles.get(i).id.equals(selected))checked=i;
+        }
+        final int[] index={checked};
+        new AlertDialog.Builder(this).setTitle("Sistem paleografic")
+                .setSingleChoiceItems(labels,checked,(d,w)->index[0]=w)
+                .setNeutralButton("Administrează",(d,w)->openPaleography())
+                .setNegativeButton("Renunță",null)
+                .setPositiveButton("Aplică",(d,w)->{
+                    if(index[0]<0||frozen)return;
+                    TransliterationStore.select(this,profiles.get(index[0]).id);
+                    paleographyEnabled=true;AppPrefs.setPaleographyLive(this,true);
+                    ocrEnabled=true;AppPrefs.setOcrEnabled(this,true);
+                    updateOcrButton();updatePaleoUi();reloadPlan();
+                }).show();
     }
 
     private void openPaleography() {
@@ -602,7 +725,7 @@ public final class MainActivity extends AppCompatActivity {
 
     private void openPageReview(){
         // Use a raw preview, never the bitmap with an earlier live overlay.
-        Bitmap raw=frozen?null:previewView.getBitmap();
+        Bitmap raw=frozen?(frozenOriginal==null?null:frozenOriginal.copy(Bitmap.Config.ARGB_8888,false)):previewView.getBitmap();
         PageDraft.offer(raw);
         startActivity(new Intent(this,PageReviewActivity.class));
     }
@@ -654,7 +777,7 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void redrawVisibleHits() {
-        if (overlayView == null) return;
+        if (overlayView == null || paleographyEnabled || frozen) return;
         List<MatchHit> visible = filterVisibleHits(latestAllHits);
         overlayView.clearHits();
         overlayView.updateHits(visible, AppPrefs.precision(this), floatingLabelsEnabled);
@@ -671,6 +794,7 @@ public final class MainActivity extends AppCompatActivity {
         latestOcrAt = -1L;
         latestAllHits = Collections.emptyList();
         if (overlayView != null) overlayView.clearHits();
+        if (paleographyOverlay != null) paleographyOverlay.clear();
         updateLegend(latestAllHits);
     }
 
@@ -723,14 +847,18 @@ public final class MainActivity extends AppCompatActivity {
         startActivity(new Intent(this, TopicLibraryActivity.class));
     }
 
-    private void applyHits(List<MatchHit> hits, int recognizedWords, int searchableTerms, long capturedAt) {
-        if (!resumed || frozen || !ocrEnabled) return;
+    private boolean beginOverlayFrame(long capturedAt){
+        if(!resumed||frozen||!ocrEnabled)return false;
         mainHandler.removeCallbacks(staleOverlayClear);
-        // Freshness is measured from camera acquisition, not UI delivery.
-        overlayDeadline = frameFreshness.deadline(capturedAt);
-        long remaining = overlayDeadline - SystemClock.elapsedRealtime();
-        if (remaining <= 0) { clearMatches(); idleStatus(); return; }
-        mainHandler.postDelayed(staleOverlayClear, remaining);
+        overlayDeadline=frameFreshness.deadline(capturedAt);
+        long remaining=overlayDeadline-SystemClock.elapsedRealtime();
+        if(remaining<=0){clearMatches();idleStatus();return false;}
+        mainHandler.postDelayed(staleOverlayClear,remaining);
+        return true;
+    }
+
+    private void applyHits(List<MatchHit> hits, int recognizedWords, int searchableTerms, long capturedAt) {
+        if(!beginOverlayFrame(capturedAt))return;
         latestAllHits = hits == null ? Collections.emptyList() : hits;
         trimAndScheduleRetained();
         List<MatchHit> visibleHits = filterVisibleHits(latestAllHits);
@@ -772,11 +900,12 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void idleStatus() {
-        if (frozen) setStatus("Cadru fix", Color.rgb(244, 188, 77));
+        if (frozen) setStatus(freezeProcessing?"OCR cadru…":"Cadru fix", Color.rgb(244,188,77));
         else if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
             setStatus("Permisiune cameră necesară", Color.rgb(235, 100, 100));
         else if (!ocrEnabled) setStatus("OCR în pauză", Color.rgb(190, 200, 210));
         else if (searchPlan == null) setStatus("Se încarcă hărțile…", Color.rgb(244, 188, 77));
+        else if (paleographyEnabled) setStatus(livePaleographyEngine==null?"Alege un sistem":livePaleographyName,Color.rgb(163,221,183));
         else if (searchPlan.termCount() == 0) setStatus("Niciun termen activ", Color.rgb(244, 188, 77));
         else setStatus("", Color.rgb(163, 221, 183));
     }
@@ -825,44 +954,105 @@ public final class MainActivity extends AppCompatActivity {
     private void toggleFreeze() {
         if (!frozen) {
             Bitmap bitmap = previewView.getBitmap();
-            if (bitmap == null) {
-                toast("Camera nu are încă un cadru disponibil.");
-                return;
+            if (bitmap == null) { toast("Camera nu are încă un cadru disponibil."); return; }
+            if(paleographyEnabled){
+                double scale=Math.min(1d,Math.min(2200d/Math.max(bitmap.getWidth(),bitmap.getHeight()),
+                        Math.sqrt(3500000d/((double)bitmap.getWidth()*bitmap.getHeight()))));
+                if(scale<1d){
+                    Bitmap resized=Bitmap.createScaledBitmap(bitmap,Math.max(1,(int)Math.round(bitmap.getWidth()*scale)),
+                            Math.max(1,(int)Math.round(bitmap.getHeight()*scale)),true);
+                    if(resized!=bitmap){bitmap.recycle();bitmap=resized;}
+                }
             }
-
-            Bitmap composite = Bitmap.createBitmap(
-                    Math.max(1, previewView.getWidth()),
-                    Math.max(1, previewView.getHeight()),
-                    Bitmap.Config.ARGB_8888
-            );
-            Canvas canvas = new Canvas(composite);
-            canvas.drawBitmap(bitmap, null, new Rect(0, 0, composite.getWidth(), composite.getHeight()), null);
-            if (overlayDeadline != 0 && frameFreshness.accepts(overlayDeadline - FrameFreshness.MAX_AGE_MS,
-                    SystemClock.elapsedRealtime())) overlayView.draw(canvas);
-
-            frozenBitmap = composite;
-            frozenOcrText = latestOcrAt >= 0 && frameFreshness.accepts(latestOcrAt,SystemClock.elapsedRealtime())
-                    ? latestOcrText : "";
-            frozen = true;
+            frozenOriginal=bitmap;
+            frozenPaleographyCapture=paleographyEnabled;
+            frozenRevealOriginal=false;
+            frozenPaleography=null;
+            freezeProcessing=false;
+            long revision=++freezeRevision;
+            frozenOcrText=latestOcrAt>=0&&frameFreshness.accepts(latestOcrAt,SystemClock.elapsedRealtime())
+                    ?latestOcrText:"";
+            frozen=true;
+            if(frozenPaleographyCapture){
+                // The preview bitmap and the prior OCR frame are not guaranteed
+                // identical. Never burn live coordinates into this snapshot.
+                frozenBitmap=bitmap;
+                frozenOcrText="";
+                LiteralTransliterator engine=livePaleographyEngine;
+                if(engine!=null){freezeProcessing=true;stillJobs.offer(new FrozenJob(revision,bitmap,engine));}
+            }else{
+                Bitmap composite=Bitmap.createBitmap(Math.max(1,previewView.getWidth()),
+                        Math.max(1,previewView.getHeight()),Bitmap.Config.ARGB_8888);
+                Canvas canvas=new Canvas(composite);
+                canvas.drawBitmap(bitmap,null,new Rect(0,0,composite.getWidth(),composite.getHeight()),null);
+                if(overlayDeadline!=0&&frameFreshness.accepts(overlayDeadline-FrameFreshness.MAX_AGE_MS,
+                        SystemClock.elapsedRealtime()))overlayView.draw(canvas);
+                frozenBitmap=composite;
+            }
             stopAnalysis();
+            clearMatches();
             freezeImage.setImageBitmap(frozenBitmap);
             freezeImage.setVisibility(View.VISIBLE);
-            overlayView.setVisibility(View.GONE);
             freezeButton.setText("Reia");
-            saveButton.setEnabled(true);
+            saveButton.setEnabled(!freezeProcessing);
+            updatePaleoUi();
             idleStatus();
-        } else {
-            frozen = false;
-            frozenOcrText = "";
+        }else{
+            frozen=false;++freezeRevision;stillJobs.clear();
+            frozenOcrText="";freezeProcessing=false;
+            frozenPaleographyCapture=false;frozenRevealOriginal=false;
             clearMatches();
-            attachAnalyzer();
-            frozenBitmap = null;
-            freezeImage.setImageDrawable(null);
-            freezeImage.setVisibility(View.GONE);
-            overlayView.setVisibility(View.VISIBLE);
-            freezeButton.setText("Cadru");
-            saveButton.setEnabled(false);
-            idleStatus();
+            frozenBitmap=null;frozenOriginal=null;frozenPaleography=null;
+            freezeImage.setImageDrawable(null);freezeImage.setVisibility(View.GONE);
+            freezeButton.setText("Cadru");saveButton.setEnabled(false);
+            updatePaleoUi();reloadPlan();
+        }
+    }
+
+    private void displayFrozenPaleography(){
+        if(!frozen||!frozenPaleographyCapture)return;
+        frozenBitmap=frozenRevealOriginal||frozenPaleography==null?frozenOriginal:frozenPaleography;
+        freezeImage.setImageBitmap(frozenBitmap);
+        saveButton.setEnabled(frozenBitmap!=null&&(!freezeProcessing||frozenRevealOriginal));
+        updatePaleoUi();
+        idleStatus();
+    }
+
+    private void analyseFrozenPaleography(FrozenJob job){
+        if(destroyed||job.revision!=freezeRevision)return;
+        TextRecognizer client=null;
+        Bitmap enhanced=null,rendered=null;
+        try{
+            client=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+            Text before=com.google.android.gms.tasks.Tasks.await(client.process(
+                    com.google.mlkit.vision.common.InputImage.fromBitmap(job.source,0)),30,java.util.concurrent.TimeUnit.SECONDS);
+            if(destroyed||job.revision!=freezeRevision)return;
+            enhanced=PageImageProcessor.historicalContrast(job.source,35);
+            Text after=com.google.android.gms.tasks.Tasks.await(client.process(
+                    com.google.mlkit.vision.common.InputImage.fromBitmap(enhanced,0)),30,java.util.concurrent.TimeUnit.SECONDS);
+            List<PaleographyLine> lines=PaleographyProjection.agree(before,after,job.engine);
+            if(destroyed||job.revision!=freezeRevision)return;
+            rendered=job.source.copy(Bitmap.Config.ARGB_8888,true);
+            if(rendered==null)throw new IllegalStateException("Memorie insuficientă");
+            new PaleographyOverlayRenderer().draw(new Canvas(rendered),lines);
+            final Bitmap output=rendered;rendered=null;
+            final String raw=before.getText();
+            mainHandler.post(()->{
+                if(destroyed||!frozen||job.revision!=freezeRevision){output.recycle();return;}
+                frozenPaleography=output;frozenOcrText=raw;freezeProcessing=false;
+                displayFrozenPaleography();
+                setStatus(lines.isEmpty()?"Niciun rând confirmat":lines.size()+" rânduri",Color.rgb(163,221,183));
+            });
+        }catch(Exception error){
+            Log.w(TAG,"Frozen paleography failed",error);
+            mainHandler.post(()->{
+                if(destroyed||!frozen||job.revision!=freezeRevision)return;
+                freezeProcessing=false;displayFrozenPaleography();toast("OCR cadru nereușit");
+            });
+        }finally{
+            if(client!=null)client.close();
+            if(enhanced!=null)enhanced.recycle();
+            if(rendered!=null)rendered.recycle();
         }
     }
 

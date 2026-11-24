@@ -78,6 +78,14 @@ public final class AppPrefs {
         prefs(context).edit().putInt("literal_precision_v115", Math.max(0, Math.min(100, value))).apply();
     }
 
+    public static boolean paleographyLive(Context context) {
+        return prefs(context).getBoolean("paleography_live", false);
+    }
+
+    public static void setPaleographyLive(Context context, boolean value) {
+        prefs(context).edit().putBoolean("paleography_live", value).apply();
+    }
+
     public static boolean ocrEnabled(Context context) {
         return prefs(context).getBoolean("ocr_enabled", true);
     }

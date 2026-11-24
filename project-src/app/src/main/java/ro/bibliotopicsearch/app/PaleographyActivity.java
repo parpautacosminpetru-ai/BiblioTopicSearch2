@@ -58,7 +58,7 @@ public final class PaleographyActivity extends AppCompatActivity {
     private Spinner systems;
     private EditText source;
     private TextView origin,status,output;
-    private Button importRules,manage,importText,apply,copy,save,missing;
+    private Button importRules,manage,importText,apply,copy,save,missing,live;
     private List<TransliterationStore.Profile> profiles=Collections.emptyList();
     private String selectedId="";
     private LiteralTransliterator.Result current;
@@ -81,6 +81,15 @@ public final class PaleographyActivity extends AppCompatActivity {
         root.addView(systemBar);
         importRules=button("Importă sistem");
         root.addView(importRules,new LinearLayout.LayoutParams(-1,dp(48)));
+        live=button("Pe cameră");
+        root.addView(live,new LinearLayout.LayoutParams(-1,dp(48)));
+        live.setOnClickListener(v->{
+            if(busy||selectedId.isEmpty())return;
+            TransliterationStore.select(this,selectedId);
+            AppPrefs.setPaleographyLive(this,true);
+            AppPrefs.setOcrEnabled(this,true);
+            finish();
+        });
         origin=label("Original",15);root.addView(origin);
         source=new EditText(this);
         source.setTextSize(18);
@@ -175,6 +184,7 @@ public final class PaleographyActivity extends AppCompatActivity {
         importRules.setEnabled(!busy);manage.setEnabled(!busy);importText.setEnabled(!busy);
         source.setEnabled(!busy);
         apply.setEnabled(!busy&&!selectedId.isEmpty());
+        live.setEnabled(!busy&&!selectedId.isEmpty());
         copy.setEnabled(!busy&&current!=null);save.setEnabled(!busy&&current!=null);
         missing.setEnabled(!busy&&current!=null&&current.unmappedCharacters>0);
     }
