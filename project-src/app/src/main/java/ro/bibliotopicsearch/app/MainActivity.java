@@ -72,8 +72,7 @@ import java.util.concurrent.Executors;
 public final class MainActivity extends AppCompatActivity {
     private static final int REQ_CAMERA = 101;
     private static final int REQ_SAVE_FRAME = 501;
-    private static final long STALE_OVERLAY_MS = 1000L;
-    private static final long MAX_RESULT_AGE_MS = 1600L;
+    private static final long MAX_RESULT_AGE_MS = 900L;
     private static final String TAG = "BiblioLive";
 
     private PreviewView previewView;
@@ -89,7 +88,8 @@ public final class MainActivity extends AppCompatActivity {
     private TextRecognizer recognizer;
     private AdaptiveAnalyzer analyzer;
     private final LiveFrameStabilizer stabilizer = new LiveFrameStabilizer();
-    private volatile int scanPrecision = 90;
+    private volatile int scanPrecision = 100;
+    private long overlayDeadline;
     private boolean lowRam, reducedResolution;
     private volatile long lastResolutionChange = -60000L;
     private volatile int recoveryAttempts;
@@ -525,7 +525,7 @@ public final class MainActivity extends AppCompatActivity {
     private void applyFrame(FrameResult result) {
         if (!accepts(result.frame.epoch) || searchPlan != result.frame.plan ||
                 SystemClock.elapsedRealtime() - result.frame.receivedAt > MAX_RESULT_AGE_MS) return;
-        applyHits(result.hits, result.words, result.frame.plan.termCount());
+        applyHits(result.hits, result.words, result.frame.plan.termCount(), result.frame.receivedAt);
     }
 
     private void toggleOcr() {
@@ -623,6 +623,7 @@ public final class MainActivity extends AppCompatActivity {
 
     private void clearMatches() {
         mainHandler.removeCallbacks(retainedExpiry);
+        overlayDeadline = 0;
         latestAllHits = Collections.emptyList();
         if (overlayView != null) overlayView.clearHits();
         updateLegend(latestAllHits);
@@ -677,11 +678,14 @@ public final class MainActivity extends AppCompatActivity {
         startActivity(new Intent(this, TopicLibraryActivity.class));
     }
 
-    private void applyHits(List<MatchHit> hits, int recognizedWords, int searchableTerms) {
+    private void applyHits(List<MatchHit> hits, int recognizedWords, int searchableTerms, long capturedAt) {
         if (!resumed || frozen || !ocrEnabled) return;
         mainHandler.removeCallbacks(staleOverlayClear);
-        // At lower cadence, stale boxes should disappear rather than remain on a turned page.
-        mainHandler.postDelayed(staleOverlayClear, STALE_OVERLAY_MS);
+        // Freshness is measured from camera acquisition, not UI delivery.
+        overlayDeadline = capturedAt + MAX_RESULT_AGE_MS;
+        long remaining = overlayDeadline - SystemClock.elapsedRealtime();
+        if (remaining <= 0) { clearMatches(); idleStatus(); return; }
+        mainHandler.postDelayed(staleOverlayClear, remaining);
         latestAllHits = hits == null ? Collections.emptyList() : hits;
         trimAndScheduleRetained();
         List<MatchHit> visibleHits = filterVisibleHits(latestAllHits);
@@ -788,7 +792,7 @@ public final class MainActivity extends AppCompatActivity {
             );
             Canvas canvas = new Canvas(composite);
             canvas.drawBitmap(bitmap, null, new Rect(0, 0, composite.getWidth(), composite.getHeight()), null);
-            overlayView.draw(canvas);
+            if (overlayDeadline > SystemClock.elapsedRealtime()) overlayView.draw(canvas);
 
             frozenBitmap = composite;
             frozen = true;

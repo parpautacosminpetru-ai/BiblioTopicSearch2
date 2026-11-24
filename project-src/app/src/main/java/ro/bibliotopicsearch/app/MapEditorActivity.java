@@ -278,8 +278,8 @@ public final class MapEditorActivity extends AppCompatActivity {
         chipScroll.setHorizontalScrollBarEnabled(false);
         LinearLayout chips = new LinearLayout(this);
         chips.setOrientation(LinearLayout.HORIZONTAL);
-        java.util.List<String> visibleTerms = node.terms.isEmpty()
-                ? java.util.Collections.singletonList(node.title + "  (titlu)")
+        java.util.List<String> visibleTerms = node.terms.isEmpty() && AppPrefs.searchNodeTitles(this)
+                ? java.util.Collections.singletonList(node.title)
                 : node.terms;
         for (String term : visibleTerms) chips.addView(termChip(term, node.color));
         chipScroll.addView(chips);

@@ -35,13 +35,14 @@ public final class MultiMapMatcherTest {
         assertFalse(identities.contains(disabled.identityKey()));
     }
 
-    @Test public void modesAndCompareLengthKeepOriginalSemantics() {
+    @Test public void exactModeNeverTruncatesAndApproximationIsExplicit() {
         TopicNode n = node("a", "A", "N", true, "religie", "ordine socială");
         assertTrue(compile(AppPrefs.MatchMode.EXACT, true, 0, n).candidates(1, "religiei").isEmpty());
         assertEquals(1, compile(AppPrefs.MatchMode.PREFIX, true, 0, n).candidates(1, "religiei").size());
         assertEquals(1, compile(AppPrefs.MatchMode.CONTAINS, true, 0, n).candidates(1, "antireligie").size());
         assertEquals(1, compile(AppPrefs.MatchMode.FLEXIBLE, true, 0, n).candidates(1, "antireligie").size());
-        assertEquals(1, compile(AppPrefs.MatchMode.EXACT, true, 4, n).candidates(1, "religios").size());
+        assertTrue(compile(AppPrefs.MatchMode.EXACT, true, 4, n).candidates(1, "religios").isEmpty());
+        assertEquals(1, compile(AppPrefs.MatchMode.PREFIX, true, 4, n).candidates(1, "religios").size());
         assertEquals(1, compile(AppPrefs.MatchMode.EXACT, true, 0, n).candidates(2, "ordine sociala").size());
         assertTrue(compile(AppPrefs.MatchMode.EXACT, true, 0, n).candidates(1, "ordine sociala").isEmpty());
     }
@@ -54,7 +55,7 @@ public final class MultiMapMatcherTest {
         assertTrue(TopicMatcher.tokenize("…", true).isEmpty());
         assertEquals("s-a", TopicMatcher.normalize("s‑a", true));
         TopicNode n = node("a", "A", "N", true, "biserică", "BISERICA", "biserica!");
-        assertEquals(1, compile(AppPrefs.MatchMode.EXACT, true, 0, n).termCount());
+        assertEquals(2, compile(AppPrefs.MatchMode.EXACT, true, 0, n).termCount());
     }
 
     @Test public void manyProfilesAndTermsAreIndexedTogether() {

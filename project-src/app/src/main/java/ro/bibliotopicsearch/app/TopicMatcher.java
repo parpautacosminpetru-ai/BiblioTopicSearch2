@@ -3,362 +3,401 @@ package ro.bibliotopicsearch.app;
 import android.content.Context;
 import android.graphics.Rect;
 import android.graphics.RectF;
-
 import com.google.mlkit.vision.text.Text;
-
-import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+/** A single index for all maps. Every emitted hit is tied to a current
+ * literal OCR span, or to an explicitly enabled, labelled reconstruction. */
 public final class TopicMatcher {
     private TopicMatcher() {}
 
     static final class CompiledTerm {
-        final String raw;
-        final String normalized;
+        final String raw, normalized;
         final int tokenCount;
         final TopicNode node;
-
         CompiledTerm(String raw, String normalized, int tokenCount, TopicNode node) {
-            this.raw = raw;
-            this.normalized = normalized;
-            this.tokenCount = tokenCount;
-            this.node = node;
+            this.raw = raw; this.normalized = normalized; this.tokenCount = tokenCount; this.node = node;
         }
     }
 
-    /**
-     * Planul de căutare este construit o singură dată când harta/setările se schimbă.
-     * Astfel termenii nu mai sunt normalizați și reconstruiți pentru fiecare cadru OCR.
-     */
+    interface WindowConsumer { void match(int start, int end, List<CompiledTerm> terms, MatchHit.Kind kind); }
+
     public static final class SearchPlan {
-        private final boolean stripDiacritics;
-        private final int compareChars;
+        private final boolean stripDiacritics, repairEnabled, joinEnabled;
         private final AppPrefs.MatchMode mode;
-        private final Map<Integer, TermIndex<CompiledTerm>> indexes;
-        private final List<Integer> tokenCounts;
-        private final int termCount;
-        private final boolean repairEnabled;
+        private final Map<Integer, TermIndex<CompiledTerm>> exact;
+        private final TermIndex<CompiledTerm> approximate;
+        private final int maxTokens, termCount;
 
-        private SearchPlan(boolean stripDiacritics, int compareChars, AppPrefs.MatchMode mode,
-                           Map<Integer, TermIndex<CompiledTerm>> indexes, List<Integer> tokenCounts, int termCount, boolean repairEnabled) {
-            this.stripDiacritics = stripDiacritics;
-            this.compareChars = compareChars;
-            this.mode = mode;
-            this.indexes = indexes;
-            this.tokenCounts = tokenCounts;
-            this.termCount = termCount;
-            this.repairEnabled = repairEnabled;
+        private SearchPlan(boolean strip, AppPrefs.MatchMode mode, boolean repair, boolean join,
+                           Map<Integer, TermIndex<CompiledTerm>> exact, TermIndex<CompiledTerm> approximate,
+                           int maxTokens, int termCount) {
+            stripDiacritics = strip; this.mode = mode; repairEnabled = repair; joinEnabled = join;
+            this.exact = exact; this.approximate = approximate;
+            this.maxTokens = maxTokens; this.termCount = termCount;
         }
-
         public int termCount() { return termCount; }
 
-        List<CompiledTerm> candidates(int tokenCount, String actual) {
-            TermIndex<CompiledTerm> index = indexes.get(tokenCount);
-            if (index == null || actual == null || actual.isEmpty()) return Collections.emptyList();
-            switch (mode) {
-                case EXACT: return index.exact(shorten(actual, compareChars));
-                case PREFIX: return index.prefix(actual);
-                default: return index.contains(actual);
-            }
+        List<CompiledTerm> exactCandidates(int count, String value) {
+            TermIndex<CompiledTerm> index = exact.get(count);
+            return index == null ? Collections.emptyList() : index.exact(value);
         }
 
-        List<CompiledTerm> exactCandidates(int count, String value) {
-            TermIndex<CompiledTerm> index = indexes.get(count);
-            if (index == null || value.isEmpty()) return Collections.emptyList();
-            List<CompiledTerm> exact = new ArrayList<>();
-            for (CompiledTerm term : index.exact(shorten(value, compareChars))) {
-                if (term.normalized.equals(value)) exact.add(term);
-            }
-            return exact;
+        List<CompiledTerm> candidates(int count, String value) {
+            List<CompiledTerm> literal = exactCandidates(count, value);
+            // Partial matching is opt-in, alphabetic, single-word only.
+            if (mode == AppPrefs.MatchMode.EXACT || count != 1 || !LiteralText.isAlphabetic(value))
+                return literal;
+            List<CompiledTerm> other = mode == AppPrefs.MatchMode.PREFIX
+                    ? approximate.prefix(value) : approximate.contains(value);
+            if (other.isEmpty()) return literal;
+            Set<CompiledTerm> both = new LinkedHashSet<>(literal);
+            both.addAll(other);
+            return new ArrayList<>(both);
         }
 
         List<CompiledTerm> repairedCandidates(String token) {
-            if (!repairEnabled) return Collections.emptyList();
-            List<String> variants = OcrRepair.digitVariants(token);
-            if (variants.isEmpty() || !candidates(1, token).isEmpty()) return Collections.emptyList();
+            if (!repairEnabled || !candidates(1, token).isEmpty()) return Collections.emptyList();
             List<CompiledTerm> found = Collections.emptyList();
-            for (String variant : variants) {
-                List<CompiledTerm> exact = exactCandidates(1, variant);
-                if (exact.isEmpty()) continue;
-                if (!found.isEmpty()) return Collections.emptyList(); // ambiguous spelling
-                found = exact; // preserve all maps sharing this one spelling
+            for (String variant : OcrRepair.digitVariants(token)) {
+                List<CompiledTerm> candidates = exactCandidates(1, variant);
+                if (candidates.isEmpty()) continue;
+                if (!found.isEmpty()) return Collections.emptyList();
+                found = candidates;
             }
             return found;
         }
-    }
 
-    private static String shorten(String term, int length) {
-        return length > 0 && term.length() > length ? term.substring(0, length) : term;
+        /** End is exclusive. Barriers exclude incomplete fragments and unsafe
+         * gaps; only actual contiguous token windows reach the index. */
+        void scan(List<String> values, boolean[] barriers, boolean[] breaks,
+                  int boundary, int joined, String alternative, WindowConsumer consumer) {
+            if (termCount == 0) return;
+            int pivot = joined >= 0 ? joined : boundary;
+            int first = pivot < 0 ? 0 : Math.max(0, pivot-maxTokens+1);
+            int limit = joined >= 0 ? joined+1 : boundary >= 0 ? boundary : values.size();
+            for (int start = first; start < limit; start++) {
+                if (Thread.currentThread().isInterrupted()) return;
+                StringBuilder phrase = new StringBuilder();
+                for (int i = start; i < values.size() && i-start < maxTokens; i++) {
+                    if (barriers[i] || (i > start && breaks[i])) break;
+                    if (phrase.length() > 0) phrase.append(' ');
+                    phrase.append(values.get(i));
+                    if (pivot >= 0 && i < pivot) continue;
+                    int count = i-start+1;
+                    if (!exact.containsKey(count)) continue;
+                    String value = phrase.toString();
+                    List<CompiledTerm> found = joined >= 0 ? exactCandidates(count, value) : candidates(count, value);
+                    MatchHit.Kind kind = joined >= 0 ? MatchHit.Kind.LINE_JOIN : MatchHit.Kind.LITERAL;
+                    if (joined >= 0 && !found.isEmpty() && alternative != null) {
+                        StringBuilder alt = new StringBuilder();
+                        for (int j = start; j <= i; j++) {
+                            if (alt.length() > 0) alt.append(' ');
+                            alt.append(j == joined ? alternative : values.get(j));
+                        }
+                        if (!exactCandidates(count, alt.toString()).isEmpty()) continue; // ambiguous
+                    }
+                    if (found.isEmpty() && joined < 0 && boundary < 0 && count == 1) {
+                        found = repairedCandidates(value);
+                        if (!found.isEmpty()) kind = MatchHit.Kind.OCR_REPAIR;
+                    }
+                    if (!found.isEmpty()) consumer.match(start, i+1, found, kind);
+                }
+            }
+        }
     }
 
     public static SearchPlan compile(Context context, TopicMap map) {
         return compile(map, AppPrefs.ignoreDiacritics(context), AppPrefs.compareChars(context),
-                AppPrefs.getMatchMode(context), AppPrefs.ocrRepair(context));
+                AppPrefs.getMatchMode(context), AppPrefs.ocrRepair(context),
+                AppPrefs.joinHyphenation(context), AppPrefs.searchNodeTitles(context));
     }
-
-    static SearchPlan compile(TopicMap map, boolean stripDiacritics, int compareChars, AppPrefs.MatchMode mode) {
-        return compile(map, stripDiacritics, compareChars, mode, true);
+    static SearchPlan compile(TopicMap map, boolean strip, int chars, AppPrefs.MatchMode mode) {
+        return compile(map, strip, chars, mode, false, false, false);
     }
-
-    static SearchPlan compile(TopicMap map, boolean stripDiacritics, int compareChars, AppPrefs.MatchMode mode, boolean repairEnabled) {
-        Map<Integer, TermIndex<CompiledTerm>> indexes = new HashMap<>();
-        int termCount = 0;
-        if (map != null) {
-            for (TopicNode node : map.nodes) {
-                if (!node.enabled) continue;
-                Set<String> seen = new HashSet<>();
-                List<String> searchTerms = node.terms.isEmpty()
-                        ? Collections.singletonList(node.title) : node.terms;
-                for (String raw : searchTerms) {
-                    String normalized = normalize(raw, stripDiacritics);
-                    if (normalized.isEmpty()) continue;
-                    int count = countTokens(normalized);
-                    String key = shorten(normalized, compareChars);
-                    if (!seen.add(count + ":" + normalized)) continue;
-                    CompiledTerm term = new CompiledTerm(raw, normalized, count, node);
-                    indexes.computeIfAbsent(count, ignored -> new TermIndex<>()).add(key, term);
-                    termCount++;
+    static SearchPlan compile(TopicMap map, boolean strip, int chars, AppPrefs.MatchMode mode, boolean repair) {
+        return compile(map, strip, chars, mode, repair, false, false);
+    }
+    static SearchPlan compile(TopicMap map, boolean strip, int chars, AppPrefs.MatchMode mode,
+                              boolean repair, boolean join, boolean titles) {
+        Map<Integer, TermIndex<CompiledTerm>> exact = new HashMap<>();
+        TermIndex<CompiledTerm> approximate = new TermIndex<>();
+        int max = 0, count = 0;
+        if (map != null) for (TopicNode node : map.nodes) {
+            if (!node.enabled) continue;
+            List<String> terms = node.terms.isEmpty() && titles ? Collections.singletonList(node.title) : node.terms;
+            Set<String> seen = new HashSet<>();
+            for (String raw : terms) {
+                List<String> tokens = LiteralText.values(raw, strip);
+                if (tokens.isEmpty()) continue;
+                String key = LiteralText.key(tokens, 0, tokens.size());
+                if (!seen.add(key)) continue;
+                CompiledTerm term = new CompiledTerm(raw, key, tokens.size(), node);
+                exact.computeIfAbsent(tokens.size(), unused -> new TermIndex<>()).add(key, term);
+                if (mode != AppPrefs.MatchMode.EXACT && tokens.size() == 1 &&
+                        key.length() >= 3 && LiteralText.isAlphabetic(key)) {
+                    String part = chars > 0 ? key.substring(0, Math.min(key.length(), Math.max(3, chars))) : key;
+                    approximate.add(part, term);
                 }
+                max = Math.max(max, tokens.size());
+                count++;
             }
         }
-        List<Integer> counts = new ArrayList<>(indexes.keySet());
-        Collections.sort(counts);
-        return new SearchPlan(stripDiacritics, compareChars, mode, indexes, counts, termCount, repairEnabled);
+        return new SearchPlan(strip, mode, repair, join, exact, approximate, max, count);
     }
 
-    /** Compatibilitate pentru apelurile vechi. MainActivity folosește planul compilat. */
     public static List<MatchHit> find(Context context, Text text, TopicMap map) {
         return find(text, compile(context, map));
     }
 
-    private static final class Token {
-        final String value, original;
-        final RectF box;
-        final int element, line;
-        final Token left, right;
-        Token(String value, String original, RectF box, int element, int line) {
-            this(value, original, box, element, line, null, null);
+    private static final class ElementSpan {
+        final Text.Element element;
+        final int start, end;
+        ElementSpan(Text.Element element, int start) {
+            this.element = element; this.start = start; end = start + element.getText().length();
         }
-        Token(String value, String original, RectF box, int element, int line, Token left, Token right) {
-            this.value = value;
-            this.original = original;
-            this.box = box;
-            this.element = element;
-            this.line = line;
-            this.left = left;
-            this.right = right;
+
+        RectF geometry(int from, int to) {
+            Rect box = element.getBoundingBox();
+            if (box == null || box.width() <= 0 || box.height() <= 0) return null;
+            if (from == start && to == end) return new RectF(box);
+            String raw = element.getText();
+            int a = from - start, b = to - start;
+            // Symbol coordinates are used only when their text can be aligned
+            // exactly to the element. Never estimate a position by character count.
+            List<Text.Symbol> symbols = element.getSymbols();
+            if (symbols != null && !symbols.isEmpty()) {
+                List<String> values = new ArrayList<>(symbols.size());
+                for (Text.Symbol symbol : symbols) values.add(symbol.getText());
+                int[] offsets = LiteralText.align(raw, values);
+                if (offsets != null) {
+                    RectF union = null;
+                    boolean valid = true;
+                    int coveredStart = Integer.MAX_VALUE, coveredEnd = -1;
+                    for (int i = 0; i < symbols.size(); i++) {
+                        int x = offsets[i], y = x + values.get(i).length();
+                        if (y <= a || x >= b) continue;
+                        Rect symbolBox = symbols.get(i).getBoundingBox();
+                        if (x < a || y > b || symbolBox == null || symbolBox.width() <= 0 || symbolBox.height() <= 0) {
+                            valid = false; break;
+                        }
+                        coveredStart = Math.min(coveredStart, x);
+                        coveredEnd = Math.max(coveredEnd, y);
+                        if (union == null) union = new RectF(symbolBox);
+                        else union.union(new RectF(symbolBox));
+                    }
+                    if (valid && union != null && coveredStart == a && coveredEnd == b) {
+                        // Reject symbol bounds in a different coordinate system.
+                        RectF padded = new RectF(box);
+                        padded.inset(-box.height()*0.25f, -box.height()*0.25f);
+                        if (padded.contains(union)) return union;
+                    }
+                }
+            }
+            // A whole word with only surrounding punctuation may use its
+            // element box. Never highlight a neighbouring word as a fallback.
+            if (LiteralText.hasWord(raw.substring(a,b)) &&
+                    !LiteralText.hasWord(raw.substring(0,a)) && !LiteralText.hasWord(raw.substring(b)))
+                return new RectF(box);
+            return null;
         }
     }
 
-    static List<String> tokenize(String original, boolean stripDiacritics) {
-        String value = normalize(original, stripDiacritics);
-        if (value.isEmpty()) return Collections.emptyList();
-        return java.util.Arrays.asList(value.split(" "));
+    private static final class LineData {
+        final String raw;
+        final Rect bounds;
+        final List<LiteralText.Lexeme> lexemes;
+        final List<ElementSpan> elements = new ArrayList<>();
+        final List<Token> tokens = new ArrayList<>();
+        int fragment = -1;
+
+        LineData(Text.Line line, boolean strip) {
+            raw = line.getText();
+            bounds = line.getBoundingBox();
+            lexemes = LiteralText.lex(raw, strip);
+            List<Text.Element> source = line.getElements();
+            List<String> values = new ArrayList<>(source.size());
+            for (Text.Element e : source) values.add(e.getText());
+            int[] offsets = LiteralText.align(raw, values);
+            if (offsets == null) return;
+            for (int i = 0; i < source.size(); i++) elements.add(new ElementSpan(source.get(i), offsets[i]));
+            for (int i = 0; i < lexemes.size(); i++) {
+                LiteralText.Lexeme l = lexemes.get(i);
+                Token token = new Token(l.value, this, l.start, l.end);
+                if (i > 0 && !LiteralText.separated(raw, lexemes.get(i-1), l)) token.breakBefore = true;
+                tokens.add(token);
+            }
+            fragment = LiteralText.terminalFragment(raw, lexemes);
+            if (fragment >= 0) {
+                tokens.get(fragment).barrier = true;
+                tokens.get(fragment+1).barrier = true;
+            }
+        }
+
+        /** Each OCR element gets its own box so a phrase and a nested
+         * single-word match can share exactly the correct coloured mark. */
+        List<RectF> geometry(int from, int to) {
+            List<RectF> out = new ArrayList<>();
+            for (ElementSpan e : elements) {
+                if (e.end <= from) continue;
+                if (e.start >= to) break;
+                RectF box = e.geometry(Math.max(from,e.start), Math.min(to,e.end));
+                if (box == null) return null;
+                if (!out.isEmpty()) {
+                    RectF prev = out.get(out.size()-1);
+                    float height = Math.max(prev.height(), box.height());
+                    if (box.left-prev.right > height*2.5f ||
+                            Math.abs(box.centerY()-prev.centerY()) > height*1.25f) return null;
+                }
+                out.add(box);
+            }
+            return out.isEmpty() ? null : out;
+        }
+    }
+
+    private static final class Token {
+        final String value;
+        final LineData line;
+        final int start, end;
+        boolean barrier, breakBefore;
+        Token left, right;
+        Token(String value, LineData line, int start, int end) {
+            this.value = value; this.line = line; this.start = start; this.end = end;
+        }
+    }
+
+    private static boolean adjacent(LineData a, LineData b) {
+        if (a == null || b == null || a.tokens.isEmpty() || b.tokens.isEmpty() ||
+                a.bounds == null || b.bounds == null) return false;
+        Rect x = a.bounds, y = b.bounds;
+        return LiteralText.sameColumn(x.left,x.top,x.right,x.bottom,y.left,y.top,y.right,y.bottom);
     }
 
     public static List<MatchHit> find(Text text, SearchPlan plan) {
         List<MatchHit> hits = new ArrayList<>();
         if (text == null || plan == null || plan.termCount <= 0) return hits;
-        long now = System.currentTimeMillis();
         Set<String> dedupe = new HashSet<>();
-        int elementId = 0, lineId = 0;
+        long now = android.os.SystemClock.elapsedRealtime();
         for (Text.TextBlock block : text.getTextBlocks()) {
-            List<Token> previous = Collections.emptyList();
-            Text.Line previousLine = null;
+            List<LineData> lines = new ArrayList<>();
             for (Text.Line line : block.getLines()) {
                 if (Thread.currentThread().isInterrupted()) return Collections.emptyList();
-                List<Token> tokens = new ArrayList<>();
-                for (Text.Element element : line.getElements()) {
-                    String original = element.getText();
-                    Rect box = element.getBoundingBox();
-                    RectF geometry = box == null ? null : new RectF(box);
-                    int id = elementId++;
-                    for (String token : tokenize(original, plan.stripDiacritics)) {
-                        tokens.add(new Token(token, original, geometry, id, lineId));
-                    }
+                lines.add(new LineData(line, plan.stripDiacritics));
+            }
+            for (int i = 1; i < lines.size(); i++) {
+                LineData a = lines.get(i-1), b = lines.get(i);
+                if (adjacent(a,b) && a.fragment >= 0 && LiteralText.isAlphabetic(b.tokens.get(0).value))
+                    b.tokens.get(0).barrier = true;
+            }
+            for (int i = 0; i < lines.size(); i++) {
+                LineData current = lines.get(i);
+                scan(current.tokens, -1,-1,null,plan,hits,dedupe,now);
+                if (i == 0) continue;
+                LineData before = lines.get(i-1);
+                if (!adjacent(before,current)) continue;
+                if (before.fragment >= 0) {
+                    if (plan.joinEnabled) scanJoined(before,current,plan,hits,dedupe,now);
+                } else {
+                    List<Token> both = new ArrayList<>(before.tokens);
+                    both.addAll(current.tokens);
+                    scan(both,before.tokens.size(),-1,null,plan,hits,dedupe,now);
                 }
-                scan(tokens, -1, -1, plan, hits, dedupe, now);
-                if (!previous.isEmpty() && !tokens.isEmpty() && adjacent(previousLine, line)) {
-                    String end = previousLine.getText().trim();
-                    if (hasBreakHyphen(end)) {
-                        scanJoined(previous, tokens, plan, hits, dedupe, now);
-                    } else if (!end.endsWith(".") && !end.endsWith("!") && !end.endsWith("?") &&
-                            !end.endsWith(":") && !end.endsWith(";")) {
-                        List<Token> both = new ArrayList<>(previous.size() + tokens.size());
-                        both.addAll(previous);
-                        both.addAll(tokens);
-                        scan(both, previous.size(), -1, plan, hits, dedupe, now);
-                    }
-                }
-                previous = tokens;
-                previousLine = line;
-                lineId++;
             }
         }
         return hits;
     }
 
-    private static boolean hasBreakHyphen(String text) {
-        return text.endsWith("-") || text.endsWith("‐") || text.endsWith("‑") || text.endsWith("\u00ad");
-    }
-
-    private static boolean adjacent(Text.Line previous, Text.Line next) {
-        if (previous == null || next == null) return false;
-        Rect a = previous.getBoundingBox(), b = next.getBoundingBox();
-        if (a == null || b == null || a.height() <= 0 || b.height() <= 0) return false;
-        int height = Math.max(a.height(), b.height());
-        int gap = b.top - a.bottom;
-        int overlap = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-        return gap >= -height / 3 && gap <= height * 1.5f &&
-                overlap > 0 && b.centerY() > a.centerY();
-    }
-
-    private static void scanJoined(List<Token> previous, List<Token> next, SearchPlan plan,
+    private static void scanJoined(LineData a, LineData b, SearchPlan plan,
                                    List<MatchHit> hits, Set<String> dedupe, long now) {
-        Token left = previous.get(previous.size() - 1), right = next.get(0);
-        // Reconstruct only a visibly hyphenated word, not a standalone dash.
-        if (left.box == null || right.box == null || !hasBreakHyphen(left.original.trim())) return;
-        String value = left.value;
-        if (!value.endsWith("-") && left.original.endsWith("\u00ad")) value += "-";
-        for (String joined : OcrRepair.joinedVariants(value, right.value)) {
-            List<Token> both = new ArrayList<>(previous.size() + next.size() - 1);
-            both.addAll(previous.subList(0, previous.size() - 1));
+        Token left = a.tokens.get(a.fragment), hyphen = a.tokens.get(a.fragment+1), right = b.tokens.get(0);
+        List<String> variants = OcrRepair.joinedVariants(left.value+"-",right.value);
+        if (variants.size() != 2) return;
+        for (int i = 0; i < variants.size(); i++) {
+            List<Token> both = new ArrayList<>(a.tokens.subList(0,a.fragment));
+            Token merged = new Token(variants.get(i),a,left.start,hyphen.end);
+            merged.left = new Token(left.value+"-",a,left.start,hyphen.end);
+            merged.right = right;
+            merged.breakBefore = left.breakBefore;
             int at = both.size();
-            both.add(new Token(joined, "", left.box, left.element, left.line, left, right));
-            both.addAll(next.subList(1, next.size()));
-            scan(both, -1, at, plan, hits, dedupe, now);
+            both.add(merged);
+            both.addAll(b.tokens.subList(1,b.tokens.size()));
+            scan(both,-1,at,variants.get(1-i),plan,hits,dedupe,now);
         }
     }
 
-    /** A repaired line break must occur inside the window; a standard cross-line
-     * window must span the boundary. Only exact full terms justify reconstruction. */
-    private static void scan(List<Token> tokens, int boundary, int joinedIndex, SearchPlan plan,
+    private static void scan(List<Token> tokens, int boundary, int joined, String alternative,
+                             SearchPlan plan, List<MatchHit> hits, Set<String> dedupe, long now) {
+        List<String> values = new ArrayList<>(tokens.size());
+        boolean[] barriers = new boolean[tokens.size()], breaks = new boolean[tokens.size()];
+        for (int i = 0; i < tokens.size(); i++) {
+            Token t = tokens.get(i);
+            values.add(t.value);
+            barriers[i] = t.barrier;
+            breaks[i] = t.breakBefore;
+        }
+        plan.scan(values,barriers,breaks,boundary,joined,alternative,
+                (start,end,terms,kind) -> emit(tokens,start,end,terms,kind,hits,dedupe,now));
+    }
+
+    private static void emit(List<Token> tokens, int start, int end, List<CompiledTerm> terms, MatchHit.Kind kind,
                              List<MatchHit> hits, Set<String> dedupe, long now) {
-        int max = plan.tokenCounts.get(plan.tokenCounts.size() - 1);
-        int pivot = joinedIndex >= 0 ? joinedIndex : boundary;
-        int first = pivot < 0 ? 0 : Math.max(0, pivot - max + 1);
-        int limit = joinedIndex >= 0 ? joinedIndex + 1 : boundary >= 0 ? boundary : tokens.size();
-        for (int start = first; start < limit; start++) {
-            if (Thread.currentThread().isInterrupted()) return;
-            StringBuilder phrase = new StringBuilder();
-            for (int end = start; end < tokens.size() && end - start < max; end++) {
-                Token token = tokens.get(end);
-                if (token.box == null) break;
-                if (phrase.length() > 0) phrase.append(' ');
-                phrase.append(token.value);
-                int count = end - start + 1;
-                if ((pivot >= 0 && end < pivot) || !plan.indexes.containsKey(count)) continue;
-                String actual = phrase.toString();
-                MatchHit.Kind kind = joinedIndex >= 0 ? MatchHit.Kind.LINE_JOIN : MatchHit.Kind.LITERAL;
-                List<CompiledTerm> found = joinedIndex >= 0 ? plan.exactCandidates(count, actual) : plan.candidates(count, actual);
-                if (found.isEmpty() && joinedIndex < 0 && boundary < 0 && count == 1) {
-                    found = plan.repairedCandidates(actual);
-                    if (!found.isEmpty()) kind = MatchHit.Kind.OCR_REPAIR;
-                }
-                if (found.isEmpty()) continue;
-                List<Token> evidence = new ArrayList<>();
-                for (int i = start; i <= end; i++) {
-                    Token part = tokens.get(i);
-                    if (part.left != null) {
-                        evidence.add(part.left);
-                        evidence.add(part.right);
-                    } else evidence.add(part);
-                }
-                List<RectF> segments = new ArrayList<>();
-                StringBuilder original = new StringBuilder();
-                int lastLine = -1, lastElement = -1;
-                for (Token part : evidence) {
-                    if (part.line != lastLine) segments.add(new RectF(part.box));
-                    else segments.get(segments.size() - 1).union(part.box);
-                    if (part.element != lastElement) {
-                        if (original.length() > 0) original.append(part.line == lastLine ? ' ' : '\n');
-                        original.append(part.original);
-                    }
-                    lastLine = part.line;
-                    lastElement = part.element;
-                }
-                for (CompiledTerm term : found) addHit(hits, dedupe, segments, original.toString(), term, now, kind);
-            }
+        List<Token> evidence = new ArrayList<>();
+        for (int i = start; i < end; i++) {
+            Token t = tokens.get(i);
+            if (t.left == null) evidence.add(t);
+            else { evidence.add(t.left); evidence.add(t.right); }
+        }
+        List<RectF> geometry = new ArrayList<>();
+        StringBuilder raw = new StringBuilder();
+        for (int i = 0; i < evidence.size();) {
+            Token first = evidence.get(i);
+            int j = i+1;
+            while (j < evidence.size() && evidence.get(j).line == first.line) j++;
+            int to = evidence.get(j-1).end;
+            List<RectF> boxes = first.line.geometry(first.start,to);
+            if (boxes == null) return;
+            geometry.addAll(boxes);
+            if (raw.length() > 0) raw.append('\n');
+            raw.append(first.line.raw,first.start,to);
+            i = j;
+        }
+        String original = raw.toString();
+        for (CompiledTerm term : terms) {
+            StringBuilder key = new StringBuilder(term.node.identityKey()).append('|').append(term.raw);
+            for (RectF rect : geometry) key.append('|').append(rect.left).append(':').append(rect.top)
+                    .append(':').append(rect.right).append(':').append(rect.bottom);
+            if (dedupe.add(key.toString())) hits.add(new MatchHit(geometry,original,term.raw,term.node,now,kind,false));
         }
     }
 
-    private static int countTokens(String normalized) {
-        int count = 0;
-        boolean inToken = false;
-        for (int i = 0; i < normalized.length(); i++) {
-            if (Character.isWhitespace(normalized.charAt(i))) {
-                inToken = false;
-            } else if (!inToken) {
-                count++;
-                inToken = true;
-            }
+    /** Compatibility helper used for page anchors and not for matching. */
+    public static String normalize(String value, boolean strip) {
+        StringBuilder result = new StringBuilder();
+        for (LiteralText.Lexeme token : LiteralText.lex(value,strip)) if (token.word) {
+            if (result.length() > 0) result.append(' ');
+            result.append(token.value);
         }
-        return Math.max(1, count);
+        return result.toString();
+    }
+    static List<String> tokenize(String original, boolean strip) {
+        List<String> out = new ArrayList<>();
+        for (LiteralText.Lexeme t : LiteralText.lex(original,strip)) if (t.word) out.add(t.value);
+        return out;
     }
 
-    private static void addHit(List<MatchHit> hits, Set<String> dedupe,
-                               List<RectF> segments, String original, CompiledTerm term, long timestamp, MatchHit.Kind kind) {
-        StringBuilder key = new StringBuilder(term.node.identityKey()).append('|').append(term.raw);
-        for (RectF box : segments) key.append('|').append(box.left).append(':').append(box.top)
-                .append(':').append(box.right).append(':').append(box.bottom);
-        if (dedupe.add(key.toString())) {
-            hits.add(new MatchHit(segments, original, term.raw, term.node, timestamp, kind, false));
-        }
-    }
-
-    public static boolean matches(
-            String actual,
-            String term,
-            AppPrefs.MatchMode mode,
-            int compareChars
-    ) {
+    public static boolean matches(String actual, String term, AppPrefs.MatchMode mode, int compareChars) {
         if (actual == null || term == null) return false;
-        String a = actual.trim();
-        String t = term.trim();
-        if (a.isEmpty() || t.isEmpty()) return false;
-
-        if (compareChars > 0) {
-            int tLen = Math.min(compareChars, t.length());
-            t = t.substring(0, tLen);
-
-            if (mode == AppPrefs.MatchMode.EXACT) {
-                int aLen = Math.min(compareChars, a.length());
-                a = a.substring(0, aLen);
-            }
-        }
-
-        switch (mode) {
-            case EXACT:
-                return a.equals(t);
-            case CONTAINS:
-                return a.contains(t);
-            case FLEXIBLE:
-                return a.equals(t) || a.startsWith(t) || a.contains(t);
-            case PREFIX:
-            default:
-                return a.startsWith(t);
-        }
-    }
-
-    private static final java.util.regex.Pattern MARKS = java.util.regex.Pattern.compile("\\p{M}+");
-    private static final java.util.regex.Pattern SEPARATORS = java.util.regex.Pattern.compile("[^\\p{L}\\p{N}\\s'-]+");
-    private static final java.util.regex.Pattern SPACES = java.util.regex.Pattern.compile("\\s+");
-
-    public static String normalize(String value, boolean stripDiacritics) {
-        if (value == null) return "";
-        String out = Normalizer.normalize(value.replace("\u00ad", "").toLowerCase(Locale.ROOT), Normalizer.Form.NFC)
-                .replace('ş', 'ș').replace('ţ', 'ț')
-                .replace('’', '\'').replace('–', '-').replace('‑', '-').replace('‐', '-');
-        if (stripDiacritics) {
-            out = MARKS.matcher(Normalizer.normalize(out, Normalizer.Form.NFD)).replaceAll("");
-        }
-        return SPACES.matcher(SEPARATORS.matcher(out).replaceAll(" ")).replaceAll(" ").trim();
+        if (actual.equals(term)) return true;
+        if (mode == AppPrefs.MatchMode.EXACT || !LiteralText.isAlphabetic(actual) ||
+                !LiteralText.isAlphabetic(term) || term.length() < 3) return false;
+        String t = compareChars > 0 ? term.substring(0,Math.min(term.length(),Math.max(3,compareChars))) : term;
+        return mode == AppPrefs.MatchMode.PREFIX ? actual.startsWith(t) : actual.contains(t);
     }
 }

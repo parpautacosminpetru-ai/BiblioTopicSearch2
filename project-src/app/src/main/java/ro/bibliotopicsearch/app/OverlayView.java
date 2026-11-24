@@ -87,8 +87,7 @@ public final class OverlayView extends View {
         Map<String, List<MatchHit>> groups = new LinkedHashMap<>();
         Map<String, RectF> geometry = new HashMap<>();
         for (MatchHit hit : hits) for (RectF box : hit.segments) {
-            String key = Math.round(box.left / 4f) + ":" + Math.round(box.top / 4f) + ":" +
-                    Math.round(box.right / 4f) + ":" + Math.round(box.bottom / 4f);
+            String key = box.left + ":" + box.top + ":" + box.right + ":" + box.bottom;
             groups.computeIfAbsent(key, ignored -> new ArrayList<>()).add(hit);
             geometry.putIfAbsent(key, box);
         }
@@ -141,7 +140,8 @@ public final class OverlayView extends View {
 
     private RectF paddedBox(RectF source) {
         RectF box = new RectF(source);
-        box.inset(-dp(2), -dp(1.5f));
+        // Keep the marker within the actual OCR rectangle.
+        box.intersect(0f, 0f, getWidth(), getHeight());
         return box;
     }
 

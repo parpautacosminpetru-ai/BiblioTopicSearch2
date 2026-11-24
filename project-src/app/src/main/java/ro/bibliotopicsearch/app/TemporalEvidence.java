@@ -81,7 +81,7 @@ final class TemporalEvidence<T> {
                 }
             }
             if (nearest != null) used.add(nearest);
-            boolean confirmed = !fresh.needsConfirmation || nearest != null;
+            boolean confirmed = !fresh.needsConfirmation || (nearest != null && continuity == PageContinuity.State.STABLE);
             next.add(new Track<>(fresh, confirmed));
             if (confirmed) out.add(new Result<>(fresh,
                     continuity == PageContinuity.State.STABLE && nearest != null ? nearest.observation : null, false));

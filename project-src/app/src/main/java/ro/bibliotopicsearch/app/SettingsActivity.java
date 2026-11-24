@@ -54,10 +54,10 @@ public final class SettingsActivity extends AppCompatActivity {
         root.addView(label("Potrivire"));
         RadioGroup modes = new RadioGroup(this);
         modes.setOrientation(RadioGroup.VERTICAL);
-        RadioButton exact = radio("Exact");
-        RadioButton prefix = radio("Începe cu");
-        RadioButton contains = radio("Conține");
-        RadioButton flexible = radio("Flexibil");
+        RadioButton exact = radio("Exact · cuvânt / expresie integrală");
+        RadioButton prefix = radio("Începe cu (aproximativ)");
+        RadioButton contains = radio("Conține (aproximativ)");
+        RadioButton flexible = radio("Flexibil (aproximativ)");
         modes.addView(exact);
         modes.addView(prefix);
         modes.addView(contains);
@@ -83,12 +83,18 @@ public final class SettingsActivity extends AppCompatActivity {
         Switch repair = toggle("Corectare OCR prudentă", AppPrefs.ocrRepair(this));
         repair.setOnCheckedChangeListener((b, checked) -> AppPrefs.setOcrRepair(this, checked));
         root.addView(repair);
+        Switch join = toggle("Reunire la capăt de rând", AppPrefs.joinHyphenation(this));
+        join.setOnCheckedChangeListener((v, checked) -> AppPrefs.setJoinHyphenation(this, checked));
+        root.addView(join);
+        Switch titles = toggle("Caută și titlurile fără termeni", AppPrefs.searchNodeTitles(this));
+        titles.setOnCheckedChangeListener((v, checked) -> AppPrefs.setSearchNodeTitles(this, checked));
+        root.addView(titles);
 
         charsValue = valueText();
         SeekBar chars = new SeekBar(this);
         chars.setMax(24);
         chars.setProgress(AppPrefs.compareChars(this));
-        root.addView(label("Lungimea potrivirii"));
+        root.addView(label("Lungime aproximativă · min. 3 litere"));
         root.addView(charsValue);
         root.addView(chars);
         updateCharsLabel(chars.getProgress());

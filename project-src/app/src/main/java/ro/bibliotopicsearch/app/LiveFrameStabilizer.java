@@ -34,19 +34,19 @@ final class LiveFrameStabilizer {
             MatchHit hit = raw.withTimestamp(timestamp);
             // A repair can be corroborated by a literal reading of the same map
             // term; distinct map/node identities always stay separate.
-            observations.add(new TemporalEvidence.Observation<>(hit.identityKey(), hit.box.centerX(),
+            // Include the actual text in the identity: a changed OCR word
+            // cannot inherit geometry or confirmation from another reading.
+            String key = hit.identityKey() + "\u0001" + hit.originalText + "\u0001" + hit.kind;
+            observations.add(new TemporalEvidence.Observation<>(key, hit.box.centerX(),
                     hit.box.centerY(), Math.max(1f, hit.segments.get(0).height()),
-                    hit.kind == MatchHit.Kind.OCR_REPAIR, hit));
+                    hit.kind != MatchHit.Kind.LITERAL, hit));
         }
         List<MatchHit> result = new ArrayList<>();
         float currentWeight = 0.28f + 0.72f * Math.max(0, Math.min(100, precision)) / 100f;
         for (TemporalEvidence.Result<MatchHit> tracked : tracker.update(observations, state, timestamp)) {
             MatchHit fresh = tracked.current.value;
-            if (tracked.held) {
-                // In precision mode, never show evidence from an earlier frame.
-                if (precision < 100) result.add(fresh.withGeometry(fresh.segments, true));
-                continue;
-            }
+            // Never display a word absent from the latest OCR result.
+            if (tracked.held) continue;
             MatchHit old = tracked.previous == null ? null : tracked.previous.value;
             if (old == null || old.segments.size() != fresh.segments.size() || currentWeight >= 1f) {
                 result.add(fresh);

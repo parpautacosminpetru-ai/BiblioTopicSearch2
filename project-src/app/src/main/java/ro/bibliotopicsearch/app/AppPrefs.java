@@ -17,48 +17,64 @@ public final class AppPrefs {
     }
 
     public static MatchMode getMatchMode(Context context) {
-        String value = prefs(context).getString("match_mode", MatchMode.PREFIX.name());
+        String value = prefs(context).getString("literal_match_mode_v115", MatchMode.EXACT.name());
         try {
             return MatchMode.valueOf(value);
         } catch (Exception ignored) {
-            return MatchMode.PREFIX;
+            return MatchMode.EXACT;
         }
     }
 
     public static void setMatchMode(Context context, MatchMode mode) {
-        prefs(context).edit().putString("match_mode", mode.name()).apply();
+        prefs(context).edit().putString("literal_match_mode_v115", mode.name()).apply();
     }
 
     public static boolean ignoreDiacritics(Context context) {
-        return prefs(context).getBoolean("ignore_diacritics", true);
+        return prefs(context).getBoolean("literal_ignore_diacritics_v115", false);
     }
 
     public static void setIgnoreDiacritics(Context context, boolean value) {
-        prefs(context).edit().putBoolean("ignore_diacritics", value).apply();
+        prefs(context).edit().putBoolean("literal_ignore_diacritics_v115", value).apply();
     }
 
     public static boolean ocrRepair(Context context) {
-        return prefs(context).getBoolean("ocr_repair", true);
+        return prefs(context).getBoolean("literal_ocr_repair_v115", false);
     }
 
     public static void setOcrRepair(Context context, boolean value) {
-        prefs(context).edit().putBoolean("ocr_repair", value).apply();
+        prefs(context).edit().putBoolean("literal_ocr_repair_v115", value).apply();
+    }
+
+    public static boolean joinHyphenation(Context context) {
+        return prefs(context).getBoolean("literal_join_hyphenation", false);
+    }
+
+    public static void setJoinHyphenation(Context context, boolean value) {
+        prefs(context).edit().putBoolean("literal_join_hyphenation", value).apply();
+    }
+
+    public static boolean searchNodeTitles(Context context) {
+        return prefs(context).getBoolean("literal_search_titles", false);
+    }
+
+    public static void setSearchNodeTitles(Context context, boolean value) {
+        prefs(context).edit().putBoolean("literal_search_titles", value).apply();
     }
 
     public static int compareChars(Context context) {
-        return prefs(context).getInt("compare_chars", 0);
+        return prefs(context).getInt("literal_compare_chars_v115", 0);
     }
 
     public static void setCompareChars(Context context, int value) {
-        prefs(context).edit().putInt("compare_chars", Math.max(0, value)).apply();
+        prefs(context).edit().putInt("literal_compare_chars_v115", Math.max(0, value)).apply();
     }
 
     public static int precision(Context context) {
-        return prefs(context).getInt("precision", 90);
+        return prefs(context).getInt("literal_precision_v115", 100);
     }
 
     public static void setPrecision(Context context, int value) {
-        prefs(context).edit().putInt("precision", Math.max(0, Math.min(100, value))).apply();
+        prefs(context).edit().putInt("literal_precision_v115", Math.max(0, Math.min(100, value))).apply();
     }
 
     public static boolean ocrEnabled(Context context) {
