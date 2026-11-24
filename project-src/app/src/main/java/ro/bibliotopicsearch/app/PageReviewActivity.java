@@ -37,7 +37,9 @@ import java.util.concurrent.TimeUnit;
 /** Still-page review: all geometry is drawn on the very bitmap recognized
  * by OCR, never projected onto a newer camera frame. */
 public final class PageReviewActivity extends AppCompatActivity {
+    static final String OPEN_IMAGE="open_image";
     private static final int PICK=72, PICK_MODEL=73;
+    private Uri sourceUri;
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
     private Bitmap source,review;
     private float[] corners={0,0,1,0,1,1,0,1};
@@ -69,7 +71,7 @@ public final class PageReviewActivity extends AppCompatActivity {
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(10),dp(4),dp(10),dp(6));root.setBackgroundColor(Color.rgb(246,248,251));
         LinearLayout bar=new LinearLayout(this);
-        open=button("Imagine");edit=button("Colțuri");analyse=button("OCR");
+        open=button("Imagine");edit=button("Colțuri");analyse=button("OCR latin");
         historical=button("OCR istoric");
         for(Button button:new Button[]{open,edit,analyse,historical})bar.addView(button,new LinearLayout.LayoutParams(0,dp(48),1));
         root.addView(bar);
@@ -138,16 +140,21 @@ public final class PageReviewActivity extends AppCompatActivity {
             page.showOriginal(source,corners);edit.setText("Resetează");showCandidates.setVisibility(View.GONE);
             status.setText("Ajustează cele patru colțuri");
         });
-        analyse.setOnClickListener(v->analyse());
+        analyse.setOnClickListener(v->readLatinPage());
         setContentView(root);UiInsets.apply(root);
         Bitmap draft=PageDraft.take();
         if(draft!=null)useSource(draft);
-        else{status.setText("Alege o imagine");setBusy(false);}
+        else if(saved!=null&&saved.getString("source_uri")!=null){
+            sourceUri=Uri.parse(saved.getString("source_uri"));loadImage(sourceUri,saved.getString("historical_text",""));
+        }else{status.setText("Alege o imagine sau importă un model OCR.");setBusy(false);
+            if(saved==null&&getIntent().getBooleanExtra(OPEN_IMAGE,false))open.post(this::pick);
+        }
     }
     private void pick(){
         if(busy)return;
         Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.setType("image/*");
-        intent.addCategory(Intent.CATEGORY_OPENABLE);startActivityForResult(intent,PICK);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(intent,PICK);
     }
     private void useSource(Bitmap bitmap){
         Bitmap oldSource=source,oldReview=review;
@@ -172,6 +179,39 @@ public final class PageReviewActivity extends AppCompatActivity {
         // folding follows the user's setting; no speculative corrections.
         return TopicMatcher.compile(TopicMapStore.loadForScanning(this,chosen),
                 AppPrefs.ignoreDiacritics(this),0,AppPrefs.MatchMode.EXACT);
+    }
+    private void readLatinPage(){
+        if(busy||source==null)return;
+        if(!showingResult&&historicalPanel.getVisibility()!=View.VISIBLE)corners=page.corners();
+        final Bitmap input=source;final float[] quad=corners.clone();final boolean small=page.hasRegionSelection();
+        final int curve=bow.getProgress()-100,strength=contrast.getProgress();final boolean straighten=deskew.isChecked();
+        if(historicalText.length()>0){
+            new AlertDialog.Builder(this).setTitle("Înlocuiești textul de lucru?")
+                .setNegativeButton("Renunță",null).setPositiveButton("Rulează OCR",(d,w)->readLatinPageConfirmed(input,quad,small,curve,strength,straighten)).show();
+        }else readLatinPageConfirmed(input,quad,small,curve,strength,straighten);
+    }
+    private void readLatinPageConfirmed(Bitmap input,float[] quad,boolean small,int curve,int strength,boolean straighten){
+        soundPlayer.setEnabled(false);setBusy(true);status.setText("OCR latin local…");
+        worker.execute(()->{
+            Bitmap rectified=null,enhanced=null;TextRecognizer client=null;
+            try{
+                rectified=small?PageImageProcessor.rectifyGlyph(input,quad):PageImageProcessor.rectify(input,quad,curve,straighten);
+                enhanced=PageImageProcessor.historicalContrast(rectified,strength);
+                client=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+                String result=Tasks.await(client.process(InputImage.fromBitmap(enhanced,0)),30,TimeUnit.SECONDS).getText();
+                if(result.length()>LiteralTransliterator.MAX_INPUT)throw new IllegalArgumentException("Text prea lung; selectează o zonă mai mică.");
+                final Bitmap output=enhanced;enhanced=null;
+                runOnUiThread(()->{
+                    if(isFinishing()||isDestroyed()){output.recycle();return;}
+                    Bitmap old=review;review=output;showingResult=true;lastOcrText=result;
+                    verified=Collections.emptyList();candidates=Collections.emptyList();rawPageOcr=null;correctedPageOcr=null;paleographyLines=Collections.emptyList();
+                    setBusy(false);showHistoricalDraft(result,"OCR latin (candidat)");
+                    if(result.isEmpty())status.setText("Niciun text recunoscut. Încearcă altă scriere sau transcriere manuală.");
+                    if(old!=null&&old!=source&&old!=output&&!old.isRecycled())old.recycle();
+                });
+            }catch(Exception|LinkageError e){error(new IllegalStateException(e.getMessage()==null?"OCR indisponibil.":e.getMessage(),e));}
+            finally{if(client!=null)client.close();if(rectified!=null)rectified.recycle();if(enhanced!=null)enhanced.recycle();}
+        });
     }
     private void analyse(){
         if(busy||source==null)return;
@@ -227,7 +267,7 @@ public final class PageReviewActivity extends AppCompatActivity {
                 }).setNegativeButton("Închide",null).show();return;
         }
         String[] options={"Transcriere manuală / continuă textul","Importă model OCR (.traineddata)",
-            "OCR multialfabet — selectează modele","Învață semnul selectat","Identifică semnul selectat","Gestionează catalogul de semne","Selectează zonă / semn prin glisare"};
+            "OCR multialfabet — selectează modele","Învață semnul selectat","Identifică semnul selectat","Gestionează catalogul de semne","Selectează zonă / semn prin glisare","Căutare tematică (hărți)"};
         new AlertDialog.Builder(this).setTitle("Paleografie universală").setItems(options,(d,which)->{
             if(which==0){
                 if(!showingResult&&historicalPanel.getVisibility()!=View.VISIBLE)corners=page.corners();
@@ -241,7 +281,7 @@ public final class PageReviewActivity extends AppCompatActivity {
                         .setNegativeButton("Renunță",null).setPositiveButton("Rulează OCR",(x,y)->historicalAnalyse(models,mode)).show();
                     else historicalAnalyse(models,mode);
                 });
-            }else if(which==6)selectGlyphRegion();else glyphDialog(which);
+            }else if(which==6)selectGlyphRegion();else if(which==7)analyse();else glyphDialog(which);
         }).setNegativeButton("Închide",null).show();
     }
     private void pickHistoricalModel(){
@@ -449,15 +489,26 @@ public final class PageReviewActivity extends AppCompatActivity {
             return;
         }
         if(request!=PICK||result!=RESULT_OK||data==null||data.getData()==null||busy)return;
-        Uri uri=data.getData();setBusy(true);status.setText("Se deschide imaginea…");
+        Uri uri=data.getData();
+        try{getContentResolver().takePersistableUriPermission(uri,data.getFlags()&Intent.FLAG_GRANT_READ_URI_PERMISSION);}
+        catch(SecurityException ignored){}
+        sourceUri=uri;loadImage(uri,"");
+    }
+    private void loadImage(Uri uri,String restoredText){
+        setBusy(true);status.setText("Se deschide imaginea…");
         worker.execute(()->{
             try{
                 Bitmap bitmap=decode(uri);
                 runOnUiThread(()->{
                     if(isFinishing()||isDestroyed()){bitmap.recycle();return;}useSource(bitmap);
+                    if(!restoredText.isEmpty())showHistoricalDraft(restoredText,"Transcriere restaurată");
                 });
             }catch(Exception e){error(e);}
         });
+    }
+    @Override protected void onSaveInstanceState(Bundle state){
+        super.onSaveInstanceState(state);
+        if(sourceUri!=null){state.putString("source_uri",sourceUri.toString());state.putString("historical_text",historicalText.getText().toString());}
     }
     private Bitmap decode(Uri uri)throws Exception{
         if(Build.VERSION.SDK_INT>=28){

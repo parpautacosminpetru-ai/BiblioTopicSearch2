@@ -56,8 +56,9 @@
             android:screenOrientation="portrait"
             android:exported="false" />
 
+        <activity android:name=".MainActivity" android:screenOrientation="portrait" android:exported="false" />
         <activity
-            android:name=".MainActivity"
+            android:name=".PaleographyHomeActivity"
             android:screenOrientation="portrait"
             android:exported="true">
             <intent-filter>

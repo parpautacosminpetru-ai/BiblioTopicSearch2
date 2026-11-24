@@ -30,7 +30,8 @@ public final class LiveHistoricalActivity extends AppCompatActivity {
     private PreviewView preview;
     private LifecycleCameraController camera;
     private TextView status,text;
-    private Button start,choose,inspect,translit,importModel;
+    private Button start,choose,inspect,translit,importModel,capture,gallery;
+    private long streamWaitStarted;
     private static final int PICK_MODEL=92;
     private boolean autoStart=true,importing;
     private com.google.mlkit.vision.text.TextRecognizer latin; // worker only
@@ -59,6 +60,24 @@ public final class LiveHistoricalActivity extends AppCompatActivity {
         });
         preview=new PreviewView(this);preview.setImplementationMode(PreviewView.ImplementationMode.COMPATIBLE);
         root.addView(preview,new LinearLayout.LayoutParams(-1,0,3));
+        capture=button("Fixează imaginea");gallery=button("Din galerie");
+        LinearLayout imageBar=new LinearLayout(this);
+        imageBar.addView(capture,new LinearLayout.LayoutParams(0,dp(48),1));
+        imageBar.addView(gallery,new LinearLayout.LayoutParams(0,dp(48),1));root.addView(imageBar);
+        capture.setEnabled(false);
+        capture.setOnClickListener(v->{
+            if(preview.getPreviewStreamState().getValue()!=PreviewView.StreamState.STREAMING)return;
+            Bitmap photo;
+            try{photo=preview.getBitmap();}catch(RuntimeException e){photo=null;}
+            if(photo==null){status.setText("Imagine indisponibilă. Încearcă din nou.");return;}
+            stop();autoStart=false;PageDraft.offer(photo);startActivity(new Intent(this,PageReviewActivity.class));
+        });
+        gallery.setOnClickListener(v->{stop();autoStart=false;startActivity(new Intent(this,PageReviewActivity.class).putExtra(PageReviewActivity.OPEN_IMAGE,true));});
+        preview.getPreviewStreamState().observe(this,state->{
+            boolean ready=state==PreviewView.StreamState.STREAMING;
+            capture.setEnabled(ready&&!importing);
+            if(ready&&running){streamWaitStarted=0;main.removeCallbacks(tick);main.post(tick);}
+        });
         status=new TextView(this);status.setText("Latin rapid inclus · Alege scrierea pentru alte modele.");root.addView(status);
         TextView notice=new TextView(this);notice.setText("Candidat din ultimul cadru analizat, nu suprapunere live certificată.");root.addView(notice);
         android.widget.ScrollView scroll=new android.widget.ScrollView(this);
@@ -111,25 +130,32 @@ public final class LiveHistoricalActivity extends AppCompatActivity {
     private void setup(){
         if(camera!=null||destroyed)return;
         try{camera=new LifecycleCameraController(this);camera.setEnabledUseCases(0);preview.setController(camera);camera.bindToLifecycle(this);start.setEnabled(!importing);if(resumed&&autoStart){autoStart=false;begin();}}
-        catch(RuntimeException e){camera=null;status.setText("Camera indisponibilă.");}
+        catch(RuntimeException e){if(camera!=null){try{camera.unbind();}catch(RuntimeException ignored){}}camera=null;status.setText("Camera indisponibilă. Poți folosi Din galerie.");}
     }
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants){
         super.onRequestPermissionsResult(request,permissions,grants);
         if(request==91&&grants.length>0&&grants[0]==PackageManager.PERMISSION_GRANTED)setup();
-        else if(request==91)status.setText("Permisiunea pentru cameră este necesară.");
+        else if(request==91){status.setText("Camera nu are permisiune. Folosește Din galerie sau acordă permisiunea în Setări.");start.setEnabled(false);}
     }
     private void begin(){
         if(destroyed||!resumed||camera==null||importing)return;
-        running=true;generation++;start.setText("Oprește");status.setText("Se analizează cadre…");main.removeCallbacks(tick);main.post(tick);
+        running=true;generation++;streamWaitStarted=android.os.SystemClock.elapsedRealtime();start.setText("Oprește");status.setText("Se așteaptă imaginea camerei…");main.removeCallbacks(tick);main.post(tick);
     }
     private void stop(){running=false;generation++;main.removeCallbacks(tick);if(start!=null)start.setText("Pornește");}
     private void clearLast(){if(lastFrame!=null){lastFrame.recycle();lastFrame=null;}lastText="";text.setText("");inspect.setEnabled(false);translit.setEnabled(false);}
     private void sample(){
         if(!running||!resumed||destroyed)return;
+        if(preview.getPreviewStreamState().getValue()!=PreviewView.StreamState.STREAMING){
+            long now=android.os.SystemClock.elapsedRealtime();
+            if(streamWaitStarted==0)streamWaitStarted=now;
+            if(now-streamWaitStarted>15000){stop();status.setText("Camera nu livrează imagine. Repornește OCR sau folosește Din galerie.");return;}
+            main.postDelayed(tick,300);return;
+        }
+        streamWaitStarted=0;
         if(inFlight){main.postDelayed(tick,300);return;}
         Bitmap raw;
         try{raw=preview.getBitmap();}catch(RuntimeException e){raw=null;}
-        if(raw==null){main.postDelayed(tick,600);return;}
+        if(raw==null){status.setText("Se așteaptă cadrul camerei…");main.postDelayed(tick,600);return;}
         final Bitmap frame;
         double scale=Math.min(1,1280d/Math.max(raw.getWidth(),raw.getHeight()));
         try{frame=Bitmap.createScaledBitmap(raw,Math.max(1,(int)(raw.getWidth()*scale)),Math.max(1,(int)(raw.getHeight()*scale)),true);}
@@ -163,7 +189,10 @@ public final class LiveHistoricalActivity extends AppCompatActivity {
             });
         });
     }
-    @Override protected void onResume(){super.onResume();resumed=true;if(camera!=null&&autoStart){autoStart=false;begin();}}
+    @Override protected void onResume(){super.onResume();resumed=true;
+        if(camera==null&&ActivityCompat.checkSelfPermission(this,Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED)setup();
+        if(camera!=null&&autoStart){autoStart=false;begin();}
+    }
     @Override protected void onPause(){resumed=false;stop();super.onPause();}
     @Override protected void onDestroy(){
         destroyed=true;stop();clearLast();if(camera!=null)camera.unbind();worker.execute(()->{if(session!=null){session.close();session=null;}if(latin!=null){latin.close();latin=null;}});worker.shutdown();super.onDestroy();

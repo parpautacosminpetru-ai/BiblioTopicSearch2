@@ -3,7 +3,7 @@ name: Biblio Paleografie - test and build
 on:
   push:
     branches:
-      - fix/paleography-1.4.1-parallel
+      - fix/paleography-verified-1.4.2
   workflow_dispatch:
 
 concurrency:
@@ -16,7 +16,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -48,6 +48,17 @@ jobs:
           done
           curl --fail --silent --show-error --location --retry 3 "$BASE/LICENSE" -o "$MODELS/LICENSE"
           (cd "$MODELS" && sha256sum *.traineddata > SHA256SUMS)
+      - name: Cache test signing key (debug only)
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: biblio-paleography-universal-debug-key-v1
+      - name: Ensure test signing key exists
+        run: |
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkeypair -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Biblio Test,C=RO"
+          fi
       - name: Unit tests and build
         run: gradle --no-daemon -p project-src :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
       - name: Test reports
@@ -62,7 +73,7 @@ jobs:
         run: |
           APK=project-src/app/build/outputs/apk/debug/app-debug.apk
           AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt"
-          "$AAPT" dump badging "$APK" | grep -F "package: name='ro.bibliotopicsearch.paleography.v141' versionCode='23' versionName='1.4.1'"
+          "$AAPT" dump badging "$APK" | grep -F "package: name='ro.bibliotopicsearch.paleography.universal' versionCode='24' versionName='1.4.2'"
           unzip -Z1 "$APK" > apk-files.txt
           for model in ron eng rus ell grc ara heb hin chi_sim chi_tra jpn kor; do
             grep -Fx "assets/ocr_models/$model.traineddata" apk-files.txt
@@ -70,15 +81,37 @@ jobs:
           "$AAPT" dump permissions "$APK" > permissions.txt
           cat permissions.txt
           if grep -E 'android.permission.(INTERNET|ACCESS_NETWORK_STATE|RECORD_AUDIO)' permissions.txt; then exit 1; fi
+      - name: Enable KVM for Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Execute Android instrumented tests (API 35)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated
+          disable-animations: true
+          script: gradle --no-daemon -p project-src :app:connectedDebugAndroidTest
+      - name: Android test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Paleografie-Android-test-results
+          path: project-src/app/build/outputs/androidTest-results/
+          if-no-files-found: warn
       - name: Prepare APK
         run: |
           mkdir -p output
-          cp project-src/app/build/outputs/apk/debug/app-debug.apk output/Biblio-Paleografie-1.4.1-Separat.apk
+          cp project-src/app/build/outputs/apk/debug/app-debug.apk output/Biblio-Paleografie-1.4.2.apk
           cd output
-          sha256sum Biblio-Paleografie-1.4.1-Separat.apk > Biblio-Paleografie-1.4.1-Separat.apk.sha256
+          sha256sum Biblio-Paleografie-1.4.2.apk > Biblio-Paleografie-1.4.2.apk.sha256
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Biblio-Paleografie-1.4.1-Separat
+          name: Biblio-Paleografie-1.4.2
           path: output/
           if-no-files-found: error

@@ -1,3 +1,11 @@
+# Biblio Paleografie 1.4.2 — verificare Android
+
+- Ecran de pornire independent de cameră, hărți și transliterare. Acces clar la cameră, galerie, modele, text și Biblio.
+- OCR-ul camerei așteaptă fluxul STREAMING înainte de analiză. La eșec/timeout afișează o explicație; galeria rămâne accesibilă chiar fără permisiune de cameră. Fixează imaginea este independent de rezultatul OCR (cadru din preview, nu fotografie originală certificată).
+- OCR latin pe pagină afișează direct transcrierea editabilă; căutarea tematică rămâne în meniul OCR istoric. Pentru imaginea aleasă din galerie se încearcă păstrarea accesului URI și restaurarea textului la recreare. Cadrele din cameră rămân temporare.
+- APK-ul folosește ID nou ro.bibliotopicsearch.paleography.universal pentru a nu suprascrie versiunile deja instalate. Cheia debug este reutilizată prin cache CI, când cache-ul există; nu este o cheie de producție. Un release profesional necesită cheie de semnare stabilă administrată de proprietar. Nu publica chei private și nu dezinstala aplicațiile vechi înainte de backup.
+- Pipeline-ul publică artefactul numai după trecerea testelor JVM, verificarea APK-ului și executarea testelor instrumentate pe emulator Android API 35. Testele includ pornire, inițializarea celor 12 modele, OCR nativ pe imagini sintetice latină/chirilică și catalog vizual. Aceste probe nu validează performanța camerei fizice sau precizia pe toate manuscrisele.
+
 # Instalare separată 1.4.1
 
 Această ramură produce un APK cu ID Android `ro.bibliotopicsearch.paleography.v141`. Se poate instala alături de 1.4.0, inclusiv atunci când certificatele debug diferă. Datele aplicației vechi rămân acolo; hărțile și sistemele de reguli se pot muta prin export/import. Modelele OCR standard sunt deja incluse. Nicio dezinstalare necesară.

@@ -82,7 +82,7 @@ public final class PaleographyActivity extends AppCompatActivity {
         live.setOnClickListener(v->startActivity(new Intent(this,LiveHistoricalActivity.class)));
         pageReview=button("IMAGINE · SEMNE · OCR");
         root.addView(pageReview,new LinearLayout.LayoutParams(-1,dp(48)));
-        pageReview.setOnClickListener(v->startActivity(new Intent(this,PageReviewActivity.class)));
+        pageReview.setOnClickListener(v->startActivity(new Intent(this,PageReviewActivity.class).putExtra(PageReviewActivity.OPEN_IMAGE,true)));
         root.addView(label("Reguli de transliterare (opțional)",15));
         LinearLayout systemBar=row();
         systems=new Spinner(this);

@@ -7,11 +7,11 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "ro.bibliotopicsearch.paleography.v141"
+        applicationId = "ro.bibliotopicsearch.paleography.universal"
         minSdk = 23
         targetSdk = 36
-        versionCode = 23
-        versionName = "1.4.1"
+        versionCode = 24
+        versionName = "1.4.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
