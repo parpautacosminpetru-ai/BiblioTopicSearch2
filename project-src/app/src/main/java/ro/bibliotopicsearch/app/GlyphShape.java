@@ -12,7 +12,7 @@ final class GlyphShape {
     final byte[] cells;
     final double aspect;
     GlyphShape(byte[] cells,double aspect){
-        if(cells==null||cells.length!=CELLS||!Double.isFinite(aspect)||aspect<=0||aspect>512||aspect<1d/512)
+        if(cells==null||cells.length!=CELLS||(Double.isNaN(aspect)||Double.isInfinite(aspect))||aspect<=0||aspect>512||aspect<1d/512)
             throw new IllegalArgumentException("Șablon vizual invalid.");
         this.cells=cells.clone();this.aspect=aspect;
     }
@@ -69,7 +69,7 @@ final class GlyphShape {
         for(Example e:examples){double d=query.distance(e.shape);Double old=distances.get(e.label);if(old==null||d<old)distances.put(e.label,d);}
         List<Candidate> result=new ArrayList<>();
         for(Map.Entry<String,Double> e:distances.entrySet())result.add(new Candidate(e.getKey(),e.getValue()));
-        result.sort(Comparator.comparingDouble(c->c.distance));return result;
+        java.util.Collections.sort(result,(a,b)->Double.compare(a.distance,b.distance));return result;
     }
     static boolean strong(List<Candidate> ranked){
         if(ranked.isEmpty()||ranked.get(0).distance>.20)return false;

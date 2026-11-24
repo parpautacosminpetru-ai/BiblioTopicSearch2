@@ -219,7 +219,7 @@ public final class PageReviewActivity extends AppCompatActivity {
     private void historicalOptions(){
         if(busy||source==null)return;
         String[] options={"Transcriere manuală / continuă textul","Importă model OCR (.traineddata)",
-            "OCR multialfabet — selectează modele","Învață semnul selectat","Identifică semnul selectat","Gestionează catalogul de semne"};
+            "OCR multialfabet — selectează modele","Învață semnul selectat","Identifică semnul selectat","Gestionează catalogul de semne","Selectează zonă / semn prin glisare"};
         new AlertDialog.Builder(this).setTitle("Paleografie universală").setItems(options,(d,which)->{
             if(which==0){
                 if(!showingResult&&historicalPanel.getVisibility()!=View.VISIBLE)corners=page.corners();
@@ -234,18 +234,20 @@ public final class PageReviewActivity extends AppCompatActivity {
                         .setNegativeButton("Renunță",null).setPositiveButton("Rulează OCR",(x,y)->historicalAnalyse(models,mode)).show();
                     else historicalAnalyse(models,mode);
                 });
-            }else glyphDialog(which);
+            }else if(which==6)selectGlyphRegion();else glyphDialog(which);
         }).setNegativeButton("Închide",null).show();
+    }
+    private void selectGlyphRegion(){
+        if(busy||source==null)return;
+        showingResult=false;showingPaleography=false;soundPlayer.setEnabled(false);
+        historicalPanel.setVisibility(View.GONE);paleography.setVisibility(View.GONE);showCandidates.setVisibility(View.GONE);
+        page.selectRegion(source);edit.setText("Colțuri");
+        status.setText("Glisează de la un colț la cel opus în jurul semnului. Apoi revino la OCR istoric → Învață sau Identifică.");
     }
     private void glyphDialog(int action){
         if(busy||source==null)return;
-        if(action!=5&&historicalPanel.getVisibility()==View.VISIBLE){
-            status.setText("Apasă Colțuri și încadrează un singur semn, cu puțină margine.");
-            historicalPanel.setVisibility(View.GONE);showingResult=false;showingPaleography=false;
-            page.showOriginal(source,corners);return;
-        }
-        if(action!=5&&showingResult){
-            status.setText("Apasă Colțuri și încadrează semnul înainte de comparare.");return;
+        if(action!=5&&!page.hasRegionSelection()){
+            selectGlyphRegion();return;
         }
         LinearLayout fields=new LinearLayout(this);fields.setOrientation(LinearLayout.VERTICAL);fields.setPadding(dp(16),0,dp(16),0);
         android.widget.EditText system=new android.widget.EditText(this);system.setSingleLine(true);
@@ -331,12 +333,13 @@ public final class PageReviewActivity extends AppCompatActivity {
         if(!showingResult&&historicalPanel.getVisibility()!=View.VISIBLE)corners=page.corners();
         final Bitmap input=source;final float[] quad=corners.clone();
         final int curve=bow.getProgress()-100,strength=contrast.getProgress();
+        final boolean small=page.hasRegionSelection()&&(mode==7||mode==8||mode==10);
         final boolean straighten=deskew.isChecked();
         soundPlayer.setEnabled(false);setBusy(true);status.setText("OCR local "+model+"…");
         worker.execute(()->{
             Bitmap rectified=null,enhanced=null;
             try{
-                rectified=PageImageProcessor.rectify(input,quad,curve,straighten);
+                rectified=small?PageImageProcessor.rectifyGlyph(input,quad):PageImageProcessor.rectify(input,quad,curve,straighten);
                 enhanced=PageImageProcessor.historicalContrast(rectified,strength);
                 String text=HistoricalOcr.recognize(this,models,mode,enhanced);
                 if(text.length()>LiteralTransliterator.MAX_INPUT)throw new IllegalArgumentException("Text prea lung; selectează o zonă mai mică.");

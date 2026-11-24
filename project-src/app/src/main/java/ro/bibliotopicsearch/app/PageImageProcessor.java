@@ -19,7 +19,7 @@ final class PageImageProcessor {
         return rectify(original,quad,0,false,8);
     }
     private static Bitmap rectify(Bitmap original,float[] quad,int bow,boolean autoStraighten,int minimum){
-        if(original==null||original.isRecycled()||!PageCorrectionMath.validQuad(quad))
+        if(original==null||original.isRecycled()||!PageCorrectionMath.validRegion(quad))
             throw new IllegalArgumentException("Colțuri invalide");
         float[] p=quad.clone();int sw=original.getWidth(),sh=original.getHeight();
         for(int i=0;i<4;i++){p[i*2]*=sw-1;p[i*2+1]*=sh-1;}

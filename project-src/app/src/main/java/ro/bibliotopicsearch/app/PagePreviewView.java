@@ -27,15 +27,20 @@ final class PagePreviewView extends View {
     private PaleographyLine speaking;
     private LiteralTransliterator.RuleMatch spokenCue;
     private float[] quad={0,0,1,0,1,1,0,1};
-    private boolean editing;
+    private boolean editing,regionMode,regionSelected,regionDragging;
+    private float anchorX,anchorY;
     private int dragged=-1;
     private OnHits listener;
 
     PagePreviewView(Context context){super(context);setBackgroundColor(Color.rgb(21,27,35));}
     void setListener(OnHits listener){this.listener=listener;}
     void showOriginal(Bitmap bitmap,float[] corners){
-        this.bitmap=bitmap;quad=corners.clone();editing=true;hits=Collections.emptyList();paleography=Collections.emptyList();invalidate();
+        this.bitmap=bitmap;quad=corners.clone();editing=true;regionMode=false;regionSelected=false;hits=Collections.emptyList();paleography=Collections.emptyList();invalidate();
     }
+    void selectRegion(Bitmap bitmap){
+        showOriginal(bitmap,new float[]{0,0,1,0,1,1,0,1});regionMode=true;regionSelected=false;invalidate();
+    }
+    boolean hasRegionSelection(){return editing&&regionMode&&regionSelected;}
     void showResult(Bitmap bitmap,List<MatchHit> hits){
         this.bitmap=bitmap;this.hits=hits;editing=false;paleography=Collections.emptyList();invalidate();
     }
@@ -104,6 +109,26 @@ final class PagePreviewView extends View {
     @Override public boolean onTouchEvent(MotionEvent event){
         if(!isEnabled()||!layoutFrame())return false;
         float x=event.getX(),y=event.getY();
+        if(editing&&regionMode){
+            int action=event.getActionMasked();
+            float nx=Math.max(0,Math.min(1,(x-frame.left)/frame.width()));
+            float ny=Math.max(0,Math.min(1,(y-frame.top)/frame.height()));
+            if(action==MotionEvent.ACTION_DOWN){
+                if(!frame.contains(x,y))return false;
+                anchorX=nx;anchorY=ny;regionDragging=true;regionSelected=false;
+                getParent().requestDisallowInterceptTouchEvent(true);return true;
+            }
+            if(regionDragging&&(action==MotionEvent.ACTION_MOVE||action==MotionEvent.ACTION_UP)){
+                float l=Math.min(nx,anchorX),r=Math.max(nx,anchorX),t=Math.min(ny,anchorY),b=Math.max(ny,anchorY);
+                float[] next={l,t,r,t,r,b,l,b};
+                if((r-l)*bitmap.getWidth()>=8&&(b-t)*bitmap.getHeight()>=8){quad=next;regionSelected=true;invalidate();}
+                else regionSelected=false;
+                if(action==MotionEvent.ACTION_UP){regionDragging=false;getParent().requestDisallowInterceptTouchEvent(false);performClick();}
+                return true;
+            }
+            if(action==MotionEvent.ACTION_CANCEL){regionDragging=false;regionSelected=false;getParent().requestDisallowInterceptTouchEvent(false);}
+            return true;
+        }
         if(editing){
             if(event.getActionMasked()==MotionEvent.ACTION_DOWN){
                 float best=dp(34);

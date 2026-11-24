@@ -33,6 +33,11 @@ public class UniversalWritingTest {
         assertFalse(GlyphShape.strong(GlyphShape.rank(a,Arrays.asList(new GlyphShape.Example("𒀀",a),new GlyphShape.Example("[different]",a)))));
         assertFalse(GlyphShape.strong(Collections.emptyList()));
     }
+    @Test public void isolatedGlyphRegionCanBeSmallerThanPageCrop(){
+        float[] small={.2f,.2f,.22f,.2f,.22f,.24f,.2f,.24f};
+        assertTrue(PageCorrectionMath.validRegion(small));assertFalse(PageCorrectionMath.validQuad(small));
+        assertFalse(PageCorrectionMath.validRegion(new float[]{.2f,.2f,.22f,.24f,.22f,.2f,.2f,.24f}));
+    }
     @Test public void blankImageCannotTrain(){
         int[] blank=new int[32*32];Arrays.fill(blank,255);
         try{GlyphShape.extract(blank,32,32);fail();}catch(IllegalArgumentException expected){}

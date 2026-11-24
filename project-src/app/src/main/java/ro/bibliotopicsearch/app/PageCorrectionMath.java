@@ -19,6 +19,19 @@ final class PageCorrectionMath {
         return area*.5>=.12;
     }
 
+    /** Small convex region, with minimum dimension enforced in pixel space by the caller. */
+    static boolean validRegion(float[] q){
+        if(q==null||q.length!=8)return false;
+        for(float x:q)if(Float.isNaN(x)||Float.isInfinite(x)||x<0||x>1)return false;
+        for(int i=0;i<4;i++){
+            int j=(i+1)%4,k=(i+2)%4;
+            double ax=q[j*2]-q[i*2],ay=q[j*2+1]-q[i*2+1];
+            double bx=q[k*2]-q[j*2],by=q[k*2+1]-q[j*2+1];
+            if(ax*by-ay*bx<=0)return false;
+        }
+        return true;
+    }
+
     /** Signed vertical bow. Positive raises a line sagging in the centre.
      * The edge positions are unchanged. */
     static float sourceY(float y,float x,int width,int height,int strength) {
