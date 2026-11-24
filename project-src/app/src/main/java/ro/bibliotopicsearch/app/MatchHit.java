@@ -18,6 +18,6 @@ public final class MatchHit {
     }
 
     public String identityKey() {
-        return node.path + "|" + searchTerm;
+        return node.identityKey() + "|" + searchTerm;
     }
 }

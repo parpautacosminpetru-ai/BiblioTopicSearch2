@@ -66,6 +66,16 @@ public final class TopicMapStore {
         return parseForProfile(context, active.id, active.name, active.rawText);
     }
 
+    /** All selected profiles retain independent paths, node settings and colours. */
+    public static TopicMap loadForScanning(Context context, List<MapProfile> profiles) {
+        List<TopicNode> nodes = new ArrayList<>();
+        for (MapProfile profile : profiles) {
+            TopicMap map = parseForProfile(context, profile.id, profile.name, profile.rawText);
+            nodes.addAll(map.nodes);
+        }
+        return new TopicMap("Hărți selectate", "", nodes);
+    }
+
     public static TopicMap parse(Context context, String name, String rawText) {
         return parseForProfile(context, TopicLibraryStore.getActiveId(context), name, rawText);
     }
@@ -99,7 +109,7 @@ public final class TopicMapStore {
                     path.append(entry.getValue());
                 }
 
-                current = new TopicNode(path.toString(), title, level);
+                current = new TopicNode(profileId, name, path.toString(), title, level);
                 int defaultColor = DEFAULT_COLORS[nodes.size() % DEFAULT_COLORS.length];
                 current.color = getNodeColorForProfile(context, profileId, current.path, defaultColor);
                 current.symbol = getNodeSymbolForProfile(context, profileId, current.path, defaultSymbol(level));

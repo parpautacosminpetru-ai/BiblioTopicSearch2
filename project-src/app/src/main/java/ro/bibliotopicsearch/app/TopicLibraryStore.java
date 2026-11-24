@@ -56,6 +56,29 @@ public final class TopicLibraryStore {
         return out;
     }
 
+    // An absent selection means all current and future profiles. The editing
+    // profile remains independent of scanning. An empty explicit set is valid.
+    public static List<MapProfile> scanProfiles(Context context, List<MapProfile> all) {
+        ensureInitialized(context);
+        java.util.Set<String> selected = prefs(context).getStringSet("scan_profile_ids", null);
+        List<MapProfile> out = new ArrayList<>();
+        for (MapProfile profile : all) {
+            if (selected == null || selected.contains(profile.id)) out.add(profile);
+        }
+        return out;
+    }
+
+    public static void setScanProfiles(Context context, java.util.Set<String> selected) {
+        ensureInitialized(context);
+        List<MapProfile> all = list(context);
+        java.util.Set<String> valid = new LinkedHashSet<>();
+        for (MapProfile profile : all) if (selected.contains(profile.id)) valid.add(profile.id);
+        SharedPreferences.Editor editor = prefs(context).edit();
+        if (valid.size() == all.size()) editor.remove("scan_profile_ids");
+        else editor.putStringSet("scan_profile_ids", valid);
+        editor.apply();
+    }
+
     public static MapProfile getActive(Context context) {
         ensureInitialized(context);
         SharedPreferences p = prefs(context);
@@ -139,6 +162,12 @@ public final class TopicLibraryStore {
                 .remove(key(id, "folder"))
                 .remove(key(id, "text"))
                 .remove(key(id, "created"));
+        java.util.Set<String> selected = p.getStringSet("scan_profile_ids", null);
+        if (selected != null) {
+            java.util.Set<String> remaining = new LinkedHashSet<>(selected);
+            remaining.remove(id);
+            e.putStringSet("scan_profile_ids", remaining);
+        }
         String active = p.getString("active_id", DEFAULT_ID);
         if (id.equals(active)) e.putString("active_id", ids.get(0));
         e.apply();

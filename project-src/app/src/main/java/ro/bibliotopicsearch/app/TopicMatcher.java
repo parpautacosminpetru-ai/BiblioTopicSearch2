@@ -19,7 +19,7 @@ import java.util.Set;
 public final class TopicMatcher {
     private TopicMatcher() {}
 
-    private static final class CompiledTerm {
+    static final class CompiledTerm {
         final String raw;
         final String normalized;
         final int tokenCount;
@@ -41,98 +41,66 @@ public final class TopicMatcher {
         private final boolean stripDiacritics;
         private final int compareChars;
         private final AppPrefs.MatchMode mode;
-        private final Map<Integer, List<CompiledTerm>> termsByTokenCount;
-        private final Map<Integer, Map<Character, List<CompiledTerm>>> termsByFirstChar;
+        private final Map<Integer, TermIndex<CompiledTerm>> indexes;
         private final List<Integer> tokenCounts;
         private final int termCount;
 
-        private SearchPlan(
-                boolean stripDiacritics,
-                int compareChars,
-                AppPrefs.MatchMode mode,
-                Map<Integer, List<CompiledTerm>> termsByTokenCount,
-                Map<Integer, Map<Character, List<CompiledTerm>>> termsByFirstChar,
-                List<Integer> tokenCounts,
-                int termCount
-        ) {
+        private SearchPlan(boolean stripDiacritics, int compareChars, AppPrefs.MatchMode mode,
+                           Map<Integer, TermIndex<CompiledTerm>> indexes, List<Integer> tokenCounts, int termCount) {
             this.stripDiacritics = stripDiacritics;
             this.compareChars = compareChars;
             this.mode = mode;
-            this.termsByTokenCount = termsByTokenCount;
-            this.termsByFirstChar = termsByFirstChar;
+            this.indexes = indexes;
             this.tokenCounts = tokenCounts;
             this.termCount = termCount;
         }
 
-        public int termCount() {
-            return termCount;
-        }
+        public int termCount() { return termCount; }
 
-        private List<CompiledTerm> candidates(int tokenCount, String actual) {
-            List<CompiledTerm> all = termsByTokenCount.get(tokenCount);
-            if (all == null || all.isEmpty() || actual == null || actual.isEmpty()) {
-                return Collections.emptyList();
+        List<CompiledTerm> candidates(int tokenCount, String actual) {
+            TermIndex<CompiledTerm> index = indexes.get(tokenCount);
+            if (index == null || actual == null || actual.isEmpty()) return Collections.emptyList();
+            switch (mode) {
+                case EXACT: return index.exact(shorten(actual, compareChars));
+                case PREFIX: return index.prefix(actual);
+                default: return index.contains(actual);
             }
-
-            // Pentru EXACT/PREFIX primul caracter trebuie să coincidă. Reducem mult
-            // numărul de comparații când harta conține sute sau mii de termeni.
-            if (mode != AppPrefs.MatchMode.CONTAINS && mode != AppPrefs.MatchMode.FLEXIBLE) {
-                Map<Character, List<CompiledTerm>> byChar = termsByFirstChar.get(tokenCount);
-                if (byChar == null) return Collections.emptyList();
-                List<CompiledTerm> candidates = byChar.get(actual.charAt(0));
-                return candidates == null ? Collections.emptyList() : candidates;
-            }
-
-            return all;
         }
     }
 
+    private static String shorten(String term, int length) {
+        return length > 0 && term.length() > length ? term.substring(0, length) : term;
+    }
+
     public static SearchPlan compile(Context context, TopicMap map) {
-        boolean stripDiacritics = AppPrefs.ignoreDiacritics(context);
-        int compareChars = AppPrefs.compareChars(context);
-        AppPrefs.MatchMode mode = AppPrefs.getMatchMode(context);
+        return compile(map, AppPrefs.ignoreDiacritics(context), AppPrefs.compareChars(context),
+                AppPrefs.getMatchMode(context));
+    }
 
-        Map<Integer, List<CompiledTerm>> byCount = new HashMap<>();
-        Map<Integer, Map<Character, List<CompiledTerm>>> byFirstChar = new HashMap<>();
-        Set<Integer> counts = new HashSet<>();
+    static SearchPlan compile(TopicMap map, boolean stripDiacritics, int compareChars, AppPrefs.MatchMode mode) {
+        Map<Integer, TermIndex<CompiledTerm>> indexes = new HashMap<>();
         int termCount = 0;
-
         if (map != null) {
             for (TopicNode node : map.nodes) {
                 if (!node.enabled) continue;
-
+                Set<String> seen = new HashSet<>();
                 List<String> searchTerms = node.terms.isEmpty()
-                        ? Collections.singletonList(node.title)
-                        : node.terms;
-
-                for (String rawTerm : searchTerms) {
-                    String normalized = normalize(rawTerm, stripDiacritics);
+                        ? Collections.singletonList(node.title) : node.terms;
+                for (String raw : searchTerms) {
+                    String normalized = normalize(raw, stripDiacritics);
                     if (normalized.isEmpty()) continue;
-
-                    int tokenCount = countTokens(normalized);
-                    CompiledTerm term = new CompiledTerm(rawTerm, normalized, tokenCount, node);
-                    byCount.computeIfAbsent(tokenCount, ignored -> new ArrayList<>()).add(term);
-                    byFirstChar
-                            .computeIfAbsent(tokenCount, ignored -> new HashMap<>())
-                            .computeIfAbsent(normalized.charAt(0), ignored -> new ArrayList<>())
-                            .add(term);
-                    counts.add(tokenCount);
+                    int count = countTokens(normalized);
+                    String key = shorten(normalized, compareChars);
+                    if (!seen.add(count + ":" + key)) continue;
+                    CompiledTerm term = new CompiledTerm(raw, normalized, count, node);
+                    indexes.computeIfAbsent(count, ignored -> new TermIndex<>()).add(key, term);
                     termCount++;
                 }
             }
         }
-
-        List<Integer> tokenCounts = new ArrayList<>(counts);
-        Collections.sort(tokenCounts);
-        return new SearchPlan(
-                stripDiacritics,
-                compareChars,
-                mode,
-                byCount,
-                byFirstChar,
-                tokenCounts,
-                termCount
-        );
+        List<Integer> counts = new ArrayList<>(indexes.keySet());
+        Collections.sort(counts);
+        return new SearchPlan(stripDiacritics, compareChars, mode, indexes, counts, termCount);
     }
 
     /** Compatibilitate pentru apelurile vechi. MainActivity folosește planul compilat. */
@@ -168,7 +136,7 @@ public final class TopicMatcher {
                 }
 
                 // Termeni de un singur cuvânt.
-                if (plan.termsByTokenCount.containsKey(1)) {
+                if (plan.indexes.containsKey(1)) {
                     for (int i = 0; i < size; i++) {
                         if (boxes[i] == null) continue;
                         String actual = normalizedElements[i];
@@ -264,7 +232,7 @@ public final class TopicMatcher {
     ) {
         int cx = Math.round(box.centerX() / 4f);
         int cy = Math.round(box.centerY() / 4f);
-        String key = node.path + "|" + searchTerm + "|" + cx + "|" + cy;
+        String key = node.identityKey() + "|" + searchTerm + "|" + cx + "|" + cy;
         if (dedupe.add(key)) {
             hits.add(new MatchHit(box, original, searchTerm, node, timestamp));
         }
@@ -304,20 +272,18 @@ public final class TopicMatcher {
         }
     }
 
+    private static final java.util.regex.Pattern MARKS = java.util.regex.Pattern.compile("\\p{M}+");
+    private static final java.util.regex.Pattern SEPARATORS = java.util.regex.Pattern.compile("[^\\p{L}\\p{N}\\s'-]+");
+    private static final java.util.regex.Pattern SPACES = java.util.regex.Pattern.compile("\\s+");
+
     public static String normalize(String value, boolean stripDiacritics) {
         if (value == null) return "";
-        String out = value.toLowerCase(Locale.ROOT).trim();
-
+        String out = Normalizer.normalize(value.toLowerCase(Locale.ROOT), Normalizer.Form.NFC)
+                .replace('ş', 'ș').replace('ţ', 'ț')
+                .replace('’', '\'').replace('–', '-').replace('‑', '-').replace('‐', '-');
         if (stripDiacritics) {
-            out = Normalizer.normalize(out, Normalizer.Form.NFD)
-                    .replaceAll("\\p{M}+", "");
+            out = MARKS.matcher(Normalizer.normalize(out, Normalizer.Form.NFD)).replaceAll("");
         }
-
-        out = out
-                .replaceAll("[^\\p{L}\\p{N}\\s'-]+", " ")
-                .replaceAll("\\s+", " ")
-                .trim();
-
-        return out;
+        return SPACES.matcher(SEPARATORS.matcher(out).replaceAll(" ")).replaceAll(" ").trim();
     }
 }
