@@ -22,6 +22,8 @@ final class PagePreviewView extends View {
     private final RectF frame=new RectF();
     private Bitmap bitmap;
     private List<MatchHit> hits=Collections.emptyList();
+    private List<PaleographyLine> paleography=Collections.emptyList();
+    private final PaleographyOverlayRenderer paleographyRenderer=new PaleographyOverlayRenderer();
     private float[] quad={0,0,1,0,1,1,0,1};
     private boolean editing;
     private int dragged=-1;
@@ -30,10 +32,13 @@ final class PagePreviewView extends View {
     PagePreviewView(Context context){super(context);setBackgroundColor(Color.rgb(21,27,35));}
     void setListener(OnHits listener){this.listener=listener;}
     void showOriginal(Bitmap bitmap,float[] corners){
-        this.bitmap=bitmap;quad=corners.clone();editing=true;hits=Collections.emptyList();invalidate();
+        this.bitmap=bitmap;quad=corners.clone();editing=true;hits=Collections.emptyList();paleography=Collections.emptyList();invalidate();
     }
     void showResult(Bitmap bitmap,List<MatchHit> hits){
-        this.bitmap=bitmap;this.hits=hits;editing=false;invalidate();
+        this.bitmap=bitmap;this.hits=hits;editing=false;paleography=Collections.emptyList();invalidate();
+    }
+    void showPaleography(Bitmap bitmap,List<PaleographyLine> lines){
+        this.bitmap=bitmap;hits=Collections.emptyList();paleography=lines;editing=false;invalidate();
     }
     float[] corners(){return quad.clone();}
     private float dp(float n){return n*getResources().getDisplayMetrics().density;}
@@ -88,6 +93,7 @@ final class PagePreviewView extends View {
                     canvas.drawRect(left,box.bottom-fineStroke,left+step,box.bottom,ink);left+=step;}
             }
         }
+        paleographyRenderer.draw(canvas,paleography);
         canvas.restore();
     }
     @Override public boolean onTouchEvent(MotionEvent event){

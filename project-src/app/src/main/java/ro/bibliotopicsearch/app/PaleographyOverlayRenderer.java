@@ -25,7 +25,8 @@ final class PaleographyOverlayRenderer {
                 // only if a literal expansion would overflow the source line.
                 sx=Math.min(sx,sy);
                 float usedWidth=line.layout.getWidth()*sx,usedHeight=line.layout.getHeight()*sy;
-                canvas.translate(pad+(w-usedWidth)*.5f,pad+(h-usedHeight)*.5f);
+                boolean rtl=line.layout.getParagraphDirection(0)==-1;
+                canvas.translate(pad+(rtl?w-usedWidth:0f),pad+(h-usedHeight)*.5f);
                 canvas.scale(sx,sy);
                 line.layout.draw(canvas);
             }

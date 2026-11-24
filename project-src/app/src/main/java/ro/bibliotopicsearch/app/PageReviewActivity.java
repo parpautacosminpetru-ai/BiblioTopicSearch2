@@ -51,6 +51,10 @@ public final class PageReviewActivity extends AppCompatActivity {
     private String profileId;
     private String lastOcrText = "";
     private Button paleography;
+    private Text rawPageOcr, correctedPageOcr;
+    private List<PaleographyLine> paleographyLines=Collections.emptyList();
+    private boolean showingPaleography;
+    private String paleographySystem="";
 
     @Override protected void onCreate(@Nullable Bundle saved){
         super.onCreate(saved);
@@ -72,14 +76,17 @@ public final class PageReviewActivity extends AppCompatActivity {
         status=new TextView(this);status.setTextColor(Color.rgb(31,42,52));root.addView(status);
         paleography=button("Paleografie");paleography.setVisibility(View.GONE);
         root.addView(paleography,new LinearLayout.LayoutParams(-1,dp(44)));
-        paleography.setOnClickListener(v->{
+        paleography.setOnClickListener(v->togglePagePaleography());
+        paleography.setOnLongClickListener(v->{
             if(!busy&&!lastOcrText.isEmpty())PaleographyActivity.open(this,lastOcrText,"Text OCR pagină");
+            return true;
         });
         open.setOnClickListener(v->pick());
         edit.setOnClickListener(v->{
             if(busy||source==null)return;
             if(!showingResult)corners=new float[]{0,0,1,0,1,1,0,1};
-            showingResult=false;
+            showingResult=false;showingPaleography=false;
+            paleography.setVisibility(View.GONE);
             page.showOriginal(source,corners);edit.setText("Resetează");showCandidates.setVisibility(View.GONE);
             status.setText("Ajustează cele patru colțuri");
         });
@@ -97,7 +104,8 @@ public final class PageReviewActivity extends AppCompatActivity {
     private void useSource(Bitmap bitmap){
         Bitmap oldSource=source,oldReview=review;
         source=bitmap;review=null;verified=Collections.emptyList();candidates=Collections.emptyList();
-        lastOcrText="";paleography.setVisibility(View.GONE);
+        lastOcrText="";rawPageOcr=null;correctedPageOcr=null;paleographyLines=Collections.emptyList();
+        showingPaleography=false;paleographySystem="";paleography.setText("Paleografie");paleography.setVisibility(View.GONE);
         corners=new float[]{0,0,1,0,1,1,0,1};showingResult=false;
         bow.setProgress(100);showCandidates.setChecked(false);showCandidates.setVisibility(View.GONE);
         page.showOriginal(source,corners);edit.setText("Resetează");status.setText("Ajustează cele patru colțuri");setBusy(false);
@@ -142,7 +150,9 @@ public final class PageReviewActivity extends AppCompatActivity {
                     if(isFinishing()||isDestroyed()){output.recycle();return;}
                     Bitmap old=review;
                     review=output;verified=agreed;candidates=improved;showingResult=true;
-                    lastOcrText=pageText;paleography.setVisibility(pageText.isEmpty()?View.GONE:View.VISIBLE);
+                    lastOcrText=pageText;rawPageOcr=before;correctedPageOcr=after;
+                    showingPaleography=false;paleographyLines=Collections.emptyList();paleographySystem="";
+                    paleography.setText("Paleografie");paleography.setVisibility(pageText.isEmpty()?View.GONE:View.VISIBLE);
                     showCandidates.setChecked(false);showCandidates.setVisibility(View.VISIBLE);
                     edit.setText("Colțuri");setBusy(false);renderResult();
                     if(old!=null&&old!=source&&old!=output&&!old.isRecycled())old.recycle();
@@ -164,8 +174,44 @@ public final class PageReviewActivity extends AppCompatActivity {
         }
         return out;
     }
+    private void togglePagePaleography(){
+        if(busy||!showingResult||review==null)return;
+        if(showingPaleography){
+            showingPaleography=false;
+            paleography.setText("Paleografie");
+            showCandidates.setVisibility(View.VISIBLE);
+            renderResult();return;
+        }
+        final String id=TransliterationStore.selected(this);
+        if(id.isEmpty()){
+            PaleographyActivity.open(this,lastOcrText,"Text OCR pagină");return;
+        }
+        final Text before=rawPageOcr,after=correctedPageOcr;
+        if(before==null||after==null)return;
+        setBusy(true);
+        worker.execute(()->{
+            try{
+                LiteralTransliterator engine=TransliterationStore.engine(this,id);
+                List<PaleographyLine> lines=PaleographyProjection.agree(before,after,engine);
+                String name="";
+                for(TransliterationStore.Profile p:TransliterationStore.list(this))if(p.id.equals(id))name=p.name;
+                final String title=name;
+                runOnUiThread(()->{
+                    if(isFinishing()||isDestroyed())return;
+                    paleographyLines=lines;showingPaleography=true;paleographySystem=title;
+                    paleography.setText("Original / teme");showCandidates.setVisibility(View.GONE);
+                    setBusy(false);renderResult();
+                });
+            }catch(Exception e){error(e);}
+        });
+    }
     private void renderResult(){
         if(review==null)return;
+        if(showingPaleography){
+            page.showPaleography(review,paleographyLines);
+            status.setText(paleographySystem+" · "+paleographyLines.size()+" rânduri concordante");
+            return;
+        }
         boolean all=showCandidates.isChecked();
         page.showResult(review,all?candidates:verified);
         status.setText(verified.size()+" concordante · "+Math.max(0,candidates.size()-verified.size())+" candidați");

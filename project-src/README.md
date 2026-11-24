@@ -1,3 +1,12 @@
+# 1.2.0 — Paleografie direct pe pagină / cameră
+
+- Butonul Paleo activează/dezactivează transliterarea suprapusă direct peste textul camerei. Apăsarea lungă alege sistemul, iar Pe cameră din administratorul sistemelor activează modul. Detectarea tematică rămâne un mod separat: hărțile, culorile și setările nu sunt alterate.
+- Un singur flux OCR; sistemul importat este compilat pe worker, nu la fiecare cadru. Pentru fiecare rând recunoscut se execută exact motorul de transliterare, inclusiv grupuri, semne, ligaturi și caractere neacoperite (păstrate). Rândurile neschimbate nu sunt acoperite.
+- Suprapunerea este limitată la patrulaterul OCR real al rândului. Textul se ajustează în interiorul său. Rândurile fără coordonate valide, cu scoruri OCR pozitive prea mici, ori cu rezultate excesiv de mari rămân în original. Fiecare rând necesită confirmarea între cadre; invalidarea la mișcare, zoom sau expirare este păstrată. Rândurile separate nu sunt unite artificial; regulile care traversează rânduri se folosesc în modul text integral.
+- În Cadru, când Paleo este activ, imaginea exactă capturată este analizată separat în două variante de contrast; suprapunerea concordantă este desenată pe copia capturii. Original/Paleo comută între imaginea brută și cea transliterată, iar Salvare exportă varianta afișată. Nu se reutilizează coordonatele live la înghețare.
+- În Pagină / OCR aprofundat, Paleografie comută între transliterarea concordantă pe fotografia rectificată și detecția tematică; apăsarea lungă deschide textul OCR pentru editare/export.
+- Transliterarea este strict literală. ML Kit Latin rămâne recognizerul; regulile Unicode importate nu fac automat un alfabet sau manuscris necunoscut recognoscibil. Afișarea unor caractere exotice depinde și de fonturile dispozitivului. Testele de geometrie și motor sunt unitare; testele pe OCR imagine se compilează, dar necesită Android pentru execuție.
+
 # 1.1.9 — Paleografie / transliterare literală
 
 - Meniu Paleografie: importă, creează, editează, selectează și exportă sisteme proprii. Până la 20.000 de reguli per sistem; UTF-8 TSV, CSV sau JSON. Fișierul demonstrativ este exemple/sistem-paleografie.tsv; nu este încărcat automat.
