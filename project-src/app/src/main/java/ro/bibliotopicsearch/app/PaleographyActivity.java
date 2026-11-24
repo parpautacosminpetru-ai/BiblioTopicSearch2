@@ -58,7 +58,7 @@ public final class PaleographyActivity extends AppCompatActivity {
     private Spinner systems;
     private EditText source;
     private TextView origin,status,output;
-    private Button importRules,manage,importText,apply,copy,save,missing,live;
+    private Button importRules,manage,importText,apply,copy,save,missing,live,pageReview,latinOverlay;
     private List<TransliterationStore.Profile> profiles=Collections.emptyList();
     private String selectedId="";
     private LiteralTransliterator.Result current;
@@ -74,7 +74,16 @@ public final class PaleographyActivity extends AppCompatActivity {
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(16),dp(12),dp(16),dp(24));root.setBackgroundColor(Color.rgb(246,248,251));
         scroll.addView(root);
-        root.addView(label("Paleografie",24));
+        root.addView(label("Paleografie universală",24));
+        TextView guide=label("Recunoaște scrierea direct. Regulile de transliterare sunt opționale.",14);
+        root.addView(guide);
+        live=button("CAMERĂ · OCR");
+        root.addView(live,new LinearLayout.LayoutParams(-1,dp(52)));
+        live.setOnClickListener(v->startActivity(new Intent(this,LiveHistoricalActivity.class)));
+        pageReview=button("IMAGINE · SEMNE · OCR");
+        root.addView(pageReview,new LinearLayout.LayoutParams(-1,dp(48)));
+        pageReview.setOnClickListener(v->startActivity(new Intent(this,PageReviewActivity.class)));
+        root.addView(label("Reguli de transliterare (opțional)",15));
         LinearLayout systemBar=row();
         systems=new Spinner(this);
         systemBar.addView(systems,new LinearLayout.LayoutParams(0,dp(48),1));
@@ -82,13 +91,16 @@ public final class PaleographyActivity extends AppCompatActivity {
         root.addView(systemBar);
         importRules=button("Importă sistem");
         root.addView(importRules,new LinearLayout.LayoutParams(-1,dp(48)));
-        live=button("Pe cameră");
-        root.addView(live,new LinearLayout.LayoutParams(-1,dp(48)));
-        live.setOnClickListener(v->{
+        latinOverlay=button("Suprapunere latină (cu reguli)");
+        root.addView(latinOverlay,new LinearLayout.LayoutParams(-1,dp(48)));
+        latinOverlay.setOnClickListener(v->{
             if(busy||selectedId.isEmpty())return;
             TransliterationStore.select(this,selectedId);
             AppPrefs.setPaleographyLive(this,true);
             AppPrefs.setOcrEnabled(this,true);
+            Intent intent=new Intent(this,MainActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(intent);
             finish();
         });
         origin=label("Original",15);root.addView(origin);
@@ -137,8 +149,8 @@ public final class PaleographyActivity extends AppCompatActivity {
         systems.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
             @Override public void onNothingSelected(AdapterView<?> p){}
             @Override public void onItemSelected(AdapterView<?> p,View v,int position,long id){
-                if(loading||profiles.isEmpty()||position>=profiles.size())return;
-                String next=profiles.get(position).id;
+                if(loading||position<0||position>profiles.size())return;
+                String next=position==0?"":profiles.get(position-1).id;
                 if(!next.equals(selectedId)){
                     selectedId=next;TransliterationStore.select(PaleographyActivity.this,next);inputRevision++;clearResult();
                 }
@@ -158,20 +170,20 @@ public final class PaleographyActivity extends AppCompatActivity {
         }else if(draft!=null){
             setInput(draft.text,draft.origin==null?"Original":draft.origin);
         }
-        if(profiles.isEmpty())status.setText("Importă sau creează un sistem.");
+        if(profiles.isEmpty())status.setText("Poți folosi camera sau textul original fără reguli.");
     }
 
     private void reload(String wanted){
         loading=true;profiles=TransliterationStore.list(this);
         List<String> labels=new ArrayList<>();
+        labels.add("Original — fără substituții");
         for(TransliterationStore.Profile p:profiles)labels.add(p.toString());
-        if(labels.isEmpty())labels.add("Niciun sistem");
         ArrayAdapter<String> adapter=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,labels);
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         systems.setAdapter(adapter);
         int selected=0;
-        for(int i=0;i<profiles.size();i++)if(profiles.get(i).id.equals(wanted)){selected=i;break;}
-        selectedId=profiles.isEmpty()?"":profiles.get(selected).id;
+        for(int i=0;i<profiles.size();i++)if(profiles.get(i).id.equals(wanted)){selected=i+1;break;}
+        selectedId=selected==0?"":profiles.get(selected-1).id;
         systems.setSelection(selected);loading=false;
         TransliterationStore.select(this,selectedId);
         inputRevision++;clearResult();updateButtons();
@@ -189,11 +201,13 @@ public final class PaleographyActivity extends AppCompatActivity {
     }
     private void updateButtons(){
         if(apply==null)return;
-        systems.setEnabled(!busy&&!profiles.isEmpty());
+        systems.setEnabled(!busy);
         importRules.setEnabled(!busy);manage.setEnabled(!busy);importText.setEnabled(!busy);
         source.setEnabled(!busy);
-        apply.setEnabled(!busy&&!selectedId.isEmpty());
-        live.setEnabled(!busy&&!selectedId.isEmpty());
+        apply.setText(selectedId.isEmpty()?"Verifică textul":"Transliterează");
+        apply.setEnabled(!busy&&source.length()>0);
+        live.setEnabled(!busy);pageReview.setEnabled(!busy);
+        latinOverlay.setEnabled(!busy&&!selectedId.isEmpty());
         copy.setEnabled(!busy&&current!=null&&current.text.length()<=100000);save.setEnabled(!busy&&current!=null);
         missing.setEnabled(!busy&&current!=null&&current.unmappedCharacters>0);
     }
@@ -204,12 +218,12 @@ public final class PaleographyActivity extends AppCompatActivity {
     }
 
     private void transliterate(){
-        if(busy||selectedId.isEmpty())return;
+        if(busy||source.length()==0)return;
         final String raw=source.getText().toString(),id=selectedId;final long revision=inputRevision;
         clearResult();setBusy(true);status.setText("Se aplică regulile…");
         worker.execute(()->{
             try{
-                LiteralTransliterator.Result result=TransliterationStore.engine(this,id).apply(raw);
+                LiteralTransliterator.Result result=(id.isEmpty()?LiteralTransliterator.original():TransliterationStore.engine(this,id)).apply(raw);
                 runOnUiThread(()->{
                     if(!active())return;
                     setBusy(false);
@@ -218,7 +232,7 @@ public final class PaleographyActivity extends AppCompatActivity {
                     int end=Math.min(result.text.length(),MAX_PREVIEW);
                     if(end<result.text.length()&&end>0&&Character.isHighSurrogate(result.text.charAt(end-1)))end--;
                     output.setText(result.text.substring(0,end));
-                    status.setText(result.substitutions+" substituții · "+result.unmappedNonWhitespace+
+                    status.setText((id.isEmpty()?"Original păstrat · fără reguli · ":"")+result.substitutions+" substituții · "+result.unmappedNonWhitespace+
                             " caractere fără regulă (păstrate)"+(end<result.text.length()?" · Previzualizare parțială; export complet":"")+(result.text.length()>100000?" · Folosește Exportă pentru textul lung":""));
                     updateButtons();
                 });
@@ -462,7 +476,7 @@ public final class PaleographyActivity extends AppCompatActivity {
     }
     private LinearLayout row(){LinearLayout r=new LinearLayout(this);r.setOrientation(LinearLayout.HORIZONTAL);r.setGravity(Gravity.CENTER_VERTICAL);return r;}
     private TextView label(String value,int size){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(Color.rgb(25,34,45));t.setPadding(0,dp(5),0,dp(5));return t;}
-    private Button button(String value){Button b=new Button(this);b.setText(value);b.setAllCaps(false);b.setTextSize(13);b.setTextColor(Color.WHITE);b.setBackgroundTintList(ColorStateList.valueOf(Color.rgb(40,77,115)));return b;}
+    private Button button(String value){Button b=new Button(this);b.setText(value);b.setAllCaps(false);b.setTextSize(13);b.setTextColor(Color.WHITE);b.setBackgroundTintList(new ColorStateList(new int[][]{new int[]{-android.R.attr.state_enabled},new int[]{}},new int[]{Color.rgb(117,128,141),Color.rgb(40,77,115)}));return b;}
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
     @Override protected void onSaveInstanceState(Bundle state){
         super.onSaveInstanceState(state);

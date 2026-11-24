@@ -217,7 +217,15 @@ public final class PageReviewActivity extends AppCompatActivity {
         });
     }
     private void historicalOptions(){
-        if(busy||source==null)return;
+        if(busy)return;
+        if(source==null){
+            new AlertDialog.Builder(this).setTitle("OCR istoric")
+                .setItems(new String[]{"Alege imaginea","Importă model OCR (.traineddata)","Modele disponibile"},(d,i)->{
+                    if(i==0)pick();
+                    else if(i==1)pickHistoricalModel();
+                    else new AlertDialog.Builder(this).setTitle("Modele OCR disponibile").setMessage(android.text.TextUtils.join(", ",HistoricalOcr.models(this))).setPositiveButton("Închide",null).show();
+                }).setNegativeButton("Închide",null).show();return;
+        }
         String[] options={"Transcriere manuală / continuă textul","Importă model OCR (.traineddata)",
             "OCR multialfabet — selectează modele","Învață semnul selectat","Identifică semnul selectat","Gestionează catalogul de semne","Selectează zonă / semn prin glisare"};
         new AlertDialog.Builder(this).setTitle("Paleografie universală").setItems(options,(d,which)->{
@@ -225,8 +233,7 @@ public final class PageReviewActivity extends AppCompatActivity {
                 if(!showingResult&&historicalPanel.getVisibility()!=View.VISIBLE)corners=page.corners();
                 showHistoricalDraft(historicalText.getText().toString(),"Transcriere manuală");
             }else if(which==1){
-                Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.setType("*/*");
-                intent.addCategory(Intent.CATEGORY_OPENABLE);startActivityForResult(intent,PICK_MODEL);
+                pickHistoricalModel();
             }else if(which==2){
                 HistoricalOcrOptions.choose(this,HistoricalOcr.models(this),(models,mode)->{
                     if(historicalText.length()>0)new AlertDialog.Builder(this).setTitle("Înlocuiești transcrierea de lucru?")
@@ -236,6 +243,10 @@ public final class PageReviewActivity extends AppCompatActivity {
                 });
             }else if(which==6)selectGlyphRegion();else glyphDialog(which);
         }).setNegativeButton("Închide",null).show();
+    }
+    private void pickHistoricalModel(){
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
+        startActivityForResult(intent,PICK_MODEL);
     }
     private void selectGlyphRegion(){
         if(busy||source==null)return;
@@ -481,7 +492,7 @@ public final class PageReviewActivity extends AppCompatActivity {
         bow.setEnabled(!value);contrast.setEnabled(!value);deskew.setEnabled(!value);showCandidates.setEnabled(!value);
         page.setEnabled(!value);
         paleography.setEnabled(!value);
-        historical.setEnabled(!value&&source!=null);
+        historical.setEnabled(!value);
         historicalText.setEnabled(!value);transliterateDraft.setEnabled(!value);
         compareOriginal.setEnabled(!value&&review!=null);
     }

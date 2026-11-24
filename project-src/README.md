@@ -1,3 +1,12 @@
+# Biblio Paleografie 1.4.1 — remediere pornire fără sistem
+
+- OCR și transliterarea sunt independente. Apăsarea scurtă Paleo pornește camera OCR universală; apăsarea lungă deschide atelierul text/reguli. Din atelier, CAMERA · OCR și IMAGINE · SEMNE · OCR sunt disponibile fără sistem de transliterare.
+- Original — fără substituții este modul implicit. Verifică textul păstrează integral caracterele și raportează lipsa regulilor; nu pretinde transliterare. Suprapunerea latină cu reguli rămâne opțională.
+- Camera poate porni direct cu ML Kit Latin inclus. Alege scrierea selectează modelele Tesseract. Importă model OCR funcționează chiar din cameră; nu necesită o fotografie prealabilă. Pachetul CI include modele oficiale tessdata_fast 4.1.0 pentru română, engleză, rusă, greacă modernă și veche, arabă, ebraică, hindi, chineză simplificată/tradițională, japoneză, coreeană. Acestea sunt extrase local numai la utilizare; modelele proprii rămân separate. Nu se descarcă nimic pe telefon.
+- Modelele incluse sunt din https://github.com/tesseract-ocr/tessdata_fast/releases/tag/4.1.0 (licență inclusă în APK). Nu garantează citirea manuscriselor sau a tuturor scrierilor istorice. Catalogul de semne și importul de modele proprii rămân disponibile.
+- Test JVM pentru modul original; test Android compilat pentru butoanele de pornire și text fără sistem. Testarea pe telefon rămâne necesară. ID Android neschimbat; instalarea peste APK-ul anterior necesită certificat de semnare compatibil. Nu dezinstala aplicația veche fără backup.
+- Versiunea 1.4.1 este un build debug de testare, nu o certificare a preciziei paleografice.
+
 # Biblio Paleografie 1.4.0 — sisteme de scriere extensibile
 
 - Modele Tesseract importabile pentru scrieri alfabetice, silabice, logografice și mixte; se pot combina maximum trei modele locale. Moduri explicite de așezare: pagină, text vertical, bloc, rând, cuvânt, semn, text dispersat. Pentru orice scriere fără model disponibil, este necesar un model antrenat compatibil sau catalogul vizual.

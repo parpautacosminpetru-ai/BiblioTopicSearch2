@@ -15,6 +15,11 @@ final class UiInsets {
             v.setPadding(left + bars.left, top + bars.top, right + bars.right, bottom + bars.bottom);
             return insets;
         });
+        if(root.getContext() instanceof android.app.Activity){
+            android.app.Activity activity=(android.app.Activity)root.getContext();
+            androidx.core.view.WindowInsetsControllerCompat controller=androidx.core.view.WindowCompat.getInsetsController(activity.getWindow(),root);
+            controller.setAppearanceLightStatusBars(true);
+        }
         ViewCompat.requestApplyInsets(root);
     }
 }

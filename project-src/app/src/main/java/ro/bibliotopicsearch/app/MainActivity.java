@@ -212,7 +212,8 @@ public final class MainActivity extends AppCompatActivity {
         recoveryAttempts = 0;
         ocrEnabled = AppPrefs.ocrEnabled(this);
         floatingLabelsEnabled = AppPrefs.floatingLabels(this);
-        paleographyEnabled = AppPrefs.paleographyLive(this);
+        paleographyEnabled = AppPrefs.paleographyLive(this)&&!TransliterationStore.selected(this).isEmpty();
+        if(!paleographyEnabled)AppPrefs.setPaleographyLive(this,false);
         updateOcrButton();
         updatePaleoUi();
         reloadPlan();
@@ -387,11 +388,11 @@ public final class MainActivity extends AppCompatActivity {
         header.addView(ocrButton, toolbarLp());
         paleoButton = toolbarButton("Paleo");
         paleoButton.setMinWidth(dp(64));
-        paleoButton.setContentDescription("Paleografie live; apăsare lungă pentru alegerea sistemului");
+        paleoButton.setContentDescription("OCR multialfabet; apăsare lungă pentru regulile de transliterare");
         header.addView(paleoButton, toolbarLp());
         paleoButton.setOnClickListener(v -> togglePaleography());
         paleoButton.setOnLongClickListener(v -> {
-            if(!frozen)showPaleographySystems();
+            if(!frozen)openPaleography();
             return true;
         });
         Button moreButton = toolbarButton("⋯");
@@ -700,15 +701,10 @@ public final class MainActivity extends AppCompatActivity {
             if(frozenPaleographyCapture){frozenRevealOriginal=!frozenRevealOriginal;displayFrozenPaleography();}
             return;
         }
-        paleographyEnabled=!paleographyEnabled;
-        AppPrefs.setPaleographyLive(this,paleographyEnabled);
         if(paleographyEnabled){
-            ocrEnabled=true;AppPrefs.setOcrEnabled(this,true);updateOcrButton();
-            if(TransliterationStore.list(this).isEmpty()){
-                updatePaleoUi();openPaleography();return;
-            }
+            paleographyEnabled=false;AppPrefs.setPaleographyLive(this,false);updatePaleoUi();reloadPlan();return;
         }
-        updatePaleoUi();reloadPlan();
+        startActivity(new Intent(this,LiveHistoricalActivity.class));
     }
 
     private void updatePaleoUi(){

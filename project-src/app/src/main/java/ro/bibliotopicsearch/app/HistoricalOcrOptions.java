@@ -11,11 +11,29 @@ final class HistoricalOcrOptions {
     private static final String[] LABELS={"Pagină automată","Text vertical","Bloc uniform","Rând","Cuvânt","Semn izolat","Text dispersat"};
     private static final int[] MODES={3,5,6,7,8,10,11};
     private HistoricalOcrOptions(){}
+    private static String label(String model){
+        switch(model){
+            case "ron":return "Română (ron)";
+            case "eng":return "Engleză (eng)";
+            case "rus":return "Rusă / chirilică (rus)";
+            case "ell":return "Greacă modernă (ell)";
+            case "grc":return "Greacă veche (grc)";
+            case "ara":return "Arabă (ara)";
+            case "heb":return "Ebraică (heb)";
+            case "hin":return "Hindi / Devanagari (hin)";
+            case "chi_sim":return "Chineză simplificată (chi_sim)";
+            case "chi_tra":return "Chineză tradițională (chi_tra)";
+            case "jpn":return "Japoneză (jpn)";
+            case "kor":return "Coreeană (kor)";
+            default:return model;
+        }
+    }
     static void choose(Context c,List<String> models,Choice result){
         if(models.isEmpty()){new AlertDialog.Builder(c).setTitle("Modele OCR").setMessage("Importă mai întâi unul sau mai multe modele .traineddata în Pagină / OCR istoric.").setPositiveButton("Închide",null).show();return;}
-        boolean[] checked=new boolean[models.size()];checked[0]=true;
+        boolean[] checked=new boolean[models.size()];
+        String[] labels=new String[models.size()];for(int i=0;i<labels.length;i++)labels[i]=label(models.get(i));
         new AlertDialog.Builder(c).setTitle("Sisteme de scriere (1–3 modele)")
-            .setMultiChoiceItems(models.toArray(new String[0]),checked,(dialog,index,on)->{
+            .setMultiChoiceItems(labels,checked,(dialog,index,on)->{
                 checked[index]=on;int n=0;for(boolean b:checked)if(b)n++;
                 if(n>3){checked[index]=false;((AlertDialog)dialog).getListView().setItemChecked(index,false);}
             }).setNegativeButton("Renunță",null).setPositiveButton("Continuă",(d,w)->{

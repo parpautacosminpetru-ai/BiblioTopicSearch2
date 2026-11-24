@@ -35,6 +35,19 @@ jobs:
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           yes | "$MANAGER" --licenses >/dev/null || true
           "$MANAGER" --sdk_root="$SDK" "platforms;android-36" "build-tools;35.0.0"
+      - name: Bundle official offline OCR models (tessdata_fast 4.1.0)
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODELS=project-src/app/src/main/assets/ocr_models
+          mkdir -p "$MODELS"
+          BASE=https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0
+          for model in ron eng rus ell grc ara heb hin chi_sim chi_tra jpn kor; do
+            curl --fail --silent --show-error --location --retry 3 "$BASE/$model.traineddata" -o "$MODELS/$model.traineddata"
+            test "$(wc -c < "$MODELS/$model.traineddata")" -gt 100000
+          done
+          curl --fail --silent --show-error --location --retry 3 "$BASE/LICENSE" -o "$MODELS/LICENSE"
+          (cd "$MODELS" && sha256sum *.traineddata > SHA256SUMS)
       - name: Unit tests and build
         run: gradle --no-daemon -p project-src :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
       - name: Test reports
@@ -49,19 +62,23 @@ jobs:
         run: |
           APK=project-src/app/build/outputs/apk/debug/app-debug.apk
           AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt"
-          "$AAPT" dump badging "$APK" | grep -F "package: name='ro.bibliotopicsearch.paleography'"
+          "$AAPT" dump badging "$APK" | grep -F "package: name='ro.bibliotopicsearch.paleography' versionCode='23' versionName='1.4.1'"
+          unzip -Z1 "$APK" > apk-files.txt
+          for model in ron eng rus ell grc ara heb hin chi_sim chi_tra jpn kor; do
+            grep -Fx "assets/ocr_models/$model.traineddata" apk-files.txt
+          done
           "$AAPT" dump permissions "$APK" > permissions.txt
           cat permissions.txt
           if grep -E 'android.permission.(INTERNET|ACCESS_NETWORK_STATE|RECORD_AUDIO)' permissions.txt; then exit 1; fi
       - name: Prepare APK
         run: |
           mkdir -p output
-          cp project-src/app/build/outputs/apk/debug/app-debug.apk output/Biblio-Paleografie-1.4.0.apk
+          cp project-src/app/build/outputs/apk/debug/app-debug.apk output/Biblio-Paleografie-1.4.1.apk
           cd output
-          sha256sum Biblio-Paleografie-1.4.0.apk > Biblio-Paleografie-1.4.0.apk.sha256
+          sha256sum Biblio-Paleografie-1.4.1.apk > Biblio-Paleografie-1.4.1.apk.sha256
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Biblio-Paleografie-1.4.0
+          name: Biblio-Paleografie-1.4.1
           path: output/
           if-no-files-found: error

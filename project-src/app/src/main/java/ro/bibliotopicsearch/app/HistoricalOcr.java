@@ -29,7 +29,40 @@ final class HistoricalOcr {
         List<String> result=new ArrayList<>();File[] list=data(c).listFiles();
         if(list!=null)for(File f:list)if(f.isFile()&&f.length()>0&&f.length()<=MAX_MODEL)
             try{result.add(HistoricalModelName.fromFile(f.getName()));}catch(IllegalArgumentException ignored){}
+        try{
+            String[] assets=c.getAssets().list("ocr_models");
+            if(assets!=null)for(String filename:assets)try{
+                String name=HistoricalModelName.fromFile(filename);
+                if(!result.contains(name))result.add(name);
+            }catch(IllegalArgumentException ignored){}
+        }catch(java.io.IOException ignored){}
         Collections.sort(result);return result;
+    }
+    /** Only extract the selected packaged model. A user's existing model always wins. */
+    private static synchronized void ensureModel(Context c,String name)throws java.io.IOException{
+        File dir=data(c),target=new File(dir,HistoricalModelName.file(name));
+        if(target.isFile()&&target.length()>0)return;
+        if(!dir.isDirectory()&&!dir.mkdirs())throw new java.io.IOException("Director OCR indisponibil.");
+        File pending=File.createTempFile("bundled-",".tmp",dir);
+        try{
+            long n=0;
+            try(InputStream in=c.getAssets().open("ocr_models/"+target.getName());FileOutputStream out=new FileOutputStream(pending)){
+                byte[] buffer=new byte[65536];int count;
+                while((count=in.read(buffer))!=-1){
+                    if(Thread.currentThread().isInterrupted())throw new java.io.InterruptedIOException();
+                    n+=count;if(n>MAX_MODEL)throw new java.io.IOException("Model prea mare.");
+                    out.write(buffer,0,count);
+                }
+                out.getFD().sync();
+            }
+            if(n==0)throw new java.io.IOException("Model OCR gol: "+name);
+            long total=n;File[] existing=dir.listFiles();
+            if(existing!=null)for(File file:existing)if(file.isFile()&&!file.equals(target)&&!file.equals(pending))total+=file.length();
+            if(total>MAX_LIBRARY)throw new java.io.IOException("Biblioteca OCR depășește 256 MiB.");
+            try{android.system.Os.rename(pending.getAbsolutePath(),target.getAbsolutePath());}
+            catch(android.system.ErrnoException e){throw new java.io.IOException("Nu s-a putut instala modelul "+name,e);}
+        }catch(java.io.FileNotFoundException e){throw new java.io.IOException("Importă modelul OCR "+name+".traineddata",e);}
+        finally{pending.delete();}
     }
     private static String displayName(Context c,Uri uri){
         try(Cursor cursor=c.getContentResolver().query(uri,new String[]{OpenableColumns.DISPLAY_NAME},null,null,null)){
@@ -77,8 +110,8 @@ final class HistoricalOcr {
         Session(Context c,List<String> names,int mode){
             String expression=HistoricalModelName.expression(names);
             for(String name:names){
-                File file=new File(data(c),HistoricalModelName.file(name));
-                if(!file.isFile())throw new IllegalArgumentException("Model lipsă: "+name);
+                try{ensureModel(c,name);}
+                catch(java.io.IOException e){throw new IllegalArgumentException(e.getMessage(),e);}
             }
             if(mode!=3&&mode!=5&&mode!=6&&mode!=7&&mode!=8&&mode!=10&&mode!=11)
                 throw new IllegalArgumentException("Mod de segmentare invalid.");

@@ -53,6 +53,10 @@ final class LiteralTransliterator {
     private final Node root=new Node();
     private final List<Rule> rules;
 
+    private LiteralTransliterator(){rules=Collections.emptyList();}
+    /** Explicit source-preserving mode, not a transliteration rule set. */
+    static LiteralTransliterator original(){return new LiteralTransliterator();}
+
     LiteralTransliterator(List<Rule> input){
         if(input==null||input.isEmpty()||input.size()>MAX_RULES)
             throw new IllegalArgumentException("Sistemul trebuie să conțină între 1 și "+MAX_RULES+" reguli.");
