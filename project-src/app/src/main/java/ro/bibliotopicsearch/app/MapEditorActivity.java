@@ -290,9 +290,14 @@ public final class MapEditorActivity extends AppCompatActivity {
         java.util.List<String> visibleTerms = node.terms.isEmpty() && AppPrefs.searchNodeTitles(this)
                 ? java.util.Collections.singletonList(node.title)
                 : node.terms;
-        for (String term : visibleTerms) chips.addView(termChip(term, node.color));
+        int previewCount=Math.min(40,visibleTerms.size());
+        for(int i=0;i<previewCount;i++)chips.addView(termChip(visibleTerms.get(i),node.color));
         chipScroll.addView(chips);
         card.addView(chipScroll, full(dp(40)));
+        if(visibleTerms.size()>previewCount){
+            Button allTerms=button("Vezi / caută toți cei "+visibleTerms.size()+" termeni");
+            card.addView(allTerms,full(dp(44)));allTerms.setOnClickListener(v->showTermList(node));
+        }
 
         LinearLayout line = row();
         CheckBox enabled = new CheckBox(this);
@@ -349,6 +354,28 @@ public final class MapEditorActivity extends AppCompatActivity {
             return true;
         });
         return card;
+    }
+
+    private void showTermList(TopicNode node){
+        LinearLayout content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(12),0,dp(12),0);
+        EditText filter=new EditText(this);filter.setSingleLine(true);filter.setHint("Caută termen (lista completă)");content.addView(filter);
+        TextView count=body(node.terms.size()+" termeni");content.addView(count);
+        android.widget.ListView list=new android.widget.ListView(this);
+        java.util.List<String> filtered=new java.util.ArrayList<>(node.terms);
+        android.widget.ArrayAdapter<String> adapter=new android.widget.ArrayAdapter<>(this,android.R.layout.simple_list_item_1,filtered);
+        list.setAdapter(adapter);content.addView(list,new LinearLayout.LayoutParams(-1,dp(320)));
+        filter.addTextChangedListener(new TextWatcher(){
+            @Override public void beforeTextChanged(CharSequence s,int start,int c,int after){}
+            @Override public void onTextChanged(CharSequence s,int start,int before,int c){
+                String q=LiteralText.canonical(s.toString().trim(),true);
+                filtered.clear();
+                for(String term:node.terms)if(LiteralText.canonical(term,true).contains(q))filtered.add(term);
+                adapter.notifyDataSetChanged();count.setText(filtered.size()+" / "+node.terms.size()+" termeni");
+            }
+            @Override public void afterTextChanged(Editable e){}
+        });
+        new AlertDialog.Builder(this).setTitle(node.title).setView(content).setPositiveButton("Închide",null).show();
     }
 
     private boolean isHiddenByCollapsedAncestor(TopicNode node) {

@@ -8,64 +8,35 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Immutable after compilation. Matching cost depends on OCR text and matching keys,
- * not on comparing every word with every term in every selected map. */
+/** Immutable after compilation. Compact exact-key index; avoids a separate
+ * HashMap and node for every character of tens of thousands of phrases.
+ * Prefix and containment probe only possible prefixes of the OCR token. */
 final class TermIndex<T> {
-    private static final class Node<T> {
-        final Map<Character, Node<T>> children = new HashMap<>();
-        List<T> values;
+    private final Map<String,List<T>> entries=new HashMap<>();
+    private int maxLength;
+    void add(String key,T value){
+        if(key.isEmpty())return;
+        entries.computeIfAbsent(key,k->new ArrayList<>(1)).add(value);
+        maxLength=Math.max(maxLength,key.length());
     }
-
-    private final Node<T> root = new Node<>();
-
-    void add(String key, T value) {
-        if (key.isEmpty()) return;
-        Node<T> node = root;
-        for (int i = 0; i < key.length(); i++) {
-            char ch = key.charAt(i);
-            Node<T> next = node.children.get(ch);
-            if (next == null) {
-                next = new Node<>();
-                node.children.put(ch, next);
-            }
-            node = next;
-        }
-        if (node.values == null) node.values = new ArrayList<>();
-        node.values.add(value);
+    List<T> exact(String text){
+        List<T> values=entries.get(text);
+        return values==null?Collections.emptyList():values;
     }
-
-    List<T> exact(String text) {
-        Node<T> node = root;
-        for (int i = 0; i < text.length(); i++) {
-            node = node.children.get(text.charAt(i));
-            if (node == null) return Collections.emptyList();
-        }
-        return node.values == null ? Collections.emptyList() : node.values;
-    }
-
-    List<T> prefix(String text) { return prefixAt(text,0); }
-
-    List<T> prefixAt(String text,int start) {
-        List<T> out = new ArrayList<>();
-        Node<T> node = root;
-        for (int i = start; i < text.length(); i++) {
-            node = node.children.get(text.charAt(i));
-            if (node == null) break;
-            if (node.values != null) out.addAll(node.values);
+    List<T> prefix(String text){return prefixAt(text,0);}
+    List<T> prefixAt(String text,int start){
+        if(start<0||start>=text.length()||maxLength==0)return Collections.emptyList();
+        List<T> out=new ArrayList<>();
+        int limit=Math.min(text.length(),start+maxLength);
+        for(int end=start+1;end<=limit;end++){
+            List<T> values=entries.get(text.substring(start,end));
+            if(values!=null)out.addAll(values);
         }
         return out;
     }
-
-    List<T> contains(String text) {
-        Set<T> out = new LinkedHashSet<>();
-        for (int start = 0; start < text.length(); start++) {
-            Node<T> node = root;
-            for (int i = start; i < text.length(); i++) {
-                node = node.children.get(text.charAt(i));
-                if (node == null) break;
-                if (node.values != null) out.addAll(node.values);
-            }
-        }
+    List<T> contains(String text){
+        Set<T> out=new LinkedHashSet<>();
+        for(int start=0;start<text.length();start++)out.addAll(prefixAt(text,start));
         return new ArrayList<>(out);
     }
 }

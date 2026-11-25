@@ -88,6 +88,7 @@ public final class TopicMapStore {
         List<TopicNode> nodes = new ArrayList<>();
         Map<Integer, String> hierarchy = new LinkedHashMap<>();
         TopicNode current = null;
+        java.util.Set<String> seenTerms=new java.util.HashSet<>();
         String[] lines = (rawText == null ? "" : rawText).split("\\r?\\n");
 
         for (String sourceLine : lines) {
@@ -114,6 +115,7 @@ public final class TopicMapStore {
                 }
 
                 current = new TopicNode(profileId, name, path.toString(), title, level);
+                seenTerms.clear();
                 int offset = profileId == null || "default".equals(profileId)
                         ? 0 : (profileId.hashCode() & Integer.MAX_VALUE) % DEFAULT_COLORS.length;
                 int defaultColor = DEFAULT_COLORS[(nodes.size() + offset) % DEFAULT_COLORS.length];
@@ -129,7 +131,7 @@ public final class TopicMapStore {
             if (current == null) continue;
 
             for (String term : MapTermSyntax.decode(line)) {
-                if (!current.terms.contains(term)) current.terms.add(term);
+                if (seenTerms.add(term)) current.terms.add(term);
             }
         }
 

@@ -24,23 +24,42 @@ public final class TopicLibraryStore {
 
     private static synchronized void ensureInitialized(Context context) {
         SharedPreferences p = prefs(context);
-        if (p.getBoolean("initialized", false)) return;
+        boolean fresh=!p.getBoolean("initialized",false);
+        if(!fresh&&p.getBoolean("historical_lexicon_v1",false))return;
 
-        SharedPreferences legacy = context.getSharedPreferences(LEGACY_MAP_FILE, Context.MODE_PRIVATE);
-        String legacyName = safe(legacy.getString("map_name", "Hartă de cercetare"), "Hartă de cercetare");
-        String legacyText = legacy.getString("map_text", "");
-        if (legacyText == null) legacyText = "";
-
-        long now = System.currentTimeMillis();
-        p.edit()
-                .putBoolean("initialized", true)
-                .putString("ids", DEFAULT_ID)
-                .putString("active_id", DEFAULT_ID)
-                .putString(key(DEFAULT_ID, "name"), legacyName)
-                .putString(key(DEFAULT_ID, "folder"), "General")
-                .putString(key(DEFAULT_ID, "text"), legacyText)
-                .putLong(key(DEFAULT_ID, "created"), now)
-                .apply();
+        // Read and verify the complete asset before changing any stored map.
+        List<MapProfile> bundled=HistoricalLexicon.load(context);
+        List<String> ids=fresh?new ArrayList<>():readIds(p);
+        java.util.Set<String> present=new LinkedHashSet<>(ids);
+        SharedPreferences.Editor edit=p.edit();
+        long now=System.currentTimeMillis();
+        if(fresh){
+            SharedPreferences legacy=context.getSharedPreferences(LEGACY_MAP_FILE,Context.MODE_PRIVATE);
+            String legacyText=legacy.getString("map_text","");
+            if(legacyText==null)legacyText="";
+            // Keep any actual legacy map. A fresh install has only the supplied maps.
+            if(!legacyText.isEmpty()||legacy.contains("map_name")){
+                ids.add(DEFAULT_ID);present.add(DEFAULT_ID);
+                edit.putString(key(DEFAULT_ID,"name"),safe(legacy.getString("map_name","Hartă de cercetare"),"Hartă de cercetare"))
+                    .putString(key(DEFAULT_ID,"folder"),"General").putString(key(DEFAULT_ID,"text"),legacyText)
+                    .putLong(key(DEFAULT_ID,"created"),now);
+            }
+        }
+        for(MapProfile profile:bundled){
+            // Stable IDs, but never overwrite an existing edited map or its colour.
+            if(!present.add(profile.id))continue;
+            ids.add(profile.id);
+            edit.putString(key(profile.id,"name"),profile.name)
+                .putString(key(profile.id,"folder"),profile.folder)
+                .putString(key(profile.id,"text"),profile.rawText)
+                .putLong(key(profile.id,"created"),now)
+                .putInt(key(profile.id,"color"),profile.color);
+        }
+        if(fresh)edit.putString("active_id",ids.get(0));
+        // Keep explicit existing OCR selections; absent selection still means all maps.
+        // One editor transaction publishes the maps AND the one-time import marker.
+        edit.putString("ids",joinIds(ids)).putBoolean("initialized",true)
+            .putBoolean("historical_lexicon_v1",true).apply();
     }
 
     public static List<MapProfile> list(Context context) {
@@ -225,10 +244,11 @@ public final class TopicLibraryStore {
     private static List<String> readIds(SharedPreferences p) {
         String raw = p.getString("ids", DEFAULT_ID);
         List<String> out = new ArrayList<>();
+        java.util.Set<String> seen=new LinkedHashSet<>();
         if (raw != null) {
             for (String part : raw.split(",")) {
                 String id = part.trim();
-                if (!id.isEmpty() && !out.contains(id)) out.add(id);
+                if (!id.isEmpty() && seen.add(id)) out.add(id);
             }
         }
         if (out.isEmpty()) out.add(DEFAULT_ID);

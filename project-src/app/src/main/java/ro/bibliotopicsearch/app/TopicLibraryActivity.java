@@ -27,6 +27,10 @@ public final class TopicLibraryActivity extends AppCompatActivity {
     private LinearLayout libraryContainer;
     private TextView summary;
     private EditText filterEdit;
+    private TextView pagination;
+    private Button previous,next;
+    private int pageIndex;
+    private static final int PAGE_SIZE=32;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -62,15 +66,18 @@ public final class TopicLibraryActivity extends AppCompatActivity {
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(48)));
         filterEdit.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { refresh(); }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { pageIndex=0;refresh(); }
             @Override public void afterTextChanged(Editable s) {}
         });
 
         LinearLayout buttons = row();
         Button newMap = button("+ Hartă");
         Button editActive = button("Toate OCR");
+        Button none=button("Nicio hartă OCR");
         buttons.addView(newMap, weighted());
         buttons.addView(editActive, weighted());
+        buttons.addView(none,weighted());
+        none.setOnClickListener(v->{TopicLibraryStore.setScanProfiles(this,java.util.Collections.emptySet());refresh();});
         root.addView(buttons);
 
         newMap.setOnClickListener(v -> showCreateDialog());
@@ -81,6 +88,13 @@ public final class TopicLibraryActivity extends AppCompatActivity {
             refresh();
         });
 
+        LinearLayout navigation=row();previous=button("◀");next=button("▶");pagination=body("");
+        pagination.setGravity(Gravity.CENTER);
+        navigation.addView(previous,new LinearLayout.LayoutParams(dp(52),dp(44)));
+        navigation.addView(pagination,new LinearLayout.LayoutParams(0,dp(44),1));
+        navigation.addView(next,new LinearLayout.LayoutParams(dp(52),dp(44)));root.addView(navigation);
+        previous.setOnClickListener(v->{pageIndex=Math.max(0,pageIndex-1);refresh();});
+        next.setOnClickListener(v->{pageIndex++;refresh();});
         libraryContainer = new LinearLayout(this);
         libraryContainer.setOrientation(LinearLayout.VERTICAL);
         libraryContainer.setPadding(0, dp(12), 0, 0);
@@ -99,14 +113,25 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         libraryContainer.removeAllViews();
 
         String query = filterEdit == null ? "" : filterEdit.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
-        Map<String, java.util.List<MapProfile>> groups = new LinkedHashMap<>();
+        java.util.List<MapProfile> filtered=new java.util.ArrayList<>();
         for (MapProfile profile : maps) {
             if (!query.isEmpty()) {
-                String haystack = (profile.folder + " " + profile.name).toLowerCase(java.util.Locale.ROOT);
-                if (!haystack.contains(query)) continue;
+                String haystack = LiteralText.canonical(profile.folder+" "+profile.name,true);
+                if (!haystack.contains(LiteralText.canonical(query,true))) continue;
             }
+            filtered.add(profile);
+        }
+        int pageCount=Math.max(1,(filtered.size()+PAGE_SIZE-1)/PAGE_SIZE);
+        pageIndex=Math.min(Math.max(0,pageIndex),pageCount-1);
+        pagination.setText(filtered.size()+" hărți · "+(pageIndex+1)+"/"+pageCount);
+        previous.setEnabled(pageIndex>0);next.setEnabled(pageIndex+1<pageCount);
+        Map<String, java.util.List<MapProfile>> groups = new LinkedHashMap<>();
+        int from=pageIndex*PAGE_SIZE,to=Math.min(filtered.size(),from+PAGE_SIZE);
+        for(int i=from;i<to;i++){
+            MapProfile profile=filtered.get(i);
             groups.computeIfAbsent(profile.folder, ignored -> new java.util.ArrayList<>()).add(profile);
         }
+        if(filtered.isEmpty())libraryContainer.addView(body("Nicio hartă găsită."));
 
         for (Map.Entry<String, java.util.List<MapProfile>> entry : groups.entrySet()) {
             TextView folder = heading("▾  " + entry.getKey(), 17);
@@ -151,6 +176,10 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         TextView badge = smallBadge(scanning ? "OCR ✓" : "OCR —", scanning);
         header.addView(badge);
         card.addView(header);
+        if(profile.id.startsWith(HistoricalLexicon.ID_PREFIX)){
+            TextView count=body(countMapTerms(profile.rawText)+" termeni / expresii");
+            count.setPadding(dp(8),0,0,dp(4));card.addView(count);
+        }
 
         LinearLayout actions = row();
         Button activate = button(scanning ? "Oprește OCR" : "Pornește OCR");
@@ -174,6 +203,14 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         more.setOnClickListener(v -> showMapMenu(profile));
 
         return card;
+    }
+
+    private int countMapTerms(String raw){
+        int total=0;
+        for(String line:raw.split("\\r?\\n")){
+            line=line.trim();if(!line.isEmpty()&&!line.startsWith("#"))total+=MapTermSyntax.decode(line).size();
+        }
+        return total;
     }
 
     private void showCreateDialog() {

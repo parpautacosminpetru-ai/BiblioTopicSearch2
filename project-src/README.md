@@ -1,3 +1,12 @@
+# Biblio Paleografie 1.6.0 — lexicon istoric inclus
+
+- Fișierul furnizat lexicon_istoric_toate_categoriile.txt este inclus integral: 448 categorii, 76.100 intrări (cuvinte și expresii), păstrate în ordinea și cu ortografia originală. Șapte fișiere de resurse locale; amprenta canonică verificată 4550401a, sursa SHA-256 c3b886f65960908a7de5d81fc9efbeadf1c50694133ce10136861824b10c5866.
+- Fiecare categorie este o hartă independentă, cu un singur nod și culoare RGB proprie, în folderul Lexicon istoric. 448 culori distincte numeric; nu toate pot fi diferențiate ușor de ochi, de aceea numele hărții rămâne vizibil. Termenii comuni rămân în toate categoriile lor.
+- Import automat, o singură dată, fără suprascrierea hărților personale. Instalarea nouă pornește cu hărțile lexiconului; actualizarea adaugă hărțile lângă cele existente și păstrează selecția explicită OCR. HĂRȚI · LEXICON ISTORIC este accesibil direct din ecranul principal. Toate OCR activează întreaga bibliotecă; Nicio hartă OCR o dezactivează.
+- Biblioteca are filtru și paginare (32 hărți), numărul termenilor, culori și comenzi individuale. Editorul afișează maximum 40 de cipuri simultan, dar lista completă este căutabilă și exportabilă. Niciun termen nu este eliminat pentru a limita afișarea.
+- Index exact compact și deduplicare liniară la parsare pentru categorii mari. Regulile de potrivire literală existente (inclusiv normalizarea majusculelor) rămân neschimbate. Termenii numeric ambigui pot apărea în mai multe hărți; o potrivire lexicală nu certifică încadrarea semantică.
+- Teste unitare și Android: unicitatea culorilor, integritatea tuturor termenilor, o hartă per categorie, compilarea indexului complet și căutarea simultană, păstrarea hărților personale. ID-ul aplicației și cheia debug din cache rămân aceleași ca în 1.5.0.
+
 # Biblio Paleografie 1.5.0 — segmentare și poziții verificabile
 
 - Butonul Segmentează semne propune zone din imagine prin separarea benzilor și spațiilor dintre forme, fără a presupune alfabetul. Direcțiile LTR, RTL și coloane verticale sunt alese explicit. Contururile sunt proiectate pe imaginea exact analizată; maximum 400 de zone per analiză, cu avertisment la limită. Scrierea legată, semnele suprapuse, coloanele și diacriticele separate necesită verificare manuală; nu este un segmentator universal perfect.
