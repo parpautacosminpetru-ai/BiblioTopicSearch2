@@ -25,7 +25,18 @@ public final class TopicLibraryStore {
     private static synchronized void ensureInitialized(Context context) {
         SharedPreferences p = prefs(context);
         boolean fresh=!p.getBoolean("initialized",false);
-        if(!fresh&&p.getBoolean("historical_lexicon_v1",false))return;
+        if(!fresh&&p.getBoolean("historical_lexicon_v1",false)){
+            if(!p.getBoolean("historical_lexicon_palette_v2",false)){
+                SharedPreferences.Editor migration=p.edit();
+                for(String id:readIds(p)){
+                    int index=HistoricalLexiconColors.indexOf(id);
+                    if(index>=0&&p.getInt(key(id,"color"),0)==HistoricalLexiconColors.oldColor(index))
+                        migration.putInt(key(id,"color"),HistoricalLexiconColors.color(index));
+                }
+                migration.putBoolean("historical_lexicon_palette_v2",true).apply();
+            }
+            return;
+        }
 
         // Read and verify the complete asset before changing any stored map.
         List<MapProfile> bundled=HistoricalLexicon.load(context);
@@ -59,7 +70,7 @@ public final class TopicLibraryStore {
         // Keep explicit existing OCR selections; absent selection still means all maps.
         // One editor transaction publishes the maps AND the one-time import marker.
         edit.putString("ids",joinIds(ids)).putBoolean("initialized",true)
-            .putBoolean("historical_lexicon_v1",true).apply();
+            .putBoolean("historical_lexicon_v1",true).putBoolean("historical_lexicon_palette_v2",true).apply();
     }
 
     public static List<MapProfile> list(Context context) {

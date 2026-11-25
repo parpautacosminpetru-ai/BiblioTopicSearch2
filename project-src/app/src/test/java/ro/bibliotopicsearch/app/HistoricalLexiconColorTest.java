@@ -13,6 +13,16 @@ public class HistoricalLexiconColorTest {
         }
         assertEquals(448,colors.size());
     }
+    @Test public void mapCodesAreUniqueAndStable(){
+        Set<String> codes=new HashSet<>();
+        for(int i=0;i<448;i++){
+            String id="lexhist-v1-"+(i+1);
+            assertEquals(i,HistoricalLexiconColors.indexOf(id));assertTrue(codes.add(HistoricalLexiconColors.label(id)));
+        }
+        assertEquals("H001",HistoricalLexiconColors.label("lexhist-v1-1"));
+        assertEquals("H448",HistoricalLexiconColors.label("lexhist-v1-448"));
+        assertEquals("",HistoricalLexiconColors.label("personal-map"));
+    }
     @Test public void exactPrefixAndContainsPreserveAllMapMemberships(){
         TermIndex<String> index=new TermIndex<>();
         index.add("an","A");index.add("an","B");index.add("anul","C");

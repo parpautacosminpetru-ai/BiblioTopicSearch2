@@ -330,7 +330,8 @@ public final class MainActivity extends AppCompatActivity {
         boolean[] checked = new boolean[profiles.size()];
         for (int i = 0; i < profiles.size(); i++) {
             MapProfile profile = profiles.get(i);
-            android.text.SpannableString label = new android.text.SpannableString("●  " + profile.folder + " / " + profile.name);
+            String code=HistoricalLexiconColors.label(profile.id);
+            android.text.SpannableString label = new android.text.SpannableString("●  " + (code.isEmpty()?"":code+" · ") +profile.folder + " / " + profile.name);
             label.setSpan(new android.text.style.ForegroundColorSpan(profile.color), 0, 1,
                     android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             labels[i] = label;
@@ -852,7 +853,8 @@ public final class MainActivity extends AppCompatActivity {
         for (Map.Entry<String, MatchHit> entry : first.entrySet()) {
             MatchHit hit = entry.getValue();
             String id = entry.getKey();
-            TextView item = legendText(hit.node.profileName + " · " + counts.get(id), hit.node.color);
+            String code=HistoricalLexiconColors.label(id);
+            TextView item = legendText((code.isEmpty()?"":code+" · ")+hit.node.profileName + " · " + counts.get(id), hit.node.color);
             item.setOnClickListener(v -> {
                 List<MatchHit> current = new ArrayList<>();
                 for (MatchHit match : filterVisibleHits(latestAllHits)) {

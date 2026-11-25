@@ -1,3 +1,10 @@
+# Biblio Paleografie 1.6.1 — culori perceptual separate
+
+- Paletă fixă de 448 culori opace, selectate prin maximizarea iterativă a distanței minime Oklab, într-un gamut sRGB cu luminozitate limitată. În comparația numerică, cea mai mică distanță Oklab ×100 crește de la aproximativ 0,61 la 3,92; mediana distanței celui mai apropiat vecin crește de la 2,47 la 4,28. Nu se garantează distingerea vizuală perfectă a 448 de culori sau accesibilitatea exclusiv prin culoare.
+- Identificatori H001–H448, numele categoriei și codul HEX în bibliotecă. Identificatorii sunt vizibili și în selectorul OCR și legenda camerei.
+- Actualizarea din 1.6.0 migrează o singură dată doar culorile implicite vechi, fără să schimbe hărțile, termenii, selecțiile sau culorile editate de utilizator (cu excepția cazului când acestea coincid exact cu vechea culoare implicită). Hărțile șterse nu sunt recreate.
+- Integritatea corpusului și unicitatea tuturor culorilor sunt verificate în aceleași teste unitare și instrumentate ca în 1.6.0. ID-ul Android rămâne neschimbat.
+
 # Biblio Paleografie 1.6.0 — lexicon istoric inclus
 
 - Fișierul furnizat lexicon_istoric_toate_categoriile.txt este inclus integral: 448 categorii, 76.100 intrări (cuvinte și expresii), păstrate în ordinea și cu ortografia originală. Șapte fișiere de resurse locale; amprenta canonică verificată 4550401a, sursa SHA-256 c3b886f65960908a7de5d81fc9efbeadf1c50694133ce10136861824b10c5866.

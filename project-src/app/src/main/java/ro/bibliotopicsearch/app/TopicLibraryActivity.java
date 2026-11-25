@@ -116,7 +116,7 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         java.util.List<MapProfile> filtered=new java.util.ArrayList<>();
         for (MapProfile profile : maps) {
             if (!query.isEmpty()) {
-                String haystack = LiteralText.canonical(profile.folder+" "+profile.name,true);
+                String haystack = LiteralText.canonical(profile.folder+" "+profile.name+" "+HistoricalLexiconColors.label(profile.id),true);
                 if (!haystack.contains(LiteralText.canonical(query,true))) continue;
             }
             filtered.add(profile);
@@ -161,13 +161,14 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         card.setLayoutParams(lp);
 
         LinearLayout header = row();
-        Button color = colorButton(profile.color, "Culoarea hărții " + profile.name);
+        Button color = colorButton(profile.color, "Culoarea hărții " + profile.name+" "+HistoricalLexiconColors.hex(profile.color));
         header.addView(color, new LinearLayout.LayoutParams(dp(48), dp(48)));
         color.setOnClickListener(v -> ColorPickerDialog.show(this, profile.color, chosen -> {
             TopicLibraryStore.setMapColor(this, profile.id, chosen);
             refresh();
         }));
-        TextView title = heading(profile.name, 16);
+        String code=HistoricalLexiconColors.label(profile.id);
+        TextView title = heading((code.isEmpty()?"":code+" · ")+profile.name, 16);
         title.setTextColor(active ? Color.rgb(36, 59, 83) : Color.rgb(23, 32, 42));
         title.setPadding(dp(8), 0, dp(4), 0);
         title.setGravity(Gravity.CENTER_VERTICAL);
@@ -177,7 +178,7 @@ public final class TopicLibraryActivity extends AppCompatActivity {
         header.addView(badge);
         card.addView(header);
         if(profile.id.startsWith(HistoricalLexicon.ID_PREFIX)){
-            TextView count=body(countMapTerms(profile.rawText)+" termeni / expresii");
+            TextView count=body(countMapTerms(profile.rawText)+" termeni / expresii · "+HistoricalLexiconColors.hex(profile.color));
             count.setPadding(dp(8),0,0,dp(4));card.addView(count);
         }
 
